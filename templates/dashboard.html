@@ -305,6 +305,79 @@
   </div>
 </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- CONTAINER DO RELATÓRIO PDF (Oculto) -->
+  <div id="pdf-report-container" style="position: absolute; left: -9999px; top: 0; width: 1000px; background: #ffffff; color: #1f2937; font-family: 'Inter', sans-serif; padding: 40px; box-sizing: border-box;">
+    <div style="text-align: center; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; margin-bottom: 30px;">
+      <h1 style="color: #111827; margin: 0; font-size: 28px;">Relatório Executivo de KPIs</h1>
+      <h2 style="color: #4b5563; margin: 5px 0 0; font-size: 18px;">DocTrack v4.0</h2>
+      <p style="text-align: right; color: #6b7280; font-size: 12px; margin-top: 10px;">Gerado em: <span id="rep-date"></span></p>
+    </div>
+
+    <div style="display: flex; gap: 30px; margin-bottom: 40px;">
+      <div style="flex: 1; background: #f3f4f6; padding: 24px; border-radius: 12px;">
+        <h3 style="margin-top: 0; color: #374151; font-size: 16px;">Resumo Global</h3>
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px;">
+            <span style="color: #4b5563;">Total de Documentos:</span>
+            <strong style="color: #111827; font-size: 16px;" id="rep-total"></strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px;">
+            <span style="color: #4b5563;">Finalizados:</span>
+            <strong style="color: #10b981; font-size: 16px;" id="rep-fin"></strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px;">
+            <span style="color: #4b5563;">Em Progresso:</span>
+            <strong style="color: #f59e0b; font-size: 16px;" id="rep-prog"></strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px;">
+            <span style="color: #4b5563;">Pendentes:</span>
+            <strong style="color: #ef4444; font-size: 16px;" id="rep-pend"></strong>
+          </div>
+        </div>
+      </div>
+      <div style="flex: 2;">
+        <h3 style="margin-top: 0; color: #374151; font-size: 16px; text-align: center;">Progresso (Status Global)</h3>
+        <div style="height: 250px; position: relative;">
+          <canvas id="rep-chart-global"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 30px; margin-bottom: 40px;">
+      <div style="flex: 1;">
+        <h3 style="color: #374151; font-size: 16px; text-align: center;">Distribuição por Setor</h3>
+        <div style="height: 300px; position: relative;">
+          <canvas id="rep-chart-setor"></canvas>
+        </div>
+      </div>
+      <div style="flex: 2;">
+        <h3 style="color: #374151; font-size: 16px; text-align: center;">Detalhamento de Status</h3>
+        <div style="height: 300px; position: relative;">
+          <canvas id="rep-chart-status"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3 style="color: #374151; font-size: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">Composição por Setor</h3>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px;">
+        <thead>
+          <tr style="background: #f9fafb; text-align: left;">
+            <th style="padding: 10px; border-bottom: 1px solid #d1d5db; color: #4b5563;">Setor</th>
+            <th style="padding: 10px; border-bottom: 1px solid #d1d5db; color: #4b5563; text-align: center;">Documentos</th>
+            <th style="padding: 10px; border-bottom: 1px solid #d1d5db; color: #4b5563; text-align: center;">% do Total</th>
+            <th style="padding: 10px; border-bottom: 1px solid #d1d5db; color: #4b5563; text-align: center;">Concluídos</th>
+          </tr>
+        </thead>
+        <tbody id="rep-table-body">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 <script src="/static/app.js"></script>
 <script src="/socket-client.js"></script>

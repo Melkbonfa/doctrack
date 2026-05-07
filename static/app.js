@@ -137,16 +137,80 @@ function updateUserUI(){
 }
 
 function exportKPIs() {
-    ['cDonut', 'chartBar', 'chartStatus'].forEach(id => {
-        const canvas = document.getElementById(id);
-        if(canvas) {
-            const link = document.createElement('a');
-            link.download = `DocTrack_KPI_${id}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        }
+    showToast('Gerando PDF...', 'info');
+    document.getElementById('rep-date').textContent = new Date().toLocaleString('pt-BR');
+    
+    if(!_lastKpis) return;
+    const total = _lastKpis.total || 0;
+    document.getElementById('rep-total').textContent = total;
+    document.getElementById('rep-fin').textContent = _lastKpis.global_counts['Finalizado'] || 0;
+    document.getElementById('rep-prog').textContent = _lastKpis.global_counts['Em progresso'] || 0;
+    document.getElementById('rep-pend').textContent = _lastKpis.global_counts['Pendente'] || 0;
+
+    // Table
+    const tb = document.getElementById('rep-table-body');
+    const setores = Object.keys(_lastKpis.por_setor);
+    tb.innerHTML = setores.map(s => {
+        const qtd = _lastKpis.por_setor[s] || 0;
+        const pct = total ? Math.round(qtd / total * 100) : 0;
+        // Count concluidos per sector
+        const concl = _lastKpis.status_counts[s] ? (_lastKpis.status_counts[s]['Concluído'] || _lastKpis.status_counts[s]['Homologado'] || 0) : 0;
+        return `<tr>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${esc(s)}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">${qtd}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">${pct}%</td>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">${concl}</td>
+        </tr>`;
+    }).join('');
+
+    // Charts
+    if(window._repCharts) window._repCharts.forEach(c => c.destroy());
+    window._repCharts = [];
+
+    const gCtx = document.getElementById('rep-chart-global').getContext('2d');
+    const sCtx = document.getElementById('rep-chart-setor').getContext('2d');
+    const stCtx = document.getElementById('rep-chart-status').getContext('2d');
+    
+    const ringColors=['#10b981','#22d3ee','#a855f7'];
+    const gData = ['Finalizado', 'Em progresso', 'Pendente'].map(k => _lastKpis.global_counts[k] || 0);
+
+    window._repCharts.push(new Chart(gCtx, {
+        type: 'doughnut',
+        data: { labels: ['Finalizado', 'Em progresso', 'Pendente'], datasets: [{ data: gData, backgroundColor: ringColors }] },
+        options: { responsive: true, maintainAspectRatio: false }
+    }));
+
+    const catLabels = Object.keys(_lastKpis.por_setor), catVals = Object.values(_lastKpis.por_setor);
+    const dColors = catLabels.map(c => CAT_COLORS[c] || '#6366f1');
+    window._repCharts.push(new Chart(sCtx, {
+        type: 'doughnut',
+        data: { labels: catLabels, datasets: [{ data: catVals, backgroundColor: dColors }] },
+        options: { responsive: true, maintainAspectRatio: false }
+    }));
+
+    const flatStatus = {};
+    Object.values(_lastKpis.status_counts).forEach(sc => {
+        Object.keys(sc).forEach(k => flatStatus[k] = (flatStatus[k]||0) + sc[k]);
     });
-    showToast('Gráficos exportados', 'success');
+    const stLabels = Object.keys(flatStatus), stVals = Object.values(flatStatus);
+    const stColors = stLabels.map(s => STATUS_PILL[s] ? (s === 'Elaborar' ? '#a855f7' : s.includes('Homologado') || s === 'Concluído' ? '#10b981' : '#22d3ee') : '#ec4899');
+    
+    window._repCharts.push(new Chart(stCtx, {
+        type: 'bar',
+        data: { labels: stLabels, datasets: [{ data: stVals, backgroundColor: stColors }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    }));
+
+    setTimeout(() => {
+        const el = document.getElementById('pdf-report-container');
+        html2pdf().set({
+            margin: 10,
+            filename: 'DocTrack_KPIs.pdf',
+            image: { type: 'jpeg', quality: 1 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        }).from(el).save().then(() => showToast('PDF Gerado', 'success'));
+    }, 500);
 }
 
 async function loadEnums(){
