@@ -217,7 +217,7 @@ function exportKPIs() {
                 margin: 0,
                 filename: 'DocTrack_Enterprise_KPIs.pdf',
                 image: { type: 'jpeg', quality: 1 },
-                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0f0f28' },
+                html2canvas: { scale: 4, useCORS: true, backgroundColor: '#0f0f28' },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
             }).from(el).save().then(() => {
                 wrapper.style.display = 'none';
