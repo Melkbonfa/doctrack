@@ -384,7 +384,8 @@ function populateFilters(){
   } else if (_currentSetor === 'Fabricante') {
       thHtml = `<tr>
         <th data-sortable="equipamento">Equipamento</th><th data-sortable="fabricante">Fabricante</th><th data-sortable="sku">SKU</th>
-        <th data-sortable="codigo_doc">Código Doc</th><th data-sortable="tipo_doc_label">Documento</th><th data-sortable="status">Status</th>
+        <th data-sortable="codigo_doc">Código Doc</th>
+        <th>Manual do Usuário</th><th>QI/QO/QD</th><th>Manual de Serviço</th><th>Spare Parts</th>
         <th>Ações</th>
       </tr>`;
   } else if (_currentSetor === 'PDE') {
@@ -432,17 +433,40 @@ async function filterDocs(){
         </td>
       </tr>`).join('');
   } else if (_currentSetor === 'Fabricante') {
-      tbHtml = data.map(d=>`<tr>
-        <td class="bold">${esc(d.equipamento)}</td><td>${esc(d.fabricante)}</td><td class="mono">${esc(d.sku)}</td>
-        <td class="mono">${esc(d.codigo_doc)}</td><td>${esc(d.tipo_doc_label)}</td>
-        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
-        <td>
-          <div class="row-actions">
-            ${renderLink(d.armazenamento)}
-            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
-          </div>
-        </td>
-      </tr>`).join('');
+      const groups = {};
+      data.forEach(d => {
+          const key = d.equipamento + '|' + d.sku;
+          if (!groups[key]) {
+              groups[key] = {
+                  equipamento: d.equipamento, fabricante: d.fabricante, sku: d.sku, codigo_doc: d.codigo_doc,
+                  armazenamento: d.armazenamento, firstId: d.id, docs: {}
+              };
+          }
+          groups[key].docs[d.tipo_doc] = d;
+          if (!groups[key].armazenamento && d.armazenamento) groups[key].armazenamento = d.armazenamento;
+      });
+
+      tbHtml = Object.values(groups).map(g => {
+          const getCol = (tipo) => {
+              const doc = g.docs[tipo];
+              if(!doc) return `<td style="color:var(--t4);text-align:center">—</td>`;
+              return `<td id="td-${doc.id}-status" style="min-width:130px">${renderStatusSelect(doc.id, doc.status, canEdit)}</td>`;
+          };
+          return `<tr>
+            <td class="bold">${esc(g.equipamento)}</td><td>${esc(g.fabricante)}</td><td class="mono">${esc(g.sku)}</td>
+            <td class="mono">${esc(g.codigo_doc)}</td>
+            ${getCol('Manual_Usuario')}
+            ${getCol('QIQOQD')}
+            ${getCol('Manual_Servico')}
+            ${getCol('Spare_Parts')}
+            <td>
+              <div class="row-actions">
+                ${renderLink(g.armazenamento)}
+                ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${g.firstId}" aria-label="Editar">Editar</button>`:''}
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
   } else if (_currentSetor === 'PDE') {
       tbHtml = data.map(d=>`<tr>
         <td class="bold">${esc(d.documento)}</td><td class="mono">${esc(d.codigo_doc)}</td>
