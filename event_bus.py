@@ -81,8 +81,8 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
         rooms.append("role:gestor")
 
         # Segmentação fina por contexto do documento
-        if payload.get("origem"):
-            rooms.append(f"categoria:{payload['origem']}")
+        if payload.get("setor"):
+            rooms.append(f"setor:{payload['setor']}")
         if payload.get("equipamento"):
             rooms.append(f"equipamento:{payload['equipamento']}")
         if payload.get("documento_id"):

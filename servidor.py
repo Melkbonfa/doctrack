@@ -1,15 +1,11 @@
 """
-servidor.py — DocTrack v3.5 Enterprise Backend (v3 + WebSocket)
-Local:  python servidor.py
-        python servidor.py --init
-Prod:   gunicorn --threads 100 -w 1 servidor:app
-Acesse: http://localhost:5000 (local) ou URL do Render (prod)
+servidor.py — DocTrack v4.0 Enterprise Backend
 """
-import os, sys, json, argparse, unicodedata
+import os, sys, json, argparse, unicodedata, io, csv
 from functools import wraps
 from datetime import datetime, timedelta
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory, send_file
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, jwt_required, get_jwt_identity, get_jwt, decode_token
@@ -33,12 +29,10 @@ _cors_origins = [
 CORS(app, origins=_cors_origins, supports_credentials=True)
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-EXCEL_PATH = os.path.join(BASE_DIR, "Consolidado_Dashboard_Documentos.xlsx")
+EXCEL_PATH = os.path.join(BASE_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
 DB_PATH    = os.path.join(BASE_DIR, "doctrack.db")
 
-# PostgreSQL em produção (Render injeta DATABASE_URL), SQLite local como fallback
 _database_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
-# Render usa 'postgres://' mas SQLAlchemy precisa de 'postgresql://'
 if _database_url.startswith("postgres://"):
     _database_url = _database_url.replace("postgres://", "postgresql://", 1)
 
@@ -52,7 +46,7 @@ app.config["SECRET_KEY"]                     = _jwt_secret
 
 from models import (
     db, bcrypt, User, Documento, AuditLog, RevokedToken, Responsavel,
-    ResponsavelRole, ETAPA_ORDER, ETAPA_STATUS, TIPOS_DOCUMENTO, SUBTIPOS_DOCUMENTO
+    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_PDE, STATUS_MAP, TIPOS_DOC_FABRICANTE, TIPOS_DOC_LABELS
 )
 from auth import auth_bp, log_action
 from event_bus import publish_event, get_events_since, EventType
@@ -109,65 +103,41 @@ def norm(s):
 def get_client_ip():
     return request.headers.get("X-Forwarded-For", request.remote_addr or "")
 
-def infer_tipo_subtipo(categoria, origem, documento_nome):
-    cat = (categoria or "").lower()
-    doc = (documento_nome or "").lower()
-    if "qualidade" in cat or "pop" in cat or "qiqoqd" in cat: tipo = "Qualidade"
-    elif "p&d" in cat or "engenharia" in cat: tipo = "Engenharia"
-    else: tipo = "Técnico"
-    if "manual" in doc and "usuario" in doc: subtipo = "Manual_Usuario"
-    elif "manual" in doc and "servico" in doc: subtipo = "Manual_Servico"
-    elif "manual" in doc: subtipo = "Manual"
-    elif "pop" in cat or "pop" in doc: subtipo = "POP"
-    elif "qiqoqd" in cat: subtipo = "QIQOQD"
-    elif "p&d" in cat or "p&d" in doc: subtipo = "P&D"
-    else: subtipo = "IT"
-    return tipo, subtipo
-
 def compute_kpis(docs):
     total = len(docs)
-    status_counts, cat_counts, origem_counts, global_counts = {}, {}, {}, {}
-    por_tipo, por_subtipo = {}, {}
-    etapas_done = {"elaboracao": 0, "revisao1": 0, "diagramacao": 0, "revisao2": 0}
-    etapas_breakdown = {k: {"Pendente": 0, "Em andamento": 0, "Concluído": 0}
-                        for k in ("elaboracao", "revisao1", "diagramacao", "revisao2")}
-    field_to_key = [("etapa_elaboracao","elaboracao"),("etapa_revisao1","revisao1"),
-                    ("etapa_diagramacao","diagramacao"),("etapa_revisao2","revisao2")]
+    por_setor = {s: 0 for s in SETORES}
+    status_counts = {s: {} for s in SETORES}
+    global_counts = {"Pendente": 0, "Em progresso": 0, "Finalizado": 0}
+    
     for d in docs:
-        s = d.get("status_principal") or ""
-        if s: status_counts[s] = status_counts.get(s, 0) + 1
-        c = d.get("categoria") or ""
-        if c: cat_counts[c] = cat_counts.get(c, 0) + 1
-        o = d.get("origem") or ""
-        if o: origem_counts[o] = origem_counts.get(o, 0) + 1
+        setor = d.get("setor")
+        if setor in por_setor:
+            por_setor[setor] += 1
+            st = d.get("status") or "Elaborar"
+            status_counts[setor][st] = status_counts[setor].get(st, 0) + 1
+        
         sg = d.get("status_global") or "Pendente"
         global_counts[sg] = global_counts.get(sg, 0) + 1
-        t = d.get("tipo_documento") or "Não classificado"
-        por_tipo[t] = por_tipo.get(t, 0) + 1
-        st = d.get("subtipo") or "Não classificado"
-        por_subtipo[st] = por_subtipo.get(st, 0) + 1
-        for field, key in field_to_key:
-            val = d.get(field) or "Pendente"
-            if val == "Concluído": etapas_done[key] += 1
-            if val in etapas_breakdown[key]: etapas_breakdown[key][val] += 1
+
     fin = global_counts.get("Finalizado", 0)
-    emp = global_counts.get("Em progresso", 0)
-    pen = global_counts.get("Pendente", 0)
+    
     return {
-        "total": total, "finalizados": fin, "em_progresso": emp, "pendentes": pen,
+        "total": total, 
+        "finalizados": fin, 
+        "em_progresso": global_counts.get("Em progresso", 0), 
+        "pendentes": global_counts.get("Pendente", 0),
         "backlog": total - fin,
         "pct_concluidos": round(fin / total * 100, 1) if total else 0,
-        "pct_versao": round(sum(1 for d in docs if d.get("versao")) / total * 100, 1) if total else 0,
-        "pct_local": round(sum(1 for d in docs if d.get("local")) / total * 100, 1) if total else 0,
-        "status_counts": status_counts, "cat_counts": cat_counts,
-        "origem_counts": origem_counts, "global_counts": global_counts,
-        "por_tipo": por_tipo, "por_subtipo": por_subtipo,
-        "etapas": etapas_done, "etapas_breakdown": etapas_breakdown,
+        "por_setor": por_setor,
+        "status_counts": status_counts,
+        "global_counts": global_counts,
     }
 
 # ── INIT DB + SEED ────────────────────────────────────────────────────────────
-def init_db():
+def init_db(reset=False):
     with app.app_context():
+        if reset:
+            db.drop_all()
         db.create_all()
         if not User.query.filter_by(email="admin@pde.com").first():
             admin = User(nome="Admin Sistemas", email="admin@pde.com", role="admin")
@@ -186,51 +156,115 @@ def init_db():
                 u.set_senha(senha)
                 db.session.add(u)
         db.session.commit()
-        if Documento.query.count() == 0 and os.path.exists(EXCEL_PATH):
-            _import_excel_to_db()
+        if reset or Documento.query.count() == 0:
+            if os.path.exists(EXCEL_PATH):
+                _import_excel_to_db()
         print(f"\n[OK] Banco criado/atualizado em: {DB_PATH}")
 
 def _import_excel_to_db():
     try:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Base_Consolidada")
-        df.columns = [str(c).strip() for c in df.columns]
-        df = df.dropna(subset=["Equipamento"])
-        existing = {(d.equipamento, d.documento): d for d in Documento.query.all()}
-        keys_in_excel, inserted, updated = set(), 0, 0
-        for _, row in df.iterrows():
-            eq = str(row.get("Equipamento", "")).strip()
-            if not eq or eq in ("nan", "None"): continue
-            def s(col):
-                v = row.get(col, "")
-                return "" if str(v).strip() in ("nan", "None", "—") else str(v).strip()
-            categoria, origem, doc_nome = s("Categoria"), s("Origem"), s("Documento")
-            tipo, subtipo = infer_tipo_subtipo(categoria, origem, doc_nome)
-            payload = dict(
-                origem=origem, categoria=categoria, documento=doc_nome, equipamento=eq,
-                versao=s("Versao"), status_principal=s("Status_Principal"),
-                etapa_elaboracao=s("Etapa_Elaboracao") or "Pendente",
-                etapa_revisao1=s("Etapa_Revisao1") or "Pendente",
-                etapa_diagramacao=s("Etapa_Diagramacao") or "Pendente",
-                etapa_revisao2=s("Etapa_Revisao2") or "Pendente",
-                local=s("Local"), tipo_documento=tipo, subtipo=subtipo,
-            )
-            key = (eq, doc_nome)
-            keys_in_excel.add(key)
-            if key in existing:
-                doc = existing[key]
-                for k, v in payload.items(): setattr(doc, k, v)
-                doc.ativo = True; doc.deleted_at = None; updated += 1
-            else:
-                db.session.add(Documento(**payload)); inserted += 1
-        now = datetime.utcnow()
-        soft_deleted = 0
-        for key, doc in existing.items():
-            if key not in keys_in_excel and doc.ativo:
-                doc.ativo = False; doc.deleted_at = now; soft_deleted += 1
+        wb = pd.ExcelFile(EXCEL_PATH)
+        docs_to_add = []
+        
+        # 1. PRE
+        if "DOCs - Produção (PRE)" in wb.sheet_names:
+            df_pre = pd.read_excel(wb, sheet_name="DOCs - Produção (PRE)", skiprows=2)
+            for _, row in df_pre.iterrows():
+                eq = str(row.get("Equipamento", "")).strip()
+                if not eq or eq in ("nan", "None"): continue
+                
+                def s(col):
+                    v = row.get(col, "")
+                    return "" if str(v).strip() in ("nan", "None", "—") else str(v).strip()
+                
+                doc_nome = s("DOCUMENTOS - PRODUÇÃO (PRE) - ITs E CHECKLISTS")
+                if not doc_nome: doc_nome = "Documento sem título"
+                
+                dt_treino = row.get("Data Treinamento Piloto")
+                dt_homol = row.get("Data Envio Homologação")
+                
+                docs_to_add.append(Documento(
+                    setor="PRE",
+                    equipamento=eq,
+                    sku=s("SKU"),
+                    codigo_doc=s("Código do Doc"),
+                    documento=doc_nome,
+                    responsavel=s("Responsável"),
+                    status=s("Status") or "Elaborar",
+                    data_treinamento=pd.to_datetime(dt_treino) if pd.notna(dt_treino) else None,
+                    obs_treinamento=s("Obs. Treinamento Piloto"),
+                    data_homologacao=pd.to_datetime(dt_homol) if pd.notna(dt_homol) else None,
+                    obs_homologacao=s("Obs. Envio Homologação"),
+                    armazenamento=s("Armazenamento - Pasta de Projetos")
+                ))
+
+        # 2. Fabricante
+        if "DOCs - Fabricante" in wb.sheet_names:
+            df_fab = pd.read_excel(wb, sheet_name="DOCs - Fabricante", skiprows=2)
+            for _, row in df_fab.iterrows():
+                eq = str(row.get("Equipamento", "")).strip()
+                if not eq or eq in ("nan", "None"): continue
+                
+                def s(col):
+                    v = row.get(col, "")
+                    return "" if str(v).strip() in ("nan", "None", "—") else str(v).strip()
+
+                sku = s("SKU")
+                cod = s("Código do Doc")
+                fab = s("Fabricante")
+                armazenamento = s("Armazenamento - Pasta de Projetos")
+                
+                # Para cada tipo de documento na linha
+                cols_tipos = {
+                    "Manual de Serviço": "Manual_Servico",
+                    "Manual do Usuário": "Manual_Usuario",
+                    "QI/QO/QD": "QIQOQD",
+                    "Spare Parts": "Spare_Parts"
+                }
+                for col_name, tipo_code in cols_tipos.items():
+                    status_val = s(col_name)
+                    if status_val:
+                        docs_to_add.append(Documento(
+                            setor="Fabricante",
+                            equipamento=eq,
+                            sku=sku,
+                            codigo_doc=cod,
+                            documento=f"{col_name} - {eq}",
+                            fabricante=fab,
+                            tipo_doc=tipo_code,
+                            status=status_val,
+                            armazenamento=armazenamento
+                        ))
+
+        # 3. PDE
+        if "DOCs - P&D Equipamentos (PDE)" in wb.sheet_names:
+            df_pde = pd.read_excel(wb, sheet_name="DOCs - P&D Equipamentos (PDE)", skiprows=2)
+            for _, row in df_pde.iterrows():
+                doc_nome = str(row.get("Documento", "")).strip()
+                if not doc_nome or doc_nome in ("nan", "None"): continue
+                
+                def s(col):
+                    v = row.get(col, "")
+                    return "" if str(v).strip() in ("nan", "None", "—") else str(v).strip()
+
+                docs_to_add.append(Documento(
+                    setor="PDE",
+                    equipamento="P&D (Processos)",
+                    codigo_doc=s("Código do Doc"),
+                    documento=doc_nome,
+                    status=s("Status") or "Elaborar",
+                    armazenamento=s("Armazenamento - Pasta de Projetos")
+                ))
+
+        # Soft delete existing docs if any, then insert all new docs
+        Documento.query.update({Documento.ativo: False, Documento.deleted_at: datetime.now()})
+        for d in docs_to_add:
+            db.session.add(d)
+            
         db.session.commit()
-        print(f"[OK] Excel importado: {inserted} novos, {updated} atualizados, {soft_deleted} soft-deleted")
+        print(f"[OK] Planilha importada com sucesso: {len(docs_to_add)} novos documentos.")
     except Exception as e:
-        print(f"  Aviso: não foi possível importar Excel — {e}")
+        print(f"  Aviso: não foi possível importar Planilha — {e}")
 
 # ── PÁGINAS ───────────────────────────────────────────────────────────────────
 @app.route("/")
@@ -256,24 +290,16 @@ def api_data():
 @app.route("/api/documentos")
 @jwt_required()
 def api_documentos():
-    q          = norm(request.args.get("q", ""))
-    status_g   = request.args.get("status_global", "")
-    categoria  = request.args.get("categoria", "")
-    origem     = request.args.get("origem", "")
-    tipo       = request.args.get("tipo_documento", "")
-    subtipo    = request.args.get("subtipo", "")
-    equip      = request.args.get("equipamento", "")
+    q       = norm(request.args.get("q", ""))
+    setor   = request.args.get("setor", "")
+    
     query = Documento.query.filter(Documento.ativo == True)
-    if categoria: query = query.filter(Documento.categoria == categoria)
-    if origem:    query = query.filter(Documento.origem == origem)
-    if tipo:      query = query.filter(Documento.tipo_documento == tipo)
-    if subtipo:   query = query.filter(Documento.subtipo == subtipo)
-    if equip:     query = query.filter(Documento.equipamento == equip)
+    if setor: query = query.filter(Documento.setor == setor)
+    
     docs = [d.to_dict() for d in query.order_by(Documento.equipamento).all()]
-    if status_g: docs = [d for d in docs if d.get("status_global") == status_g]
     if q:
         def matches(d):
-            blob = " ".join(norm(d.get(f, "")) for f in ("equipamento","documento","categoria","origem","tipo_documento","subtipo","versao","local"))
+            blob = " ".join(norm(str(d.get(f, ""))) for f in ("equipamento","documento","codigo_doc","sku","responsavel","armazenamento","tipo_doc","fabricante"))
             return q in blob
         docs = [d for d in docs if matches(d)]
     return jsonify(docs), 200
@@ -291,36 +317,41 @@ def get_documento(doc_id):
 def create_documento():
     caller = get_jwt_identity()
     data = request.get_json(silent=True) or {}
-    if not data.get("equipamento"):
-        return jsonify({"erro": "Campo 'equipamento' é obrigatório"}), 400
+    setor = data.get("setor")
+    if setor not in SETORES:
+        return jsonify({"erro": f"Setor inválido. Escolha entre {SETORES}"}), 400
+
     doc = Documento(
-        origem=data.get("origem",""), categoria=data.get("categoria",""),
-        documento=data.get("documento",""), equipamento=data.get("equipamento",""),
-        versao=data.get("versao",""), status_principal=data.get("status_principal",""),
-        etapa_elaboracao=data.get("etapa_elaboracao","Pendente"),
-        etapa_revisao1=data.get("etapa_revisao1","Pendente"),
-        etapa_diagramacao=data.get("etapa_diagramacao","Pendente"),
-        etapa_revisao2=data.get("etapa_revisao2","Pendente"),
-        local=data.get("local",""),
-        tipo_documento=data.get("tipo_documento",""), subtipo=data.get("subtipo",""),
+        setor=setor,
+        equipamento=data.get("equipamento", ""),
+        sku=data.get("sku", ""),
+        codigo_doc=data.get("codigo_doc", ""),
+        documento=data.get("documento", ""),
+        responsavel=data.get("responsavel", ""),
+        status=data.get("status", "Elaborar"),
+        tipo_doc=data.get("tipo_doc", ""),
+        fabricante=data.get("fabricante", ""),
+        obs_treinamento=data.get("obs_treinamento", ""),
+        obs_homologacao=data.get("obs_homologacao", ""),
+        armazenamento=data.get("armazenamento", "")
     )
+    
+    if data.get("data_treinamento"):
+        try: doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d")
+        except: pass
+    if data.get("data_homologacao"):
+        try: doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
+        except: pass
+
     db.session.add(doc); db.session.commit()
-    log_action(caller, "CREATE", entidade=doc.equipamento, campo="documento",
-               novo=doc.documento, documento_id=doc.id, ip=get_client_ip())
-    # WebSocket broadcast
+    log_action(caller, "CREATE", entidade=doc.documento, campo="setor", novo=setor, documento_id=doc.id, ip=get_client_ip())
+    
     try:
         publish_event(EventType.DOCUMENT_CREATED,
-            payload={"documento_id": doc.id, "documento": doc.to_dict(),
-                     "origem": doc.origem, "equipamento": doc.equipamento},
+            payload={"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
             user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
     except Exception: pass
     return jsonify({"mensagem": "Documento criado", "documento": doc.to_dict()}), 201
-
-ENUM_VALIDATORS = {
-    "etapa_elaboracao": ETAPA_STATUS, "etapa_revisao1": ETAPA_STATUS,
-    "etapa_diagramacao": ETAPA_STATUS, "etapa_revisao2": ETAPA_STATUS,
-    "tipo_documento": TIPOS_DOCUMENTO, "subtipo": SUBTIPOS_DOCUMENTO,
-}
 
 @app.route("/api/documentos/<int:doc_id>", methods=["PATCH", "PUT"])
 @jwt_required()
@@ -330,27 +361,31 @@ def update_documento(doc_id):
     data = request.get_json(silent=True) or {}
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
-    for campo, allowed in ENUM_VALIDATORS.items():
-        if campo in data and data[campo] and data[campo] not in allowed:
-            return jsonify({"erro": f"Valor inválido para '{campo}'", "valores_validos": list(allowed)}), 400
-    CAMPOS = ["origem","categoria","documento","equipamento","versao","status_principal",
-              "etapa_elaboracao","etapa_revisao1","etapa_diagramacao","etapa_revisao2",
-              "local","tipo_documento","subtipo"]
-    snapshot_antes = doc.to_dict()
-    for campo in CAMPOS:
+    
+    CAMPOS_STR = ["equipamento", "sku", "codigo_doc", "documento", "responsavel", "tipo_doc", "fabricante", "obs_treinamento", "obs_homologacao", "armazenamento"]
+    
+    for campo in CAMPOS_STR:
         if campo in data:
             antigo = getattr(doc, campo); novo = data[campo]
             if str(antigo) != str(novo):
-                log_action(caller, "UPDATE", entidade=doc.equipamento, campo=campo,
-                           antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
+                log_action(caller, "UPDATE", entidade=doc.documento, campo=campo, antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
                 setattr(doc, campo, novo)
-    doc.updated_em = datetime.utcnow()
+                
+    if "data_treinamento" in data:
+        try: 
+            doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d") if data["data_treinamento"] else None
+        except: pass
+    if "data_homologacao" in data:
+        try: 
+            doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d") if data["data_homologacao"] else None
+        except: pass
+
+    doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
     db.session.commit()
     try:
         publish_event(EventType.DOCUMENT_UPDATED,
-            payload={"documento_id": doc.id, "documento": doc.to_dict(),
-                     "origem": doc.origem, "equipamento": doc.equipamento},
+            payload={"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
             user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
     except Exception: pass
     return jsonify({"mensagem": "Documento atualizado", "documento": doc.to_dict()}), 200
@@ -362,12 +397,12 @@ def delete_documento(doc_id):
     caller = get_jwt_identity()
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
-    nome = doc.equipamento
-    doc.ativo = False; doc.deleted_at = datetime.utcnow(); db.session.commit()
+    nome = doc.documento
+    doc.ativo = False; doc.deleted_at = datetime.now(); db.session.commit()
     log_action(caller, "DELETE", entidade=nome, campo="*", documento_id=doc.id, ip=get_client_ip())
     try:
         publish_event(EventType.DOCUMENT_DELETED,
-            payload={"documento_id": doc_id, "origem": doc.origem, "equipamento": nome},
+            payload={"documento_id": doc_id, "setor": doc.setor, "equipamento": doc.equipamento},
             user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
     except Exception: pass
     return jsonify({"mensagem": f"Documento '{nome}' excluído"}), 200
@@ -379,38 +414,33 @@ def delete_documento(doc_id):
 def update_status(doc_id):
     caller = get_jwt_identity()
     data = request.get_json(silent=True) or {}
-    etapa, novo = data.get("etapa",""), data.get("status","")
+    novo = data.get("status", "")
     expected_version = data.get("version")
-    if etapa not in ETAPA_ORDER:
-        return jsonify({"erro": f"Etapa inválida. Use: {', '.join(ETAPA_ORDER)}"}), 400
-    if novo not in ETAPA_STATUS:
-        return jsonify({"erro": f"Status inválido. Use: {', '.join(ETAPA_STATUS)}"}), 400
+    
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
+    
     if expected_version is not None and doc.version != expected_version:
         return jsonify({"erro": "Documento alterado por outro usuário.", "current_version": doc.version, "documento": doc.to_dict()}), 409
-    idx = ETAPA_ORDER.index(etapa)
-    if idx > 0 and novo in ("Em andamento", "Concluído"):
-        etapa_ant = ETAPA_ORDER[idx - 1]
-        val_ant = getattr(doc, etapa_ant) or "Pendente"
-        if val_ant != "Concluído":
-            return jsonify({"erro": f"Etapa anterior precisa estar concluída primeiro.", "etapa_bloqueante": etapa_ant, "status_etapa_anterior": val_ant}), 400
-    antigo = getattr(doc, etapa) or "Pendente"
-    setattr(doc, etapa, novo)
-    doc.updated_em = datetime.utcnow()
+        
+    setor_status_list = STATUS_MAP.get(doc.setor, [])
+    if novo not in setor_status_list:
+        return jsonify({"erro": f"Status inválido para o setor {doc.setor}. Use: {', '.join(setor_status_list)}"}), 400
+
+    antigo = doc.status
+    doc.status = novo
+    doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
     db.session.commit()
-    log_action(caller, "STATUS_CHANGE", entidade=doc.equipamento, campo=etapa, antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
+    log_action(caller, "STATUS_CHANGE", entidade=doc.documento, campo="status", antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
     try:
         publish_event(EventType.DOCUMENT_STATUS_UPDATED,
-            payload={"documento_id": doc.id, "etapa": etapa, "old_value": antigo,
-                     "new_value": novo, "status_global": doc.status_global,
-                     "origem": doc.origem, "equipamento": doc.equipamento},
+            payload={"documento_id": doc.id, "old_value": antigo, "new_value": novo, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
             user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
     except Exception: pass
-    return jsonify({"mensagem": f"Status de '{etapa}' atualizado", "documento": doc.to_dict()}), 200
+    return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200
 
-# ── API — METRICS / ENUMS / AUDIT ────────────────────────────────────────────
+# ── API — METRICS / ENUMS / AUDIT / EXPORT ───────────────────────────────────
 @app.route("/api/metrics")
 @jwt_required()
 def api_metrics():
@@ -420,8 +450,12 @@ def api_metrics():
 @app.route("/api/enums")
 @jwt_required()
 def api_enums():
-    return jsonify({"tipos_documento": TIPOS_DOCUMENTO, "subtipos": SUBTIPOS_DOCUMENTO,
-                    "etapa_status": ETAPA_STATUS, "etapa_order": ETAPA_ORDER}), 200
+    return jsonify({
+        "setores": SETORES, 
+        "status_map": STATUS_MAP,
+        "tipos_doc_fabricante": TIPOS_DOC_FABRICANTE,
+        "tipos_doc_labels": TIPOS_DOC_LABELS
+    }), 200
 
 @app.route("/api/audit")
 @jwt_required()
@@ -437,6 +471,32 @@ def api_audit():
     if q: result = [l for l in result if q in norm(l.get("usuario")) or q in norm(l.get("entidade")) or q in norm(l.get("campo"))]
     return jsonify(result), 200
 
+@app.route("/api/export/audit")
+@jwt_required()
+@require_role("admin", "gestor")
+def export_audit():
+    logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).all()
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['ID', 'Usuario', 'Acao', 'Entidade', 'Campo', 'Valor Antigo', 'Valor Novo', 'Data'])
+    for log in logs:
+        cw.writerow([
+            log.id, 
+            log.usuario_email, 
+            log.acao, 
+            log.entidade, 
+            log.campo, 
+            log.valor_antigo, 
+            log.valor_novo, 
+            log.timestamp.strftime("%d/%m/%Y %H:%M:%S") if log.timestamp else ""
+        ])
+    return send_file(
+        io.BytesIO(si.getvalue().encode('utf-8-sig')),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="audit_log.csv"
+    )
+
 @app.route("/api/events/replay", methods=["GET"])
 @jwt_required()
 def replay_events():
@@ -444,7 +504,6 @@ def replay_events():
     events = get_events_since(since, db=db, AuditLog=AuditLog, limit=500)
     return jsonify(events)
 
-# ── API — REIMPORT / STATUS ───────────────────────────────────────────────────
 @app.route("/api/reimport", methods=["POST"])
 @jwt_required()
 @require_role("admin")
@@ -494,7 +553,7 @@ def on_subscribe(data):
     from flask import session
     if not session.get("user_id"): return
     for room in data.get("rooms", []):
-        if any(room.startswith(p) for p in ("categoria:", "equipamento:", "doc:")):
+        if any(room.startswith(p) for p in ("setor:", "equipamento:", "doc:")):
             join_room(room)
     emit("subscribed", {"rooms": data.get("rooms", [])})
 
@@ -511,10 +570,9 @@ def on_replay_request(data):
 
 @socketio.on("ping_app")
 def on_ping(data):
-    emit("pong_app", {"t": datetime.utcnow().isoformat()})
+    emit("pong_app", {"t": datetime.now().isoformat()})
 
 # ── INIT PARA GUNICORN (produção) ─────────────────────────────────────────────
-# Gunicorn importa 'servidor:app', então precisamos inicializar aqui
 with app.app_context():
     db.create_all()
     if User.query.count() == 0:
@@ -526,9 +584,9 @@ if __name__ == "__main__":
     parser.add_argument("--init", action="store_true")
     args = parser.parse_args()
     print("\n" + "="*55)
-    print("  DocTrack v3.5 Enterprise — WebSocket Enabled")
+    print("  DocTrack v4.0 Enterprise — Sector Based + WebSocket")
     print("="*55)
-    if args.init: init_db()
+    if args.init: init_db(reset=True)
     print(f"  Acesse: http://localhost:5000")
     print("="*55 + "\n")
     socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)

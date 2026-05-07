@@ -95,7 +95,10 @@
       <div class="page active" id="page-dashboard">
         <div class="page-header">
           <div><div class="page-title">Dashboard Executivo</div><div class="page-sub" id="dash-updated">Carregando dados...</div></div>
-          <div class="page-actions"><span id="dash-pct-badge" style="background:linear-gradient(135deg,rgba(34,211,238,.1),rgba(139,92,246,.1));border:1px solid var(--border-mid);color:var(--cyan-lt);font-size:11px;padding:5px 14px;border-radius:20px;font-family:var(--font-mono)">—</span></div>
+          <div class="page-actions" style="display:flex;gap:10px;align-items:center;">
+            <span id="dash-pct-badge" style="background:linear-gradient(135deg,rgba(34,211,238,.1),rgba(139,92,246,.1));border:1px solid var(--border-mid);color:var(--cyan-lt);font-size:11px;padding:5px 14px;border-radius:20px;font-family:var(--font-mono)">—</span>
+            <button id="btn-export-kpis" class="btn btn-ghost btn-sm" onclick="exportKPIs()" style="display:none">Exportar Gráficos</button>
+          </div>
         </div>
         <div class="kpi-grid" id="kpi-grid"><div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando KPIs...</div></div>
         <div class="metric-row" id="metric-row"></div>
@@ -113,17 +116,21 @@
       <!-- DOCS PAGE -->
       <div class="page" id="page-docs">
         <div class="page-header">
-          <div><div class="page-title">Documentos</div><div class="page-sub">Visão por Departamento (Origem) — Edição inline habilitada</div></div>
-          <div class="page-actions">
+          <div><div class="page-title">Documentos</div><div class="page-sub">Visão por Setor — Edição inline habilitada</div></div>
+          <div class="page-actions" style="display:flex; gap:10px; align-items:center;">
             <span class="filter-count" id="docs-badge">—</span>
-            <button class="btn btn-primary btn-sm" id="btn-add-doc" onclick="openModal('add-doc')">+ Novo Documento</button>
+            <button class="btn btn-primary btn-sm" id="btn-add-doc-pre" onclick="openModal('add-doc-pre')">+ Novo Doc PRE</button>
+            <button class="btn btn-primary btn-sm" id="btn-add-doc-fab" onclick="openModal('add-doc-fab')">+ Novo Doc Fabricante</button>
+            <button class="btn btn-primary btn-sm" id="btn-add-doc-pde" onclick="openModal('add-doc-pde')">+ Novo Doc PDE</button>
           </div>
         </div>
         
-        <!-- Abas de Departamentos (Origem) -->
+        <!-- Abas de Setores -->
         <div class="docs-tabs-wrap">
           <div class="docs-tabs" id="docs-tabs" role="tablist">
-            <button class="docs-tab active" data-origem="">Carregando...</button>
+            <button class="docs-tab active" data-setor="PRE">Produção (PRE)</button>
+            <button class="docs-tab" data-setor="Fabricante">Fabricante</button>
+            <button class="docs-tab" data-setor="PDE">P&D (PDE)</button>
           </div>
         </div>
 
@@ -131,30 +138,28 @@
           <div class="filter-bar">
             <div class="search-wrap">
               <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-              <input class="search-input" id="docs-search" placeholder="Buscar equipamento, documento..." aria-label="Buscar documentos">
+              <input class="search-input" id="docs-search" placeholder="Buscar documento..." aria-label="Buscar documentos">
             </div>
-            <select class="filter-sel" id="docs-filter-cat" aria-label="Filtrar por categoria"><option value="">Todas categorias</option></select>
-            <select class="filter-sel" id="docs-filter-origem" aria-label="Filtrar por origem" style="display:none;"><option value="">Todas origens</option></select>
-            <select class="filter-sel" id="docs-filter-tipo" aria-label="Filtrar por tipo"><option value="">Todos tipos</option></select>
-            <select class="filter-sel" id="docs-filter-subtipo" aria-label="Filtrar por subtipo"><option value="">Todos subtipos</option></select>
-            <select class="filter-sel" id="docs-filter-status-global" aria-label="Filtrar por status global">
-              <option value="">Status Global: Todos</option>
-              <option value="Pendente">Pendente</option>
-              <option value="Em progresso">Em progresso</option>
-              <option value="Finalizado">Finalizado</option>
+            <select class="filter-sel" id="docs-filter-status" aria-label="Filtrar por status">
+              <option value="">Status: Todos</option>
             </select>
           </div>
-          <div class="tbl-wrap"><table><thead><tr>
-            <th data-sortable="equipamento">Equipamento</th><th data-sortable="documento">Documento</th><th data-sortable="tipo_documento">Tipo</th><th data-sortable="subtipo">Subtipo</th>
-            <th>Elaboração</th><th>Revisão 1</th><th>Diagramação</th><th>Revisão 2</th>
-            <th data-sortable="status_global">Global</th><th data-sortable="versao">Versão</th><th>Ações</th>
-          </tr></thead><tbody id="docs-tbody"></tbody></table></div>
+          <div class="tbl-wrap">
+            <table id="docs-table">
+              <!-- O thead será injetado dinamicamente via JS -->
+              <thead id="docs-thead"></thead>
+              <tbody id="docs-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       <!-- AUDIT PAGE -->
       <div class="page" id="page-audit">
-        <div class="page-header"><div><div class="page-title">Audit Log</div><div class="page-sub">Histórico completo de alterações — rastreabilidade industrial</div></div></div>
+        <div class="page-header">
+          <div><div class="page-title">Audit Log</div><div class="page-sub">Histórico completo de alterações — rastreabilidade industrial</div></div>
+          <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="exportAudit()">Exportar CSV</button></div>
+        </div>
         <div class="card mb">
           <div class="filter-bar">
             <div class="search-wrap"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input class="search-input" id="audit-search" placeholder="Buscar..." aria-label="Buscar audit log"></div>
@@ -180,7 +185,7 @@
           <div class="card">
             <div class="card-title">Conexão</div>
             <div class="setting-row"><div><div class="setting-label">Servidor</div><div class="setting-desc">Flask local · porta 5000</div></div><span id="api-status-badge" style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:var(--green);font-size:11px;padding:4px 10px;border-radius:20px;font-family:var(--font-mono)">Online</span></div>
-            <div class="setting-row"><div><div class="setting-label">Excel</div><div class="setting-desc" style="font-family:var(--font-mono);font-size:10px">Consolidado_Dashboard_Documentos.xlsx</div></div></div>
+            <div class="setting-row"><div><div class="setting-label">Excel</div><div class="setting-desc" style="font-family:var(--font-mono);font-size:10px">Lista_de_Documentos_IT_padronizada_1.xlsx</div></div></div>
             <div class="setting-row"><div><div class="setting-label">Última sync</div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--t3)" id="last-sync">—</span></div>
           </div>
           <div class="card">
@@ -198,9 +203,9 @@
           <div class="card">
             <div class="card-title">Sobre</div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Versão</span><span style="font-family:var(--font-mono);color:var(--cyan)">DocTrack v3.0 Enterprise</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Versão</span><span style="font-family:var(--font-mono);color:var(--cyan)">DocTrack v4.0 Enterprise</span></div>
               <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Backend</span><span style="font-family:var(--font-mono);color:var(--t2)">Python · Flask</span></div>
-              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Fonte</span><span style="font-family:var(--font-mono);color:var(--t2)">Consolidado_Dashboard_Documentos.xlsx</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Fonte</span><span style="font-family:var(--font-mono);color:var(--t2)">Lista_de_Documentos_IT_padronizada_1.xlsx</span></div>
             </div>
           </div>
         </div>
@@ -239,54 +244,44 @@
   </div>
 </div>
 
-<!-- MODAL: Add Document -->
-<div class="modal-overlay" id="modal-add-doc" role="dialog" aria-modal="true" aria-labelledby="modal-add-doc-title" aria-hidden="true">
-  <div class="modal" style="width:620px" tabindex="-1">
-    <div class="modal-title" id="modal-add-doc-title">Novo Documento</div>
-    <div class="modal-sub">Cadastre um novo documento no sistema</div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="new-doc-equip">Equipamento *</label><input class="form-input" id="new-doc-equip" placeholder="Nome do equipamento"></div>
-      <div class="form-group"><label class="form-label" for="new-doc-nome">Documento</label><input class="form-input" id="new-doc-nome" placeholder="Nome do documento"></div>
-    </div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="new-doc-tipo">Tipo</label><select class="form-input" id="new-doc-tipo"><option value="">Selecione</option><option>Técnico</option><option>Qualidade</option><option>Engenharia</option></select></div>
-      <div class="form-group"><label class="form-label" for="new-doc-subtipo">Subtipo</label><select class="form-input" id="new-doc-subtipo"><option value="">Selecione</option><option>POP</option><option>IT</option><option>Manual</option><option>P&D</option><option>Manual_Usuario</option><option>Manual_Servico</option><option>QIQOQD</option></select></div>
-    </div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="new-doc-cat">Categoria</label><input class="form-input" id="new-doc-cat" placeholder="Categoria"></div>
-      <div class="form-group"><label class="form-label" for="new-doc-origem">Origem</label><input class="form-input" id="new-doc-origem" placeholder="Origem"></div>
-    </div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="new-doc-versao">Versão</label><input class="form-input" id="new-doc-versao" placeholder="Ex: 1.0"></div>
-      <div class="form-group"><label class="form-label" for="new-doc-local">Local</label><input class="form-input" id="new-doc-local" placeholder="Caminho do arquivo"></div>
-    </div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('add-doc')">Cancelar</button><button class="btn btn-primary" onclick="createDoc()">Criar Documento</button></div>
-  </div>
-</div>
+<!-- MODALS DE DOCUMENTO UNIFICADOS (O JS altera os campos de acordo com a aba/setor) -->
+<div class="modal-overlay" id="modal-doc" role="dialog" aria-modal="true" aria-labelledby="modal-doc-title" aria-hidden="true">
+  <div class="modal" style="width:700px" tabindex="-1">
+    <div class="modal-title" id="modal-doc-title">Documento</div>
+    <div class="modal-sub" id="modal-doc-sub"></div>
+    <input type="hidden" id="doc-id">
+    <input type="hidden" id="doc-setor">
 
-<!-- MODAL: Edit Document -->
-<div class="modal-overlay" id="modal-edit-doc" role="dialog" aria-modal="true" aria-labelledby="modal-edit-doc-title" aria-hidden="true">
-  <div class="modal" style="width:620px" tabindex="-1">
-    <div class="modal-title" id="modal-edit-doc-title">Editar Documento</div>
-    <div class="modal-sub">Altere os dados do documento</div>
-    <input type="hidden" id="edit-doc-id">
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="edit-doc-equip">Equipamento</label><input class="form-input" id="edit-doc-equip"></div>
-      <div class="form-group"><label class="form-label" for="edit-doc-nome">Documento</label><input class="form-input" id="edit-doc-nome"></div>
+    <!-- Campos comuns / variados -->
+    <div class="g2">
+      <div class="form-group" id="fg-equipamento"><label class="form-label" for="doc-equipamento">Equipamento *</label><input class="form-input" id="doc-equipamento"></div>
+      <div class="form-group" id="fg-documento"><label class="form-label" for="doc-documento">Nome do Documento *</label><input class="form-input" id="doc-documento"></div>
     </div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="edit-doc-tipo">Tipo</label><select class="form-input" id="edit-doc-tipo"><option value="">Selecione</option><option>Técnico</option><option>Qualidade</option><option>Engenharia</option></select></div>
-      <div class="form-group"><label class="form-label" for="edit-doc-subtipo">Subtipo</label><select class="form-input" id="edit-doc-subtipo"><option value="">Selecione</option><option>POP</option><option>IT</option><option>Manual</option><option>P&D</option><option>Manual_Usuario</option><option>Manual_Servico</option><option>QIQOQD</option></select></div>
+    <div class="g2">
+      <div class="form-group" id="fg-sku"><label class="form-label" for="doc-sku">SKU</label><input class="form-input" id="doc-sku"></div>
+      <div class="form-group" id="fg-codigo"><label class="form-label" for="doc-codigo">Código do Doc</label><input class="form-input" id="doc-codigo"></div>
     </div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="edit-doc-cat">Categoria</label><input class="form-input" id="edit-doc-cat"></div>
-      <div class="form-group"><label class="form-label" for="edit-doc-origem">Origem</label><input class="form-input" id="edit-doc-origem"></div>
+    <div class="g2" id="row-resp-fab">
+      <div class="form-group" id="fg-responsavel"><label class="form-label" for="doc-responsavel">Responsável</label><input class="form-input" id="doc-responsavel"></div>
+      <div class="form-group" id="fg-fabricante"><label class="form-label" for="doc-fabricante">Fabricante</label><input class="form-input" id="doc-fabricante"></div>
+      <div class="form-group" id="fg-tipo_doc"><label class="form-label" for="doc-tipo_doc">Tipo de Documento</label><select class="form-input" id="doc-tipo_doc"></select></div>
     </div>
-    <div class="g2" style="margin-bottom:0">
-      <div class="form-group"><label class="form-label" for="edit-doc-versao">Versão</label><input class="form-input" id="edit-doc-versao"></div>
-      <div class="form-group"><label class="form-label" for="edit-doc-local">Local</label><input class="form-input" id="edit-doc-local"></div>
+    
+    <!-- Campos PRE (Datas) -->
+    <div class="g2" id="row-datas-pre" style="display:none">
+      <div class="form-group"><label class="form-label" for="doc-data_treinamento">Data Treinamento Piloto</label><input class="form-input" type="date" id="doc-data_treinamento"></div>
+      <div class="form-group"><label class="form-label" for="doc-data_homologacao">Data Envio Homologação</label><input class="form-input" type="date" id="doc-data_homologacao"></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('edit-doc')">Cancelar</button><button class="btn btn-primary" onclick="saveEditDoc()">Salvar</button></div>
+    
+    <div class="g2" id="row-obs-pre" style="display:none">
+      <div class="form-group"><label class="form-label" for="doc-obs_treinamento">Obs Treinamento Piloto</label><input class="form-input" id="doc-obs_treinamento"></div>
+      <div class="form-group"><label class="form-label" for="doc-obs_homologacao">Obs Envio Homologação</label><input class="form-input" id="doc-obs_homologacao"></div>
+    </div>
+
+    <!-- Campos Comuns -->
+    <div class="form-group"><label class="form-label" for="doc-armazenamento">Armazenamento (Caminho na Rede)</label><input class="form-input" id="doc-armazenamento" placeholder="P:\Engenharia\Projetos\..."></div>
+
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('doc')">Cancelar</button><button class="btn btn-primary" onclick="saveDoc()">Salvar Documento</button></div>
   </div>
 </div>
 

@@ -2,28 +2,21 @@ const API='/api';
 let allDocs=[],chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
+let _currentSetor = 'PRE';
 
-const CAT_COLORS={'DOCs - Produção (PRE)':'#22d3ee','DOCs - Fabricante':'#a855f7','DOCs - P&D Equipamentos (PDE)':'#ec4899','Manual Usuário':'#e879f9','Instalação':'#f59e0b','QIQOQD':'#10b981','Serviços':'#3b82f6','Usuário':'#c4b5fd'};
-const STATUS_PILL={'Elaborar':'pill-elab','Homologado':'pill-ok','Enviado para Homologação':'pill-wip','Treinamento Piloto':'pill-warn','Não':'pill-err','Sim':'pill-ok'};
+const CAT_COLORS={'PRE':'#22d3ee','Fabricante':'#a855f7','PDE':'#ec4899'};
+const STATUS_PILL={'Elaborar':'pill-elab','Homologado':'pill-ok','Enviado para Homologação':'pill-wip','Treinamento Piloto':'pill-warn','Concluído':'pill-ok','Em andamento':'pill-wip'};
 
-// ═══ XSS-safe HTML escape ═══
 function esc(str){
   if(str==null)return'';
-  return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-// ═══ F2/F9: normalização Unicode (lowercase + sem acentos + trim) ═══
 function norm(s){
   if(s==null)return'';
   return String(s).trim().toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
 }
 
-function selectRole(btn,role){document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('selected'));btn.classList.add('selected');selectedRole=role}
 function getToken(){return localStorage.getItem('doctrack_token')||''}
 function setToken(t){localStorage.setItem('doctrack_token',t)}
 function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_user')}
@@ -46,7 +39,6 @@ async function doLogin(){
   }
 }
 async function doLogout(){
-  // B2: revoga o token no servidor antes de descartar localmente
   try{await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
   clearToken();
   document.getElementById('app').style.display='none';
@@ -63,7 +55,6 @@ function navigate(page){
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>navigate(el.dataset.page)));
 
-// ═══ Event delegation for table actions ═══
 document.body.addEventListener('click',(e)=>{
   const btn=e.target.closest('[data-action]');
   if(!btn)return;
@@ -77,22 +68,18 @@ document.body.addEventListener('click',(e)=>{
   }
 });
 
-// ═══ Event delegation for etapa selects ═══
 document.body.addEventListener('change',(e)=>{
-  const sel=e.target.closest('select.etapa-select[data-etapa]');
+  const sel=e.target.closest('select.status-select');
   if(sel){
     const docId=parseInt(sel.dataset.docId);
-    const etapa=sel.dataset.etapa;
-    changeEtapa(docId,etapa,sel.value);
+    changeStatus(docId,sel.value);
     return;
   }
-  // Filtros de docs e audit (substitui onchange inline)
-  const filterIds=['docs-filter-cat','docs-filter-origem','docs-filter-status-global','docs-filter-tipo','docs-filter-subtipo'];
+  const filterIds=['docs-filter-status'];
   if(e.target&&filterIds.includes(e.target.id)){filterDocs();return}
   if(e.target&&e.target.id==='audit-filter-action'){filterAudit();return}
 });
 
-// Busca textual com debounce de 250ms (substitui oninput inline)
 document.body.addEventListener('input',(e)=>{
   if(!e.target)return;
   if(e.target.id==='docs-search'||e.target.id==='audit-search'){
@@ -104,14 +91,25 @@ document.body.addEventListener('input',(e)=>{
 
 async function initApp(){
   updateUserUI();
-  // Skeleton inicial enquanto carrega
   renderSkeletonTable('dash-table',5,5);
-  renderSkeletonTable('docs-tbody',6,11);
+  renderSkeletonTable('docs-tbody',6,8);
   await loadEnums();
   await loadData();
+  
+  // Setup tabs
+  document.querySelectorAll('.docs-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.docs-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _currentSetor = btn.dataset.setor;
+      populateFilters();
+      filterDocs();
+    });
+  });
+
   renderDashboard();renderDocs();renderAudit();renderUsers();
   makeSortable();
-  showToast('Bem-vindo ao DocTrack v3.0','success');
+  showToast('Bem-vindo ao DocTrack v4.0','success');
   document.getElementById('sync-label').textContent='Conectado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const ls=document.getElementById('last-sync');if(ls)ls.textContent=new Date().toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
 }
@@ -125,7 +123,30 @@ function updateUserUI(){
   document.getElementById('settings-email').textContent=currentUser.email;
   const rh={admin:'<span class="role-admin">Admin</span>',gestor:'<span class="role-gestor">Gestor</span>',tecnico:'<span class="role-tecnico">Técnico</span>',leitura:'<span class="role-leitura">Leitura</span>'};
   const rb=document.getElementById('settings-role-badge');if(rb)rb.innerHTML=rh[rl]||'';
-  if(rl==='leitura') document.getElementById('btn-add-doc').style.display='none';
+  
+  // Visibility rules
+  if(rl==='leitura') {
+    document.getElementById('btn-add-doc-pre').style.display='none';
+    document.getElementById('btn-add-doc-fab').style.display='none';
+    document.getElementById('btn-add-doc-pde').style.display='none';
+  }
+  if(rl==='admin' || rl==='gestor') {
+      const btnExp = document.getElementById('btn-export-kpis');
+      if(btnExp) btnExp.style.display='block';
+  }
+}
+
+function exportKPIs() {
+    ['cDonut', 'chartBar', 'chartStatus'].forEach(id => {
+        const canvas = document.getElementById(id);
+        if(canvas) {
+            const link = document.createElement('a');
+            link.download = `DocTrack_KPI_${id}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+    });
+    showToast('Gráficos exportados', 'success');
 }
 
 async function loadEnums(){
@@ -137,7 +158,7 @@ async function loadData(){
     if(res&&res.ok){
       const data=await res.json();
       allDocs=data.items||[];
-      _lastKpis=data.kpis||null;  // R2: front consome KPIs do backend
+      _lastKpis=data.kpis||null;
       return;
     }
   }catch(e){}
@@ -149,34 +170,18 @@ async function refreshAll(){await loadData();renderDashboard();renderDocs();show
 
 // ═══ DASHBOARD ═══
 function renderDashboard(){
-  const total=allDocs.length;
-  const cats={},origens={},statuses={},sg={};
-  allDocs.forEach(d=>{
-    const c=d.categoria||'Sem categoria';cats[c]=(cats[c]||0)+1;
-    const o=d.origem||'Sem origem';origens[o]=(origens[o]||0)+1;
-    const s=d.status_principal||'Sem status';statuses[s]=(statuses[s]||0)+1;
-    const g=d.status_global||'Pendente';sg[g]=(sg[g]||0)+1;
-  });
-  const withVer=allDocs.filter(d=>d.versao).length;
-  const withLocal=allDocs.filter(d=>d.local).length;
-  const etapas={elab:0,rev1:0,diag:0,rev2:0};
-  allDocs.forEach(d=>{
-    if(d.etapa_elaboracao==='Concluído')etapas.elab++;
-    if(d.etapa_revisao1==='Concluído')etapas.rev1++;
-    if(d.etapa_diagramacao==='Concluído')etapas.diag++;
-    if(d.etapa_revisao2==='Concluído')etapas.rev2++;
-  });
-
+  if(!_lastKpis) return;
+  const total=_lastKpis.total;
+  
   document.getElementById('dash-updated').textContent='Última atualização: '+new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   document.getElementById('dash-pct-badge').textContent=total+' documentos';
 
-  // KPI rings — paleta cyberpunk: verde / cyan / magenta
   const ringColors=['#10b981','#22d3ee','#a855f7'];
   const ringBgs=['rgba(16,185,129,.15)','rgba(34,211,238,.15)','rgba(168,85,247,.15)'];
   const sgKeys=['Finalizado','Em progresso','Pendente'];
   let kpiHTML='';
   sgKeys.forEach((k,i)=>{
-    const v=sg[k]||0,pct=total?Math.round(v/total*100):0;
+    const v=_lastKpis.global_counts[k]||0,pct=total?Math.round(v/total*100):0;
     kpiHTML+=`<div class="kpi-ring">
       <div class="kpi-ring-canvas" style="width:110px;height:110px"><canvas id="ring${i}" width="110" height="110"></canvas><div class="kpi-ring-val" style="color:${ringColors[i]}">${v}</div></div>
       <div class="kpi-ring-label">${esc(k)}</div>
@@ -186,7 +191,7 @@ function renderDashboard(){
   document.getElementById('kpi-grid').innerHTML=kpiHTML||'<div class="loading-state" style="grid-column:1/-1">Sem dados</div>';
 
   sgKeys.forEach((k,i)=>{
-    const v=sg[k]||0,pct=total?v/total:0;
+    const v=_lastKpis.global_counts[k]||0,pct=total?v/total:0;
     if(chartInstances['ring'+i])chartInstances['ring'+i].destroy();
     chartInstances['ring'+i]=new Chart(document.getElementById('ring'+i),{
       type:'doughnut',data:{datasets:[{data:[pct*100,100-pct*100],backgroundColor:[ringColors[i],ringBgs[i]],borderWidth:0,hoverOffset:4}]},
@@ -194,17 +199,11 @@ function renderDashboard(){
     });
   });
 
-  const mHTML=`
-    <div class="metric-card"><div class="metric-letter" style="background:linear-gradient(135deg,#a855f7,#ec4899)">V</div><div class="metric-info"><div class="metric-value">${withVer}</div><div class="metric-label">Com versão definida</div></div></div>
-    <div class="metric-card"><div class="metric-letter" style="background:linear-gradient(135deg,#22d3ee,#3b82f6)">L</div><div class="metric-info"><div class="metric-value">${withLocal}</div><div class="metric-label">Com local de armazenamento</div></div></div>`;
-  document.getElementById('metric-row').innerHTML=mHTML;
-
-  const catLabels=Object.keys(cats),catVals=Object.values(cats);
+  const catLabels=Object.keys(_lastKpis.por_setor),catVals=Object.values(_lastKpis.por_setor);
   const dColors=catLabels.map(c=>CAT_COLORS[c]||'#6366f1');
   document.getElementById('donut-total').textContent=total;
   document.getElementById('donut-legend').innerHTML=catLabels.map((c,i)=>{
-    const lbl=c.length>22?c.substring(0,22)+'…':c;
-    return`<div class="legend-row" title="${esc(c)}"><span class="legend-dot" style="background:${dColors[i]}"></span><span>${esc(lbl)}</span><span class="legend-val">${catVals[i]}</span></div>`;
+    return`<div class="legend-row" title="${esc(c)}"><span class="legend-dot" style="background:${dColors[i]}"></span><span>${esc(c)}</span><span class="legend-val">${catVals[i]}</span></div>`;
   }).join('');
   if(chartInstances.donut)chartInstances.donut.destroy();
   chartInstances.donut=new Chart(document.getElementById('cDonut'),{
@@ -212,29 +211,40 @@ function renderDashboard(){
     options:{responsive:false,cutout:'72%',plugins:{legend:{display:false},tooltip:{backgroundColor:'#232847',titleColor:'#f1f5f9',bodyColor:'#c7d2fe',borderColor:'rgba(167,139,250,.3)',borderWidth:1,padding:10,cornerRadius:8,callbacks:{label:ctx=>' '+catLabels[ctx.dataIndex]+': '+ctx.raw}}}}
   });
 
-  const etapaNames=['Elaboração','Revisão 1','Diagramação','Revisão 2'];
-  const etapaVals=[etapas.elab,etapas.rev1,etapas.diag,etapas.rev2];
-  const etapaColors=['#22d3ee','#8b5cf6','#e879f9','#f472b6'];
-  document.getElementById('prog-list').innerHTML=etapaNames.map((n,i)=>{
-    const pct=total?Math.round(etapaVals[i]/total*100):0;
-    return`<div class="prog-row"><span class="prog-label">${n}</span><div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${etapaColors[i]}"></div></div><span class="prog-pct">${etapaVals[i]} conc.</span></div>`;
-  }).join('')+`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border-dim);display:flex;justify-content:space-between"><span style="font-size:10px;color:var(--t3)">Total documentos</span><span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--cyan)">${total}</span></div>`;
+  // Exemplo de pipeline simples usando os status da PRE
+  const etapaNames=_enums.status_map?_enums.status_map['PRE']:[];
+  const preStatusCounts = _lastKpis.status_counts['PRE'] || {};
+  const preTotal = catLabels.indexOf('PRE') >= 0 ? catVals[catLabels.indexOf('PRE')] : 0;
+  const etapaColors=['#a855f7','#f59e0b','#22d3ee','#10b981'];
+  
+  if(etapaNames.length > 0) {
+    document.getElementById('prog-list').innerHTML=etapaNames.map((n,i)=>{
+      const val = preStatusCounts[n] || 0;
+      const pct=preTotal?Math.round(val/preTotal*100):0;
+      return`<div class="prog-row"><span class="prog-label">${esc(n)}</span><div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:${etapaColors[i]||'#fff'}"></div></div><span class="prog-pct">${val}</span></div>`;
+    }).join('')+`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border-dim);display:flex;justify-content:space-between"><span style="font-size:10px;color:var(--t3)">Total PRE</span><span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--cyan)">${preTotal}</span></div>`;
+  }
 
-  const origLabels=Object.keys(origens),origVals=Object.values(origens);
+  // Bar chart - Setores
   if(chartInstances.bar)chartInstances.bar.destroy();
-  // Bar chart com gradiente cyan→azul (igual ref)
   const ctxBar=document.getElementById('chartBar').getContext('2d');
   const gradBar=ctxBar.createLinearGradient(0,0,0,200);
   gradBar.addColorStop(0,'#22d3ee');gradBar.addColorStop(1,'#3b82f6');
   chartInstances.bar=new Chart(ctxBar,{
-    type:'bar',data:{labels:origLabels.map(l=>l.length>20?l.substring(0,20)+'…':l),datasets:[{data:origVals,backgroundColor:gradBar,borderRadius:8,borderWidth:0}]},
+    type:'bar',data:{labels:catLabels,datasets:[{data:catVals,backgroundColor:gradBar,borderRadius:8,borderWidth:0}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#232847',titleColor:'#f1f5f9',bodyColor:'#c7d2fe',borderColor:'rgba(167,139,250,.3)',borderWidth:1,padding:10,cornerRadius:8}},
       scales:{x:{ticks:{color:'#94a3ff',font:{size:10,family:'Inter'}},grid:{display:false},border:{display:false}},
               y:{ticks:{color:'#94a3ff',font:{size:10,family:'Inter'},stepSize:20},grid:{color:'rgba(167,139,250,.06)'},border:{display:false}}}}
   });
 
-  const stLabels=Object.keys(statuses),stVals=Object.values(statuses);
-  const stColors=stLabels.map(s=>s==='Elaborar'?'#a855f7':s.includes('Homologado')?'#10b981':s.includes('Enviado')?'#22d3ee':s.includes('Treinamento')?'#f59e0b':s==='Não'?'#f43f5e':s==='Sim'?'#10b981':'#ec4899');
+  // Flatten status para chart de status
+  const flatStatus = {};
+  Object.values(_lastKpis.status_counts).forEach(sc => {
+    Object.keys(sc).forEach(k => flatStatus[k] = (flatStatus[k]||0) + sc[k]);
+  });
+  const stLabels=Object.keys(flatStatus),stVals=Object.values(flatStatus);
+  const stColors=stLabels.map(s=>STATUS_PILL[s] ? (s==='Elaborar'?'#a855f7':s.includes('Homologado')||s==='Concluído'?'#10b981':'#22d3ee') : '#ec4899');
+  
   if(chartInstances.status)chartInstances.status.destroy();
   chartInstances.status=new Chart(document.getElementById('chartStatus'),{
     type:'bar',data:{labels:stLabels.map(l=>l.length>18?l.substring(0,18)+'…':l),datasets:[{data:stVals,backgroundColor:stColors,borderRadius:8,borderWidth:0}]},
@@ -244,7 +254,7 @@ function renderDashboard(){
   });
 
   document.getElementById('dash-table').innerHTML=allDocs.slice(0,10).map(d=>
-    `<tr><td class="bold">${esc(d.equipamento)}</td><td style="font-size:11px;color:var(--t2)" title="${esc(d.documento||'')}">${esc((d.documento||'—').substring(0,40))}</td><td><span class="pill pill-elab">${esc((d.tipo_documento||'—').substring(0,20))}</span></td><td>${pillGlobal(d.status_global)}</td><td class="mono">${esc(d.versao||'—')}</td></tr>`
+    `<tr><td class="bold">${esc(d.equipamento)}</td><td style="font-size:11px;color:var(--t2)" title="${esc(d.documento||'')}">${esc((d.documento||'—').substring(0,40))}</td><td><span class="pill pill-elab">${esc(d.setor)}</span></td><td>${pillGlobal(d.status_global)}</td><td class="mono">${esc(d.sku||'—')}</td></tr>`
   ).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }
 
@@ -256,130 +266,146 @@ function pillGlobal(s){
   return'<span class="sg-badge sg-pendente">Pendente</span>';
 }
 
-// ═══ DOCS TABLE — F1: filtros centralizados no backend ═══
-function renderDocs(){populateFilters();filterDocs()}
+function renderLink(url) {
+    if(!url || url === '—') return '—';
+    return `<a href="${esc(url)}" target="_blank" title="Abrir localização do arquivo" style="color:var(--cyan);text-decoration:none"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
+}
+
+// ═══ DOCS TABLE ═══
+function renderDocs(){
+  populateFilters();
+  filterDocs();
+}
 
 function populateFilters(){
-  // F8: preservar seleção antes de repopular
-  const ids=['docs-filter-cat','docs-filter-origem','docs-filter-status-global','docs-filter-tipo','docs-filter-subtipo'];
-  const prev={};
-  ids.forEach(id=>{const el=document.getElementById(id);if(el)prev[id]=el.value});
-
-  const cats=[...new Set(allDocs.map(d=>d.categoria).filter(Boolean))].sort();
-  const origens=[...new Set(allDocs.map(d=>d.origem).filter(Boolean))].sort();
-  // R9: tipos/subtipos vêm de /api/enums quando disponíveis
-  const tipos=(_enums.tipos_documento&&_enums.tipos_documento.length)?_enums.tipos_documento:[...new Set(allDocs.map(d=>d.tipo_documento).filter(Boolean))].sort();
-  const subtipos=(_enums.subtipos&&_enums.subtipos.length)?_enums.subtipos:[...new Set(allDocs.map(d=>d.subtipo).filter(Boolean))].sort();
+  if(!_enums.status_map) return;
+  const statuses = _enums.status_map[_currentSetor] || [];
   const opt=(arr)=>arr.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-  document.getElementById('docs-filter-cat').innerHTML='<option value="">Todas categorias</option>'+opt(cats);
-  document.getElementById('docs-filter-origem').innerHTML='<option value="">Todas origens</option>'+opt(origens);
-  document.getElementById('docs-filter-tipo').innerHTML='<option value="">Todos tipos</option>'+opt(tipos);
-  document.getElementById('docs-filter-subtipo').innerHTML='<option value="">Todos subtipos</option>'+opt(subtipos);
-
-  ids.forEach(id=>{const el=document.getElementById(id);if(el&&prev[id]!==undefined)el.value=prev[id]});
-
-  // Atualizar abas
-  const tabsContainer = document.getElementById('docs-tabs');
-  if(tabsContainer) {
-    const currentActive = document.getElementById('docs-filter-origem').value || '';
-    let tabsHtml = `<button type="button" class="docs-tab ${currentActive===''?'active':''}" data-origem="">Todos os Departamentos</button>`;
-    origens.forEach(o => {
-      tabsHtml += `<button type="button" class="docs-tab ${currentActive===o?'active':''}" data-origem="${esc(o)}">${esc(o)}</button>`;
-    });
-    tabsContainer.innerHTML = tabsHtml;
-    tabsContainer.querySelectorAll('.docs-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        tabsContainer.querySelectorAll('.docs-tab').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const origemSel = document.getElementById('docs-filter-origem');
-        if(origemSel) origemSel.value = btn.dataset.origem;
-        filterDocs();
-      });
-    });
+  document.getElementById('docs-filter-status').innerHTML='<option value="">Status: Todos</option>'+opt(statuses);
+  
+  // Render THEAD based on Setor
+  let thHtml = '';
+  if(_currentSetor === 'PRE') {
+      thHtml = `<tr>
+        <th data-sortable="equipamento">Equipamento</th><th data-sortable="sku">SKU</th><th data-sortable="codigo_doc">Código Doc</th>
+        <th data-sortable="responsavel">Responsável</th><th data-sortable="status">Status</th>
+        <th data-sortable="data_treinamento">Trein. Piloto</th><th data-sortable="data_homologacao">Envio Homol.</th>
+        <th>Ações</th>
+      </tr>`;
+  } else if (_currentSetor === 'Fabricante') {
+      thHtml = `<tr>
+        <th data-sortable="equipamento">Equipamento</th><th data-sortable="fabricante">Fabricante</th><th data-sortable="sku">SKU</th>
+        <th data-sortable="codigo_doc">Código Doc</th><th data-sortable="tipo_doc_label">Documento</th><th data-sortable="status">Status</th>
+        <th>Ações</th>
+      </tr>`;
+  } else if (_currentSetor === 'PDE') {
+      thHtml = `<tr>
+        <th data-sortable="documento">Documento</th><th data-sortable="codigo_doc">Código Doc</th><th data-sortable="status">Status</th>
+        <th>Ações</th>
+      </tr>`;
   }
+  document.getElementById('docs-thead').innerHTML = thHtml;
+  makeSortable();
 }
 
 async function filterDocs(){
-  // F1: backend é única fonte para filtros
-  const params=new URLSearchParams();
   const q=document.getElementById('docs-search').value.trim();
-  const cat=document.getElementById('docs-filter-cat').value;
-  const orig=document.getElementById('docs-filter-origem').value;
-  const sg=document.getElementById('docs-filter-status-global').value;
-  const tip=document.getElementById('docs-filter-tipo').value;
-  const sub=document.getElementById('docs-filter-subtipo').value;
-  if(q) params.set('q',q);
-  if(cat) params.set('categoria',cat);
-  if(orig) params.set('origem',orig);
-  if(sg) params.set('status_global',sg);
-  if(tip) params.set('tipo_documento',tip);
-  if(sub) params.set('subtipo',sub);
+  const st=document.getElementById('docs-filter-status').value;
 
-  // Skeleton enquanto carrega (U16)
-  renderSkeletonTable('docs-tbody',6,11);
+  renderSkeletonTable('docs-tbody',6,8);
 
-  let data=[];
-  try{
-    const res=await apiFetch('/documentos?'+params.toString());
-    if(res&&res.ok) data=await res.json();
-  }catch(e){data=[]}
+  let data=allDocs.filter(d => d.setor === _currentSetor);
+  if(st) data = data.filter(d => d.status === st);
+  if(q) {
+      data = data.filter(d => {
+          const blob = [d.equipamento, d.documento, d.sku, d.codigo_doc, d.responsavel, d.fabricante, d.tipo_doc_label].join(' ').toLowerCase();
+          return blob.includes(q.toLowerCase());
+      });
+  }
 
-  data=applySort(data); // U18
+  data=applySort(data);
 
-  document.getElementById('docs-badge').textContent=data.length+' de '+allDocs.length;
+  document.getElementById('docs-badge').textContent=data.length+' docs';
   const canEdit=currentUser.role!=='leitura';
-  document.getElementById('docs-tbody').innerHTML=data.map(d=>`<tr>
-    <td class="bold" data-label="Equipamento">${esc(d.equipamento)}</td>
-    <td data-label="Documento" style="font-size:11px;color:var(--t2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.documento||'')}">${esc(d.documento||'—')}</td>
-    <td data-label="Tipo"><span class="pill ${pillCls(d.categoria)}">${esc((d.tipo_documento||'—').substring(0,15))}</span></td>
-    <td data-label="Subtipo" class="mono" style="font-size:9px">${esc(d.subtipo||'—')}</td>
-    <td data-label="Elaboração" class="etapa-cell" id="td-${d.id}-etapa_elaboracao">${renderEtapaSelect(d.id,'etapa_elaboracao',d.etapa_elaboracao,canEdit)}</td>
-    <td data-label="Revisão 1" class="etapa-cell" id="td-${d.id}-etapa_revisao1">${renderEtapaSelect(d.id,'etapa_revisao1',d.etapa_revisao1,canEdit)}</td>
-    <td data-label="Diagramação" class="etapa-cell" id="td-${d.id}-etapa_diagramacao">${renderEtapaSelect(d.id,'etapa_diagramacao',d.etapa_diagramacao,canEdit)}</td>
-    <td data-label="Revisão 2" class="etapa-cell" id="td-${d.id}-etapa_revisao2">${renderEtapaSelect(d.id,'etapa_revisao2',d.etapa_revisao2,canEdit)}</td>
-    <td data-label="Status" id="td-${d.id}-global">${pillGlobal(d.status_global)}</td>
-    <td data-label="Versão" class="mono">${esc(d.versao||'—')}</td>
-    <td data-label="Ações">${canEdit?`<div class="row-actions"><button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar documento ${esc(d.equipamento)}">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" data-name="${esc(d.equipamento)}" aria-label="Excluir documento ${esc(d.equipamento)}">×</button></div>`:'—'}</td>
-  </tr>`).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--t4);padding:32px">Nenhum resultado</td></tr>';
+  
+  let tbHtml = '';
+  if(_currentSetor === 'PRE') {
+      tbHtml = data.map(d=>`<tr>
+        <td class="bold">${esc(d.equipamento)}</td><td class="mono">${esc(d.sku)}</td><td class="mono">${esc(d.codigo_doc)}</td>
+        <td>${esc(d.responsavel)}</td>
+        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
+        <td>${esc(d.data_treinamento)}</td><td>${esc(d.data_homologacao)}</td>
+        <td>
+          <div class="row-actions">
+            ${renderLink(d.armazenamento)}
+            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
+          </div>
+        </td>
+      </tr>`).join('');
+  } else if (_currentSetor === 'Fabricante') {
+      tbHtml = data.map(d=>`<tr>
+        <td class="bold">${esc(d.equipamento)}</td><td>${esc(d.fabricante)}</td><td class="mono">${esc(d.sku)}</td>
+        <td class="mono">${esc(d.codigo_doc)}</td><td>${esc(d.tipo_doc_label)}</td>
+        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
+        <td>
+          <div class="row-actions">
+            ${renderLink(d.armazenamento)}
+            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
+          </div>
+        </td>
+      </tr>`).join('');
+  } else if (_currentSetor === 'PDE') {
+      tbHtml = data.map(d=>`<tr>
+        <td class="bold">${esc(d.documento)}</td><td class="mono">${esc(d.codigo_doc)}</td>
+        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
+        <td>
+          <div class="row-actions">
+            ${renderLink(d.armazenamento)}
+            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
+          </div>
+        </td>
+      </tr>`).join('');
+  }
+  
+  document.getElementById('docs-tbody').innerHTML = tbHtml || `<tr><td colspan="8" style="text-align:center;color:var(--t4);padding:32px">Nenhum resultado</td></tr>`;
 }
 
-function renderEtapaSelect(docId,etapa,val,canEdit){
-  const v=val||'Pendente';
-  const cls=v==='Concluído'?'s-concluido':v==='Em andamento'?'s-andamento':'s-pendente';
-  if(!canEdit) return `<span class="pill" style="font-size:9px">${esc(v)}</span>`;
-  return `<select class="etapa-select ${cls}" data-doc-id="${docId}" data-etapa="${esc(etapa)}" aria-label="Status da etapa ${esc(etapa)}">
-    <option value="Pendente" ${v==='Pendente'?'selected':''}>Pendente</option>
-    <option value="Em andamento" ${v==='Em andamento'?'selected':''}>Em andamento</option>
-    <option value="Concluído" ${v==='Concluído'?'selected':''}>Concluído</option>
-  </select>`;
+function renderStatusSelect(docId, val, canEdit) {
+    const v=val||'Elaborar';
+    const cls = v.includes('Homologado') || v === 'Concluído' ? 's-concluido' : v.includes('Piloto') || v.includes('Env') || v === 'Em andamento' ? 's-andamento' : 's-pendente';
+    if(!canEdit) return `<span class="pill" style="font-size:9px">${esc(v)}</span>`;
+    
+    const options = _enums.status_map[_currentSetor].map(opt => `<option value="${esc(opt)}" ${v===opt?'selected':''}>${esc(opt)}</option>`).join('');
+    
+    return `<select class="status-select ${cls}" data-doc-id="${docId}" aria-label="Status">
+      ${options}
+    </select>`;
 }
 
-async function changeEtapa(docId,etapa,novoStatus){
-  const td=document.getElementById(`td-${docId}-${etapa}`);
+async function changeStatus(docId, novoStatus){
+  const td=document.getElementById(`td-${docId}-status`);
   const sel=td.querySelector('select');
   td.classList.add('loading');
   const localDoc=allDocs.find(d=>d.id===docId);
   const expectedVersion=localDoc?(localDoc.version||0):null;
   try{
-    const res=await apiFetch(`/documento/${docId}/status`,{method:'PUT',body:JSON.stringify({etapa,status:novoStatus,version:expectedVersion})});
+    const res=await apiFetch(`/documento/${docId}/status`,{method:'PUT',body:JSON.stringify({status:novoStatus,version:expectedVersion})});
     const data=await res.json();
     if(res.status===409){
-      // B8: optimistic lock — alguém atualizou antes
       showToast('Documento foi alterado por outro usuário. Recarregando…','error');
       if(data.documento&&localDoc){Object.assign(localDoc,data.documento)}
-      td.innerHTML=renderEtapaSelect(docId,etapa,data.documento?data.documento[etapa]:novoStatus,true);
-      document.getElementById(`td-${docId}-global`).innerHTML=pillGlobal(data.documento?data.documento.status_global:'Pendente');
+      td.innerHTML=renderStatusSelect(docId,data.documento?data.documento.status:novoStatus,true);
       td.classList.remove('loading');return;
     }
-    if(!res.ok){showToast(data.erro||'Erro de fluxo','error');td.innerHTML=renderEtapaSelect(docId,etapa,data.status_etapa_anterior||'Pendente',true);td.classList.remove('loading');return}
+    if(!res.ok){showToast(data.erro||'Erro','error');td.innerHTML=renderStatusSelect(docId,localDoc.status,true);td.classList.remove('loading');return}
     showToast(`Status atualizado`,'success');
     if(localDoc){
-      localDoc[etapa]=novoStatus;
+      localDoc.status=novoStatus;
       localDoc.status_global=data.documento.status_global;
       localDoc.version=data.documento.version;
-      document.getElementById(`td-${docId}-global`).innerHTML=pillGlobal(localDoc.status_global);
     }
-    sel.className='etapa-select '+(novoStatus==='Concluído'?'s-concluido':novoStatus==='Em andamento'?'s-andamento':'s-pendente');
+    const cls = novoStatus.includes('Homologado') || novoStatus === 'Concluído' ? 's-concluido' : novoStatus.includes('Piloto') || novoStatus.includes('Env') || novoStatus === 'Em andamento' ? 's-andamento' : 's-pendente';
+    sel.className='status-select '+cls;
     td.insertAdjacentHTML('beforeend','<div class="cell-feedback">✨</div>');
     setTimeout(()=>{const f=td.querySelector('.cell-feedback');if(f)f.remove()},1000);
   }catch(e){showToast('Erro','error')}
@@ -387,69 +413,130 @@ async function changeEtapa(docId,etapa,novoStatus){
 }
 
 async function delDoc(id,nome){
-  const ok=await confirmModal('Excluir documento',`Tem certeza que deseja excluir o documento de "${nome}"? Essa ação pode ser revertida no banco (soft delete).`);
+  const ok=await confirmModal('Excluir documento',`Tem certeza que deseja excluir o documento? Essa ação pode ser revertida no banco (soft delete).`);
   if(!ok)return;
   try{const res=await apiFetch(`/documentos/${id}`,{method:'DELETE'});if(!res||!res.ok)return;showToast('Excluído','success');await refreshAll()}catch(e){}
 }
 
+function configureDocModal(setor) {
+    document.getElementById('doc-setor').value = setor;
+    document.getElementById('modal-doc-sub').textContent = `Setor: ${setor}`;
+    
+    // reset visibilities
+    document.getElementById('row-datas-pre').style.display = 'none';
+    document.getElementById('row-obs-pre').style.display = 'none';
+    document.getElementById('row-resp-fab').style.display = 'none';
+    document.getElementById('fg-sku').style.display = 'none';
+    document.getElementById('fg-equipamento').style.display = 'none';
+    document.getElementById('fg-responsavel').style.display = 'none';
+    document.getElementById('fg-fabricante').style.display = 'none';
+    document.getElementById('fg-tipo_doc').style.display = 'none';
+    
+    if(setor === 'PRE') {
+        document.getElementById('row-datas-pre').style.display = 'flex';
+        document.getElementById('row-obs-pre').style.display = 'flex';
+        document.getElementById('fg-sku').style.display = 'block';
+        document.getElementById('fg-equipamento').style.display = 'block';
+        document.getElementById('row-resp-fab').style.display = 'flex';
+        document.getElementById('fg-responsavel').style.display = 'block';
+    } else if(setor === 'Fabricante') {
+        document.getElementById('fg-sku').style.display = 'block';
+        document.getElementById('fg-equipamento').style.display = 'block';
+        document.getElementById('row-resp-fab').style.display = 'flex';
+        document.getElementById('fg-fabricante').style.display = 'block';
+        document.getElementById('fg-tipo_doc').style.display = 'block';
+        
+        const selTipo = document.getElementById('doc-tipo_doc');
+        selTipo.innerHTML = _enums.tipos_doc_fabricante.map(t => `<option value="${t}">${_enums.tipos_doc_labels[t]}</option>`).join('');
+    } else if(setor === 'PDE') {
+        // Just Document, Codigo, and Armazenamento
+    }
+}
+
+function openModal(id) {
+    if(id.startsWith('add-doc-')) {
+        const setorMap = {'add-doc-pre': 'PRE', 'add-doc-fab': 'Fabricante', 'add-doc-pde': 'PDE'};
+        configureDocModal(setorMap[id]);
+        document.getElementById('doc-id').value = '';
+        ['doc-equipamento', 'doc-documento', 'doc-sku', 'doc-codigo', 'doc-responsavel', 'doc-fabricante', 'doc-data_treinamento', 'doc-data_homologacao', 'doc-obs_treinamento', 'doc-obs_homologacao', 'doc-armazenamento'].forEach(f => {
+            const el = document.getElementById(f);
+            if(el) el.value = '';
+        });
+        openBaseModal('doc');
+        return;
+    }
+    openBaseModal(id);
+}
+
 function openEditDoc(id){
   const d=allDocs.find(x=>x.id===id);if(!d)return;
-  document.getElementById('edit-doc-id').value=d.id;
-  document.getElementById('edit-doc-equip').value=d.equipamento;
-  document.getElementById('edit-doc-nome').value=d.documento;
-  document.getElementById('edit-doc-tipo').value=d.tipo_documento;
-  document.getElementById('edit-doc-subtipo').value=d.subtipo;
-  document.getElementById('edit-doc-cat').value=d.categoria;
-  document.getElementById('edit-doc-origem').value=d.origem;
-  document.getElementById('edit-doc-versao').value=d.versao;
-  document.getElementById('edit-doc-local').value=d.local;
-  openModal('edit-doc');
+  configureDocModal(d.setor);
+  
+  document.getElementById('doc-id').value=d.id;
+  document.getElementById('doc-equipamento').value=d.equipamento;
+  document.getElementById('doc-documento').value=d.documento;
+  document.getElementById('doc-sku').value=d.sku;
+  document.getElementById('doc-codigo').value=d.codigo_doc;
+  document.getElementById('doc-responsavel').value=d.responsavel;
+  document.getElementById('doc-fabricante').value=d.fabricante;
+  document.getElementById('doc-tipo_doc').value=d.tipo_doc;
+  
+  // input date formats
+  if(d.data_treinamento) {
+      const parts = d.data_treinamento.split('/');
+      if(parts.length===3) document.getElementById('doc-data_treinamento').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  if(d.data_homologacao) {
+      const parts = d.data_homologacao.split('/');
+      if(parts.length===3) document.getElementById('doc-data_homologacao').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  
+  document.getElementById('doc-obs_treinamento').value=d.obs_treinamento;
+  document.getElementById('doc-obs_homologacao').value=d.obs_homologacao;
+  document.getElementById('doc-armazenamento').value=d.armazenamento;
+  
+  openBaseModal('doc');
 }
-async function saveEditDoc(){
-  const id=document.getElementById('edit-doc-id').value;
+
+async function saveDoc(){
+  const id=document.getElementById('doc-id').value;
   const payload={
-    equipamento:document.getElementById('edit-doc-equip').value,
-    documento:document.getElementById('edit-doc-nome').value,
-    tipo_documento:document.getElementById('edit-doc-tipo').value,
-    subtipo:document.getElementById('edit-doc-subtipo').value,
-    categoria:document.getElementById('edit-doc-cat').value,
-    origem:document.getElementById('edit-doc-origem').value,
-    versao:document.getElementById('edit-doc-versao').value,
-    local:document.getElementById('edit-doc-local').value
+    setor: document.getElementById('doc-setor').value,
+    equipamento:document.getElementById('doc-equipamento').value,
+    documento:document.getElementById('doc-documento').value,
+    sku:document.getElementById('doc-sku').value,
+    codigo_doc:document.getElementById('doc-codigo').value,
+    responsavel:document.getElementById('doc-responsavel').value,
+    fabricante:document.getElementById('doc-fabricante').value,
+    tipo_doc:document.getElementById('doc-tipo_doc').value,
+    data_treinamento:document.getElementById('doc-data_treinamento').value,
+    data_homologacao:document.getElementById('doc-data_homologacao').value,
+    obs_treinamento:document.getElementById('doc-obs_treinamento').value,
+    obs_homologacao:document.getElementById('doc-obs_homologacao').value,
+    armazenamento:document.getElementById('doc-armazenamento').value
   };
-  try{const res=await apiFetch(`/documentos/${id}`,{method:'PATCH',body:JSON.stringify(payload)});if(res&&res.ok){showToast('Salvo','success');closeModal('edit-doc');await refreshAll()}}catch(e){}
-}
-async function createDoc(){
-  const payload={
-    equipamento:document.getElementById('new-doc-equip').value,
-    documento:document.getElementById('new-doc-nome').value,
-    tipo_documento:document.getElementById('new-doc-tipo').value,
-    subtipo:document.getElementById('new-doc-subtipo').value,
-    categoria:document.getElementById('new-doc-cat').value,
-    origem:document.getElementById('new-doc-origem').value,
-    versao:document.getElementById('new-doc-versao').value,
-    local:document.getElementById('new-doc-local').value
-  };
-  if(!payload.equipamento){showToast('Equipamento é obrigatório','error');return}
+  
+  if(payload.setor !== 'PDE' && !payload.equipamento){showToast('Equipamento é obrigatório','error');return}
+  if(!payload.documento){showToast('Documento é obrigatório','error');return}
+
   try{
-    const res=await apiFetch(`/documentos`,{method:'POST',body:JSON.stringify(payload)});
+    const method = id ? 'PATCH' : 'POST';
+    const url = id ? `/documentos/${id}` : `/documentos`;
+    const res=await apiFetch(url,{method:method,body:JSON.stringify(payload)});
     if(res&&res.ok){
-      showToast('Criado','success');
-      closeModal('add-doc');
-      ['new-doc-equip', 'new-doc-nome', 'new-doc-tipo', 'new-doc-subtipo', 'new-doc-cat', 'new-doc-origem', 'new-doc-versao', 'new-doc-local'].forEach(id => {
-        document.getElementById(id).value = '';
+      showToast('Salvo','success');
+      closeModal('doc');
+      _currentSetor = payload.setor;
+      document.querySelectorAll('.docs-tab').forEach(b => {
+          b.classList.remove('active');
+          if(b.dataset.setor === payload.setor) b.classList.add('active');
       });
-      window.selectedTab = payload.origem ? payload.origem : 'Todas as Origens';
       await refreshAll();
     } else {
-      const errData = await res.json().catch(() => ({}));
-      showToast(errData.erro || errData.message || 'Erro ao criar documento', 'error');
-      console.error("Create doc error:", errData);
+        const errData = await res.json().catch(() => ({}));
+        showToast(errData.erro || errData.message || 'Erro ao salvar documento', 'error');
     }
-  }catch(e){
-    console.error(e);
-    showToast('Erro de rede ou servidor', 'error');
-  }
+  }catch(e){showToast('Erro de rede ou servidor', 'error')}
 }
 
 // ═══ AUDIT ═══
@@ -470,6 +557,10 @@ async function filterAudit(){
         ${l.valor_antigo?' <span class="old">'+esc(l.valor_antigo)+'</span> → <span class="new">'+esc(l.valor_novo)+'</span>':l.valor_novo?' '+esc(l.valor_novo):''}
       </div><div class="audit-time">${esc(l.timestamp)}</div>
     </div>`}).join(''):'<div style="text-align:center;padding:28px;color:var(--t4);font-size:12px">Nenhum registro</div>';
+}
+
+function exportAudit() {
+    window.location.href = API + '/export/audit?token=' + getToken();
 }
 
 // ═══ USERS ═══
@@ -495,7 +586,7 @@ function openEditUser(id){
   document.getElementById('edit-user-id').value=u.id;document.getElementById('edit-user-nome').value=u.nome;
   document.getElementById('edit-user-email').value=u.email;document.getElementById('edit-user-role').value=u.role;
   const cb=document.getElementById('edit-user-ativo');if(cb)cb.checked=u.ativo;
-  document.getElementById('edit-user-senha').value='';openModal('edit-user');
+  document.getElementById('edit-user-senha').value='';openBaseModal('edit-user');
 }
 async function saveEditUser(){
   const id=parseInt(document.getElementById('edit-user-id').value),nome=document.getElementById('edit-user-nome').value.trim(),
@@ -525,15 +616,13 @@ function showToast(msg,type='info'){
   d.style.background=type==='success'?'var(--green)':type==='error'?'var(--red)':'var(--cyan)';
   m.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200);
 }
-// ═══ Modal accessibility (U1: foco-trap, ESC, ARIA) ═══
 let _previousFocus=null;
-function openModal(id){
+function openBaseModal(id){
   const m=document.getElementById('modal-'+id);
   if(!m)return;
   _previousFocus=document.activeElement;
   m.classList.add('open');
   m.setAttribute('aria-hidden','false');
-  // foco no primeiro input focável
   const focusable=m.querySelectorAll('input,select,textarea,button,[tabindex]:not([tabindex="-1"])');
   if(focusable.length){focusable[0].focus()}
   else {const inner=m.querySelector('.modal,.confirm-card');if(inner)inner.focus()}
@@ -549,7 +638,6 @@ document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click
   if(e.target===m){m.classList.remove('open');m.setAttribute('aria-hidden','true');if(_previousFocus&&_previousFocus.focus)_previousFocus.focus()}
 }));
 
-// ESC fecha + foco-trap (Tab cycle dentro do modal aberto)
 document.addEventListener('keydown',(e)=>{
   const openOverlay=document.querySelector('.modal-overlay.open, .confirm-modal.open');
   if(e.key==='Escape'){
@@ -568,7 +656,6 @@ document.addEventListener('keydown',(e)=>{
   }
 });
 
-// ═══ U8: confirm() customizado (Promise) ═══
 let _confirmResolve=null,_confirmReject=null;
 function confirmModal(title,message){
   return new Promise((resolve)=>{
@@ -586,7 +673,6 @@ document.getElementById('confirm-ok')?.addEventListener('click',()=>_confirmReso
 document.getElementById('confirm-cancel')?.addEventListener('click',()=>_confirmReject&&_confirmReject());
 document.getElementById('confirm-modal')?.addEventListener('click',(e)=>{if(e.target.id==='confirm-modal')_confirmReject&&_confirmReject()});
 
-// ═══ U6: Sidebar responsiva ═══
 const _sidebarToggle=document.getElementById('sidebar-toggle');
 const _sidebarBackdrop=document.getElementById('sidebar-backdrop');
 const _sidebar=document.getElementById('sidebar-nav');
@@ -599,10 +685,8 @@ function toggleSidebar(force){
 }
 _sidebarToggle?.addEventListener('click',()=>toggleSidebar());
 _sidebarBackdrop?.addEventListener('click',()=>toggleSidebar(false));
-// Fechar ao navegar (mobile)
 document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>{if(window.innerWidth<=900)toggleSidebar(false)}));
 
-// ═══ U18: sort de tabela (clica no th.sortable) ═══
 let _sortState={col:null,dir:1};
 function makeSortable(){
   document.querySelectorAll('#docs-tbody').forEach(()=>{});
@@ -626,7 +710,6 @@ function makeSortable(){
   });
 }
 
-// Aplica sort à lista localmente (front-side, depois do fetch)
 function applySort(arr){
   if(!_sortState.col)return arr;
   const key=_sortState.col, dir=_sortState.dir;
@@ -637,7 +720,6 @@ function applySort(arr){
   });
 }
 
-// ═══ U16: skeleton loader ═══
 function renderSkeletonTable(tbodyId,rows=5,cols=5){
   const tb=document.getElementById(tbodyId);if(!tb)return;
   tb.innerHTML=Array(rows).fill(0).map(()=>

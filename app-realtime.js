@@ -150,8 +150,7 @@ function updateRow(id, doc) {
     return;
   }
   // Atualiza só as células que mudaram
-  ["equipamento", "origem", "titulo",
-   "etapa_elaboracao", "etapa_revisao1", "etapa_revisao2", "etapa_aprovacao",
+  ["equipamento", "setor", "documento", "sku", "codigo_doc", "fabricante", "tipo_doc", "status", "responsavel",
    "status_global"].forEach((field) => {
     updateCellValue(row, field, doc[field]);
   });
