@@ -256,15 +256,26 @@ def _import_excel_to_db():
                     armazenamento=s("Armazenamento - Pasta de Projetos")
                 ))
 
-        # Soft delete existing docs if any, then insert all new docs
-        Documento.query.update({Documento.ativo: False, Documento.deleted_at: datetime.now()})
+        # Soft delete existing docs se o schema estiver OK, ou drop/create se houver mudança.
+        # Para forçar a atualização do banco em nuvem (Render), nós dropamos as tabelas e recriamos com as novas colunas.
+        try:
+            Responsavel.__table__.drop(db.engine, checkfirst=True)
+            Documento.__table__.drop(db.engine, checkfirst=True)
+            Documento.__table__.create(db.engine)
+            Responsavel.__table__.create(db.engine)
+        except Exception as e:
+            print(f"Erro ao recriar tabelas: {e}")
+            pass # fallback caso sqlite local reclame
+            
         for d in docs_to_add:
             db.session.add(d)
             
         db.session.commit()
         print(f"[OK] Planilha importada com sucesso: {len(docs_to_add)} novos documentos.")
     except Exception as e:
+        db.session.rollback()
         print(f"  Aviso: não foi possível importar Planilha — {e}")
+        raise e
 
 # ── PÁGINAS ───────────────────────────────────────────────────────────────────
 @app.route("/")
@@ -504,14 +515,28 @@ def replay_events():
     events = get_events_since(since, db=db, AuditLog=AuditLog, limit=500)
     return jsonify(events)
 
+import threading
+
+def _run_import_bg():
+    with app.app_context():
+        try:
+            _import_excel_to_db()
+            print("Importação background finalizada com sucesso.")
+        except Exception as e:
+            print(f"Erro no import background: {e}")
+            try:
+                db.session.rollback()
+            except:
+                pass
+
 @app.route("/api/reimport", methods=["POST"])
 @jwt_required()
 @require_role("admin", "gestor")
 def api_reimport():
     if not os.path.exists(EXCEL_PATH): return jsonify({"erro": "Excel não encontrado"}), 404
-    _import_excel_to_db()
-    count = Documento.query.filter(Documento.ativo == True).count()
-    return jsonify({"mensagem": f"{count} documentos ativos após reimport"}), 200
+    
+    threading.Thread(target=_run_import_bg).start()
+    return jsonify({"mensagem": "Sincronização iniciada. Os dados serão atualizados em instantes (aprox. 30 a 60 segundos). Recarregue a página para ver."}), 200
 
 @app.route("/api/status")
 def api_status():

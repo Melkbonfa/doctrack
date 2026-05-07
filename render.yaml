@@ -14,7 +14,7 @@ services:
     runtime: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: gunicorn --threads 100 -w 1 --bind 0.0.0.0:$PORT servidor:app
+    startCommand: gunicorn --timeout 120 --threads 100 -w 1 --bind 0.0.0.0:$PORT servidor:app
     envVars:
       - key: DATABASE_URL
         fromDatabase:

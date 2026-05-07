@@ -184,8 +184,7 @@ async function reimportExcel() {
         }
         
         if(res.ok) {
-            showToast('Planilha sincronizada com sucesso!', 'success');
-            await refreshAll();
+            showToast(data.mensagem || 'Planilha sincronizada com sucesso!', 'success');
         } else {
             showToast(data.erro || 'Erro ao sincronizar planilha', 'error');
         }
