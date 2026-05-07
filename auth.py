@@ -141,7 +141,14 @@ def me():
 @auth_bp.route("/api/users", methods=["GET"])
 @require_role("admin", "gestor")
 def list_users():
-    users = User.query.order_by(User.nome).all()
+    caller_email = get_jwt_identity()
+    user = User.query.filter_by(email=caller_email).first()
+    
+    if user and user.role == "admin":
+        users = User.query.order_by(User.nome).all()
+    else:
+        users = User.query.filter_by(ativo=True).order_by(User.nome).all()
+        
     return jsonify([u.to_dict() for u in users]), 200
 
 

@@ -238,6 +238,10 @@
     <div class="form-group"><label class="form-label" for="edit-user-email">E-mail</label><input class="form-input" id="edit-user-email" type="email"></div>
     <div class="form-group"><label class="form-label" for="edit-user-role">Perfil</label><select class="form-input" id="edit-user-role"><option value="admin">Admin</option><option value="gestor">Gestor</option><option value="tecnico">Técnico</option><option value="leitura">Leitura</option></select></div>
     <div class="form-group"><label class="form-label" for="edit-user-senha">Nova senha (opcional)</label><input class="form-input" id="edit-user-senha" type="password"></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:12px;margin-bottom:16px;">
+      <input type="checkbox" id="edit-user-ativo" style="width:16px;height:16px;cursor:pointer;">
+      <label class="form-label" for="edit-user-ativo" style="margin:0;cursor:pointer;">Usuário Ativo (desmarque para inativar)</label>
+    </div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('edit-user')">Cancelar</button><button class="btn btn-primary" onclick="saveEditUser()">Salvar</button></div>
   </div>
 </div>

@@ -494,14 +494,17 @@ function openEditUser(id){
   const u=_allUsers.find(x=>x.id===id);if(!u)return;
   document.getElementById('edit-user-id').value=u.id;document.getElementById('edit-user-nome').value=u.nome;
   document.getElementById('edit-user-email').value=u.email;document.getElementById('edit-user-role').value=u.role;
+  const cb=document.getElementById('edit-user-ativo');if(cb)cb.checked=u.ativo;
   document.getElementById('edit-user-senha').value='';openModal('edit-user');
 }
 async function saveEditUser(){
   const id=parseInt(document.getElementById('edit-user-id').value),nome=document.getElementById('edit-user-nome').value.trim(),
     email=document.getElementById('edit-user-email').value.trim(),role=document.getElementById('edit-user-role').value,
     senha=document.getElementById('edit-user-senha').value.trim();
+  const cb=document.getElementById('edit-user-ativo');
+  const ativo=cb?cb.checked:true;
   if(!nome||!email){showToast('Preencha nome e email','error');return}
-  const p={nome,email,role};if(senha)p.senha=senha;
+  const p={nome,email,role,ativo};if(senha)p.senha=senha;
   try{const res=await apiFetch(`/users/${id}`,{method:'PATCH',body:JSON.stringify(p)});const data=await res.json();if(!res.ok){showToast(data.erro||'Erro','error');return}showToast('Atualizado','success');closeModal('edit-user');renderUsers()}catch(e){showToast('Erro','error')}
 }
 async function confirmDeleteUser(id,nome){
