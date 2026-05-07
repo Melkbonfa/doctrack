@@ -82,7 +82,7 @@ def login():
         return jsonify({"erro": "Email ou senha incorretos"}), 401
 
     # Atualiza último login
-    user.ultimo_login = datetime.utcnow()
+    user.ultimo_login = datetime.now()
     db.session.commit()
 
     # Cria tokens com role como claim extra

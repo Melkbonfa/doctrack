@@ -134,7 +134,7 @@ def publish_event(
     if event_type not in EventType.all():
         logger.warning(f"Evento desconhecido: {event_type}")
 
-    timestamp = datetime.now(timezone.utc)
+    timestamp = datetime.now()
 
     # 1) PERSISTÊNCIA — audit_logs vira event store
     log = AuditLog(

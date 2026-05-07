@@ -64,7 +64,7 @@ class User(db.Model):
     senha_hash = db.Column(db.String(256), nullable=False)
     role       = db.Column(db.String(20), nullable=False, default="tecnico")
     ativo      = db.Column(db.Boolean, default=True)
-    criado_em  = db.Column(db.DateTime, default=datetime.utcnow)
+    criado_em  = db.Column(db.DateTime, default=datetime.now)
     ultimo_login = db.Column(db.DateTime, nullable=True)
 
     responsabilidades = db.relationship(
@@ -117,8 +117,8 @@ class Documento(db.Model):
     local           = db.Column(db.String(500), default="")
     tipo_documento  = db.Column(db.String(100), default="")
     subtipo         = db.Column(db.String(100), default="")
-    criado_em       = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_em      = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    criado_em       = db.Column(db.DateTime, default=datetime.now)
+    updated_em      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     ativo           = db.Column(db.Boolean, default=True, nullable=False, index=True)
     deleted_at      = db.Column(db.DateTime, nullable=True)
     version         = db.Column(db.Integer, default=0, nullable=False)
@@ -196,7 +196,7 @@ class Responsavel(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"),
                         nullable=False, index=True)
     role = db.Column(db.String(40), nullable=False)
-    atribuido_em = db.Column(db.DateTime, default=datetime.utcnow)
+    atribuido_em = db.Column(db.DateTime, default=datetime.now)
     atribuido_por_id = db.Column(db.Integer, db.ForeignKey("users.id"))
 
     documento = db.relationship("Documento", back_populates="responsaveis")
@@ -230,7 +230,7 @@ class AuditLog(db.Model):
     valor_antigo  = db.Column(db.Text)
     valor_novo    = db.Column(db.Text)
     payload_json  = db.Column(db.Text, nullable=True)
-    timestamp     = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp     = db.Column(db.DateTime, default=datetime.now)
     ip            = db.Column(db.String(50))
 
     def to_dict(self):
@@ -255,4 +255,4 @@ class RevokedToken(db.Model):
 
     id         = db.Column(db.Integer, primary_key=True)
     jti        = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    revoked_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    revoked_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
