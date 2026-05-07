@@ -137,10 +137,13 @@ function updateUserUI(){
 }
 
 function exportKPIs() {
-    showToast('Gerando PDF...', 'info');
+    if(!_lastKpis) { showToast('Nenhum dado para exportar', 'error'); return; }
+    
+    // Exibe a tela de carregamento e container real
+    const wrapper = document.getElementById('pdf-wrapper');
+    wrapper.style.display = 'flex';
     document.getElementById('rep-date').textContent = new Date().toLocaleString('pt-BR');
     
-    if(!_lastKpis) return;
     const total = _lastKpis.total || 0;
     document.getElementById('rep-total').textContent = total;
     document.getElementById('rep-fin').textContent = _lastKpis.global_counts['Finalizado'] || 0;
@@ -153,75 +156,75 @@ function exportKPIs() {
     tb.innerHTML = setores.map(s => {
         const qtd = _lastKpis.por_setor[s] || 0;
         const pct = total ? Math.round(qtd / total * 100) : 0;
-        // Count concluidos per sector
         const concl = _lastKpis.status_counts[s] ? (_lastKpis.status_counts[s]['Concluído'] || _lastKpis.status_counts[s]['Homologado'] || 0) : 0;
         return `<tr>
-          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${esc(s)}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">${qtd}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">${pct}%</td>
-          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">${concl}</td>
+          <td style="padding: 12px; border-bottom: 1px solid rgba(168,85,247,0.3); color: #f1f5f9;">${esc(s)}</td>
+          <td style="padding: 12px; border-bottom: 1px solid rgba(168,85,247,0.3); text-align: center; color: #f1f5f9;">${qtd}</td>
+          <td style="padding: 12px; border-bottom: 1px solid rgba(168,85,247,0.3); text-align: center; color: #f1f5f9;">${pct}%</td>
+          <td style="padding: 12px; border-bottom: 1px solid rgba(168,85,247,0.3); text-align: center; color: #10b981; font-weight: 600;">${concl}</td>
         </tr>`;
     }).join('');
 
-    // Charts
-    if(window._repCharts) window._repCharts.forEach(c => c.destroy());
-    window._repCharts = [];
-
-    const gCtx = document.getElementById('rep-chart-global').getContext('2d');
-    const sCtx = document.getElementById('rep-chart-setor').getContext('2d');
-    const stCtx = document.getElementById('rep-chart-status').getContext('2d');
-    
-    const ringColors=['#10b981','#22d3ee','#a855f7'];
-    const gData = ['Finalizado', 'Em progresso', 'Pendente'].map(k => _lastKpis.global_counts[k] || 0);
-
-    window._repCharts.push(new Chart(gCtx, {
-        type: 'doughnut',
-        data: { labels: ['Finalizado', 'Em progresso', 'Pendente'], datasets: [{ data: gData, backgroundColor: ringColors }] },
-        options: { responsive: true, maintainAspectRatio: false, animation: false }
-    }));
-
-    const catLabels = Object.keys(_lastKpis.por_setor), catVals = Object.values(_lastKpis.por_setor);
-    const dColors = catLabels.map(c => CAT_COLORS[c] || '#6366f1');
-    window._repCharts.push(new Chart(sCtx, {
-        type: 'doughnut',
-        data: { labels: catLabels, datasets: [{ data: catVals, backgroundColor: dColors }] },
-        options: { responsive: true, maintainAspectRatio: false, animation: false }
-    }));
-
-    const flatStatus = {};
-    Object.values(_lastKpis.status_counts).forEach(sc => {
-        Object.keys(sc).forEach(k => flatStatus[k] = (flatStatus[k]||0) + sc[k]);
-    });
-    const stLabels = Object.keys(flatStatus), stVals = Object.values(flatStatus);
-    const stColors = stLabels.map(s => STATUS_PILL[s] ? (s === 'Elaborar' ? '#a855f7' : s.includes('Homologado') || s === 'Concluído' ? '#10b981' : '#22d3ee') : '#ec4899');
-    
-    window._repCharts.push(new Chart(stCtx, {
-        type: 'bar',
-        data: { labels: stLabels, datasets: [{ data: stVals, backgroundColor: stColors }] },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } } }
-    }));
-
+    // Da um pequeno tempo para o CSS aplicar o flex no wrapper
     setTimeout(() => {
-        const el = document.getElementById('pdf-report-container');
+        if(window._repCharts) window._repCharts.forEach(c => c.destroy());
+        window._repCharts = [];
+
+        const gCtx = document.getElementById('rep-chart-global').getContext('2d');
+        const sCtx = document.getElementById('rep-chart-setor').getContext('2d');
+        const stCtx = document.getElementById('rep-chart-status').getContext('2d');
         
-        // Traga para o viewport (mas por baixo de tudo para não piscar na tela)
-        const oldLeft = el.style.left;
-        const oldZ = el.style.zIndex;
-        el.style.left = '0px';
-        el.style.zIndex = '-9999';
-        
-        html2pdf().set({
-            margin: 10,
-            filename: 'DocTrack_KPIs.pdf',
-            image: { type: 'jpeg', quality: 1 },
-            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        }).from(el).save().then(() => {
-            el.style.left = oldLeft;
-            el.style.zIndex = oldZ;
-            showToast('PDF Gerado', 'success');
+        const ringColors=['#10b981','#22d3ee','#a855f7'];
+        const gData = ['Finalizado', 'Em progresso', 'Pendente'].map(k => _lastKpis.global_counts[k] || 0);
+
+        window._repCharts.push(new Chart(gCtx, {
+            type: 'doughnut',
+            data: { labels: ['Finalizado', 'Em progresso', 'Pendente'], datasets: [{ data: gData, backgroundColor: ringColors, borderColor: '#1a1d3a' }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: false, color: '#c4b5fd' }
+        }));
+
+        const catLabels = Object.keys(_lastKpis.por_setor), catVals = Object.values(_lastKpis.por_setor);
+        const dColors = catLabels.map(c => CAT_COLORS[c] || '#6366f1');
+        window._repCharts.push(new Chart(sCtx, {
+            type: 'doughnut',
+            data: { labels: catLabels, datasets: [{ data: catVals, backgroundColor: dColors, borderColor: '#1a1d3a' }] },
+            options: { responsive: true, maintainAspectRatio: false, animation: false, color: '#c4b5fd' }
+        }));
+
+        const flatStatus = {};
+        Object.values(_lastKpis.status_counts).forEach(sc => {
+            Object.keys(sc).forEach(k => flatStatus[k] = (flatStatus[k]||0) + sc[k]);
         });
-    }, 500);
+        const stLabels = Object.keys(flatStatus), stVals = Object.values(flatStatus);
+        const stColors = stLabels.map(s => STATUS_PILL[s] ? (s === 'Elaborar' ? '#a855f7' : s.includes('Homologado') || s === 'Concluído' ? '#10b981' : '#22d3ee') : '#ec4899');
+        
+        window._repCharts.push(new Chart(stCtx, {
+            type: 'bar',
+            data: { labels: stLabels, datasets: [{ data: stVals, backgroundColor: stColors, borderRadius: 4 }] },
+            options: { 
+                indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, 
+                plugins: { legend: { display: false } },
+                scales: { 
+                    x: { ticks: { color: '#94a3ff' }, grid: { color: 'rgba(167,139,250,0.1)' } },
+                    y: { ticks: { color: '#94a3ff' }, grid: { display: false } }
+                }
+            }
+        }));
+
+        setTimeout(() => {
+            const el = document.getElementById('pdf-report-container');
+            html2pdf().set({
+                margin: 0,
+                filename: 'DocTrack_Enterprise_KPIs.pdf',
+                image: { type: 'jpeg', quality: 1 },
+                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#0f0f28' },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            }).from(el).save().then(() => {
+                wrapper.style.display = 'none';
+                showToast('Relatório de Alta Qualidade Gerado', 'success');
+            });
+        }, 600);
+    }, 50);
 }
 
 async function loadEnums(){
