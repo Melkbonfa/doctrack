@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocTrack v3 — Gestão Documental Industrial</title>
+<meta name="description" content="Sistema enterprise de gestão documental industrial com rastreabilidade completa">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">
+        <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#a78bfa" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#a78bfa" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#e879f9" opacity=".4"/></svg>
+      </div>
+      <div><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS · v3.0 ENTERPRISE</div></div>
+    </div>
+    <div class="login-title">Entrar no sistema</div>
+    <div class="login-subtitle">Gestão Documental Industrial — Consolidado</div>
+    <div class="form-group"><label class="form-label" for="login-email">E-mail</label><input class="form-input" id="login-email" type="email" placeholder="seu@email.com" autocomplete="email"></div>
+    <div class="form-group"><label class="form-label" for="login-pass">Senha</label><input class="form-input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+    <div class="form-label" style="margin-bottom:8px">Acessar como (demo)</div>
+    <div class="role-select">
+      <button class="role-btn selected" onclick="selectRole(this,'admin')">Super Admin</button>
+      <button class="role-btn" onclick="selectRole(this,'gestor')">Gestor</button>
+      <button class="role-btn" onclick="selectRole(this,'tecnico')">Técnico</button>
+      <button class="role-btn" onclick="selectRole(this,'leitura')">Leitura</button>
+    </div>
+    <button class="btn-login" onclick="doLogin()"><span id="login-btn-text">Entrar no DocTrack</span></button>
+    <div class="login-demo">Demo interativo — <a onclick="doLogin()">clique para entrar</a></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menu" aria-controls="sidebar-nav" aria-expanded="false">☰</button>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar-nav" aria-label="Navegação principal">
+    <div class="sidebar-brand">
+      <div class="brand-row">
+        <div class="brand-icon"><svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#a78bfa" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#a78bfa" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#e879f9" opacity=".4"/></svg></div>
+        <div class="brand-name">DocTrack</div>
+      </div>
+      <div class="brand-version">P&D EQUIPAMENTOS · v3.0</div>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar" id="nav-avatar">A</div>
+      <div><div class="user-name" id="nav-name">Admin</div><div class="user-role" id="nav-role">SUPER ADMIN</div></div>
+    </div>
+    <span class="nav-section-label">Visão</span>
+    <button type="button" class="nav-item active" data-page="dashboard">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
+      Dashboard
+    </button>
+    <span class="nav-section-label">Documentos</span>
+    <button type="button" class="nav-item" data-page="docs">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M9 12h6M9 16h6M9 8h6M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Todos os Docs
+    </button>
+    <button type="button" class="nav-item" data-page="audit">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Audit Log
+    </button>
+    <span class="nav-section-label">Sistema</span>
+    <button type="button" class="nav-item" data-page="users">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Usuários
+    </button>
+    <button type="button" class="nav-item" data-page="settings">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5"/></svg>
+      Configurações
+    </button>
+    <div class="sidebar-footer">
+      <div class="sync-row"><div class="sync-dot"></div><span class="sync-text" id="sync-label">Conectado</span></div>
+      <button class="sidebar-refresh" onclick="refreshAll()">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Atualizar dados
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="breadcrumb"><span>DocTrack</span><span style="color:var(--t4)">/</span><span class="current" id="breadcrumb-current">Dashboard</span></div>
+      <div class="topbar-actions">
+        <div class="user-avatar" style="width:32px;height:32px;font-size:12px;cursor:pointer" id="top-avatar" onclick="navigate('settings')">A</div>
+      </div>
+    </div>
+
+    <main class="content" id="main-content" tabindex="-1">
+      <!-- DASHBOARD PAGE -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-header">
+          <div><div class="page-title">Dashboard Executivo</div><div class="page-sub" id="dash-updated">Carregando dados...</div></div>
+          <div class="page-actions"><span id="dash-pct-badge" style="background:linear-gradient(135deg,rgba(34,211,238,.1),rgba(139,92,246,.1));border:1px solid var(--border-mid);color:var(--cyan-lt);font-size:11px;padding:5px 14px;border-radius:20px;font-family:var(--font-mono)">—</span></div>
+        </div>
+        <div class="kpi-grid" id="kpi-grid"><div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando KPIs...</div></div>
+        <div class="metric-row" id="metric-row"></div>
+        <div class="g2">
+          <div class="card"><div class="card-title">Distribuição por Categoria</div><div class="donut-wrap"><div class="donut-canvas-wrap"><canvas id="cDonut" width="120" height="120" role="img" aria-label="Gráfico de rosca: distribuição de documentos por categoria"></canvas><div class="donut-center"><div class="donut-center-val" id="donut-total">—</div><div class="donut-center-lbl">Docs</div></div></div><div class="legend-list" id="donut-legend"></div></div></div>
+          <div class="card"><div class="card-title">Pipeline de Etapas</div><div id="prog-list"></div></div>
+        </div>
+        <div class="g2">
+          <div class="card"><div class="card-title">Documentos por Origem</div><div style="position:relative;height:200px"><canvas id="chartBar" role="img" aria-label="Gráfico de barras: documentos por origem"></canvas></div></div>
+          <div class="card"><div class="card-title">Distribuição por Status</div><div style="position:relative;height:200px"><canvas id="chartStatus" role="img" aria-label="Gráfico de barras horizontais: distribuição por status"></canvas></div></div>
+        </div>
+        <div class="card mb"><div class="card-title">Últimos Documentos</div><div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>Documento</th><th>Tipo</th><th>Status Global</th><th>Versão</th></tr></thead><tbody id="dash-table"></tbody></table></div></div>
+      </div>
+
+      <!-- DOCS PAGE -->
+      <div class="page" id="page-docs">
+        <div class="page-header">
+          <div><div class="page-title">Documentos</div><div class="page-sub">Visão por Departamento (Origem) — Edição inline habilitada</div></div>
+          <div class="page-actions">
+            <span class="filter-count" id="docs-badge">—</span>
+            <button class="btn btn-primary btn-sm" id="btn-add-doc" onclick="openModal('add-doc')">+ Novo Documento</button>
+          </div>
+        </div>
+        
+        <!-- Abas de Departamentos (Origem) -->
+        <div class="docs-tabs-wrap">
+          <div class="docs-tabs" id="docs-tabs" role="tablist">
+            <button class="docs-tab active" data-origem="">Carregando...</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="filter-bar">
+            <div class="search-wrap">
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input class="search-input" id="docs-search" placeholder="Buscar equipamento, documento..." aria-label="Buscar documentos">
+            </div>
+            <select class="filter-sel" id="docs-filter-cat" aria-label="Filtrar por categoria"><option value="">Todas categorias</option></select>
+            <select class="filter-sel" id="docs-filter-origem" aria-label="Filtrar por origem" style="display:none;"><option value="">Todas origens</option></select>
+            <select class="filter-sel" id="docs-filter-tipo" aria-label="Filtrar por tipo"><option value="">Todos tipos</option></select>
+            <select class="filter-sel" id="docs-filter-subtipo" aria-label="Filtrar por subtipo"><option value="">Todos subtipos</option></select>
+            <select class="filter-sel" id="docs-filter-status-global" aria-label="Filtrar por status global">
+              <option value="">Status Global: Todos</option>
+              <option value="Pendente">Pendente</option>
+              <option value="Em progresso">Em progresso</option>
+              <option value="Finalizado">Finalizado</option>
+            </select>
+          </div>
+          <div class="tbl-wrap"><table><thead><tr>
+            <th data-sortable="equipamento">Equipamento</th><th data-sortable="documento">Documento</th><th data-sortable="tipo_documento">Tipo</th><th data-sortable="subtipo">Subtipo</th>
+            <th>Elaboração</th><th>Revisão 1</th><th>Diagramação</th><th>Revisão 2</th>
+            <th data-sortable="status_global">Global</th><th data-sortable="versao">Versão</th><th>Ações</th>
+          </tr></thead><tbody id="docs-tbody"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- AUDIT PAGE -->
+      <div class="page" id="page-audit">
+        <div class="page-header"><div><div class="page-title">Audit Log</div><div class="page-sub">Histórico completo de alterações — rastreabilidade industrial</div></div></div>
+        <div class="card mb">
+          <div class="filter-bar">
+            <div class="search-wrap"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input class="search-input" id="audit-search" placeholder="Buscar..." aria-label="Buscar audit log"></div>
+            <select class="filter-sel" id="audit-filter-action" onchange="filterAudit()"><option value="">Todas as ações</option><option>LOGIN</option><option>CREATE</option><option>UPDATE</option><option>DELETE</option><option>STATUS_CHANGE</option><option>REIMPORT</option></select>
+          </div>
+          <div id="audit-list"></div>
+        </div>
+      </div>
+
+      <!-- USERS PAGE -->
+      <div class="page" id="page-users">
+        <div class="page-header">
+          <div><div class="page-title">Usuários & RBAC</div><div class="page-sub">Controle de acesso</div></div>
+          <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openModal('add-user')">+ Novo Usuário</button></div>
+        </div>
+        <div class="card"><div id="users-list"></div></div>
+      </div>
+
+      <!-- SETTINGS PAGE -->
+      <div class="page" id="page-settings">
+        <div class="page-header"><div><div class="page-title">Configurações</div><div class="page-sub">Sistema e preferências</div></div></div>
+        <div class="g2">
+          <div class="card">
+            <div class="card-title">Conexão</div>
+            <div class="setting-row"><div><div class="setting-label">Servidor</div><div class="setting-desc">Flask local · porta 5000</div></div><span id="api-status-badge" style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:var(--green);font-size:11px;padding:4px 10px;border-radius:20px;font-family:var(--font-mono)">Online</span></div>
+            <div class="setting-row"><div><div class="setting-label">Excel</div><div class="setting-desc" style="font-family:var(--font-mono);font-size:10px">Consolidado_Dashboard_Documentos.xlsx</div></div></div>
+            <div class="setting-row"><div><div class="setting-label">Última sync</div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--t3)" id="last-sync">—</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Perfil</div>
+            <div style="display:flex;gap:14px;align-items:center;margin-bottom:16px">
+              <div class="user-avatar" style="width:52px;height:52px;font-size:20px;border-radius:14px" id="settings-avatar">A</div>
+              <div>
+                <div style="font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--t1)" id="settings-name">Admin</div>
+                <div style="font-size:12px;color:var(--t3)" id="settings-email">admin@pde.com</div>
+                <div style="margin-top:4px" id="settings-role-badge"></div>
+              </div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="doLogout()">Sair do sistema</button>
+          </div>
+          <div class="card">
+            <div class="card-title">Sobre</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Versão</span><span style="font-family:var(--font-mono);color:var(--cyan)">DocTrack v3.0 Enterprise</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Backend</span><span style="font-family:var(--font-mono);color:var(--t2)">Python · Flask</span></div>
+              <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--t3)">Fonte</span><span style="font-family:var(--font-mono);color:var(--t2)">Consolidado_Dashboard_Documentos.xlsx</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL: Add User -->
+<div class="modal-overlay" id="modal-add-user" role="dialog" aria-modal="true" aria-labelledby="modal-add-user-title" aria-hidden="true">
+  <div class="modal" tabindex="-1">
+    <div class="modal-title" id="modal-add-user-title">Novo Usuário</div>
+    <div class="modal-sub">Crie uma conta e defina o perfil de acesso</div>
+    <div class="form-group"><label class="form-label" for="new-user-nome">Nome completo</label><input class="form-input" id="new-user-nome" placeholder="Nome Sobrenome"></div>
+    <div class="form-group"><label class="form-label" for="new-user-email">E-mail</label><input class="form-input" id="new-user-email" type="email" placeholder="email@empresa.com"></div>
+    <div class="form-group"><label class="form-label" for="new-user-role">Perfil</label><select class="form-input" id="new-user-role"><option value="admin">Admin</option><option value="gestor">Gestor</option><option value="tecnico" selected>Técnico</option><option value="leitura">Leitura</option></select></div>
+    <div class="form-group"><label class="form-label" for="new-user-senha">Senha</label><input class="form-input" id="new-user-senha" type="password" placeholder="Mínimo 6 caracteres"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('add-user')">Cancelar</button><button class="btn btn-primary" onclick="createUser()">Criar</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Edit User -->
+<div class="modal-overlay" id="modal-edit-user" role="dialog" aria-modal="true" aria-labelledby="modal-edit-user-title" aria-hidden="true">
+  <div class="modal" tabindex="-1">
+    <div class="modal-title" id="modal-edit-user-title">Editar Usuário</div><div class="modal-sub">Altere os dados</div>
+    <input type="hidden" id="edit-user-id">
+    <div class="form-group"><label class="form-label" for="edit-user-nome">Nome</label><input class="form-input" id="edit-user-nome"></div>
+    <div class="form-group"><label class="form-label" for="edit-user-email">E-mail</label><input class="form-input" id="edit-user-email" type="email"></div>
+    <div class="form-group"><label class="form-label" for="edit-user-role">Perfil</label><select class="form-input" id="edit-user-role"><option value="admin">Admin</option><option value="gestor">Gestor</option><option value="tecnico">Técnico</option><option value="leitura">Leitura</option></select></div>
+    <div class="form-group"><label class="form-label" for="edit-user-senha">Nova senha (opcional)</label><input class="form-input" id="edit-user-senha" type="password"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('edit-user')">Cancelar</button><button class="btn btn-primary" onclick="saveEditUser()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Add Document -->
+<div class="modal-overlay" id="modal-add-doc" role="dialog" aria-modal="true" aria-labelledby="modal-add-doc-title" aria-hidden="true">
+  <div class="modal" style="width:620px" tabindex="-1">
+    <div class="modal-title" id="modal-add-doc-title">Novo Documento</div>
+    <div class="modal-sub">Cadastre um novo documento no sistema</div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="new-doc-equip">Equipamento *</label><input class="form-input" id="new-doc-equip" placeholder="Nome do equipamento"></div>
+      <div class="form-group"><label class="form-label" for="new-doc-nome">Documento</label><input class="form-input" id="new-doc-nome" placeholder="Nome do documento"></div>
+    </div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="new-doc-tipo">Tipo</label><select class="form-input" id="new-doc-tipo"><option value="">Selecione</option><option>Técnico</option><option>Qualidade</option><option>Engenharia</option></select></div>
+      <div class="form-group"><label class="form-label" for="new-doc-subtipo">Subtipo</label><select class="form-input" id="new-doc-subtipo"><option value="">Selecione</option><option>POP</option><option>IT</option><option>Manual</option><option>P&D</option><option>Manual_Usuario</option><option>Manual_Servico</option><option>QIQOQD</option></select></div>
+    </div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="new-doc-cat">Categoria</label><input class="form-input" id="new-doc-cat" placeholder="Categoria"></div>
+      <div class="form-group"><label class="form-label" for="new-doc-origem">Origem</label><input class="form-input" id="new-doc-origem" placeholder="Origem"></div>
+    </div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="new-doc-versao">Versão</label><input class="form-input" id="new-doc-versao" placeholder="Ex: 1.0"></div>
+      <div class="form-group"><label class="form-label" for="new-doc-local">Local</label><input class="form-input" id="new-doc-local" placeholder="Caminho do arquivo"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('add-doc')">Cancelar</button><button class="btn btn-primary" onclick="createDoc()">Criar Documento</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Edit Document -->
+<div class="modal-overlay" id="modal-edit-doc" role="dialog" aria-modal="true" aria-labelledby="modal-edit-doc-title" aria-hidden="true">
+  <div class="modal" style="width:620px" tabindex="-1">
+    <div class="modal-title" id="modal-edit-doc-title">Editar Documento</div>
+    <div class="modal-sub">Altere os dados do documento</div>
+    <input type="hidden" id="edit-doc-id">
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="edit-doc-equip">Equipamento</label><input class="form-input" id="edit-doc-equip"></div>
+      <div class="form-group"><label class="form-label" for="edit-doc-nome">Documento</label><input class="form-input" id="edit-doc-nome"></div>
+    </div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="edit-doc-tipo">Tipo</label><select class="form-input" id="edit-doc-tipo"><option value="">Selecione</option><option>Técnico</option><option>Qualidade</option><option>Engenharia</option></select></div>
+      <div class="form-group"><label class="form-label" for="edit-doc-subtipo">Subtipo</label><select class="form-input" id="edit-doc-subtipo"><option value="">Selecione</option><option>POP</option><option>IT</option><option>Manual</option><option>P&D</option><option>Manual_Usuario</option><option>Manual_Servico</option><option>QIQOQD</option></select></div>
+    </div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="edit-doc-cat">Categoria</label><input class="form-input" id="edit-doc-cat"></div>
+      <div class="form-group"><label class="form-label" for="edit-doc-origem">Origem</label><input class="form-input" id="edit-doc-origem"></div>
+    </div>
+    <div class="g2" style="margin-bottom:0">
+      <div class="form-group"><label class="form-label" for="edit-doc-versao">Versão</label><input class="form-input" id="edit-doc-versao"></div>
+      <div class="form-group"><label class="form-label" for="edit-doc-local">Local</label><input class="form-input" id="edit-doc-local"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('edit-doc')">Cancelar</button><button class="btn btn-primary" onclick="saveEditDoc()">Salvar</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><div class="toast-dot" id="toast-dot"></div><span id="toast-msg"></span></div>
+
+<!-- Confirm modal (substitui confirm() nativo — U8) -->
+<div class="confirm-modal" id="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-msg">
+  <div class="confirm-card" tabindex="-1">
+    <div class="confirm-title" id="confirm-title">Confirmar</div>
+    <div class="confirm-msg" id="confirm-msg">Tem certeza?</div>
+    <div class="confirm-actions">
+      <button type="button" class="confirm-cancel" id="confirm-cancel">Cancelar</button>
+      <button type="button" class="confirm-ok" id="confirm-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script src="/static/app.js"></script>
+<script src="/socket-client.js"></script>
+<script src="/app-realtime.js"></script>
+</body>
+</html>

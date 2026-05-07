@@ -1,0 +1,33 @@
+# Variaveis de ambiente
+.env
+.env.local
+.env.*.local
+
+# Backups e arquivos temporarios
+*.bak
+*.db.backup-*
+
+# Database local
+doctrack.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent configs (não necessário em produção)
+.agent/
+.claude/
+.superpowers/
+

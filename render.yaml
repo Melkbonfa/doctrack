@@ -1,0 +1,28 @@
+## render.yaml — Render Blueprint (Infrastructure as Code)
+## Conecte seu repositório GitHub ao Render e ele usará este arquivo
+## para criar automaticamente o Web Service + PostgreSQL.
+
+databases:
+  - name: doctrack-db
+    plan: free
+    databaseName: doctrack
+    user: doctrack_user
+
+services:
+  - type: web
+    name: doctrack
+    runtime: python
+    plan: free
+    buildCommand: ./build.sh
+    startCommand: gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT servidor:app
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: doctrack-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
