@@ -2,7 +2,7 @@
 servidor.py — DocTrack v3.5 Enterprise Backend (v3 + WebSocket)
 Local:  python servidor.py
         python servidor.py --init
-Prod:   gunicorn --worker-class eventlet -w 1 servidor:app
+Prod:   gunicorn --threads 100 -w 1 servidor:app
 Acesse: http://localhost:5000 (local) ou URL do Render (prod)
 """
 import os, sys, json, argparse, unicodedata
