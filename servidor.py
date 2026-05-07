@@ -506,7 +506,7 @@ def replay_events():
 
 @app.route("/api/reimport", methods=["POST"])
 @jwt_required()
-@require_role("admin")
+@require_role("admin", "gestor")
 def api_reimport():
     if not os.path.exists(EXCEL_PATH): return jsonify({"erro": "Excel não encontrado"}), 404
     _import_excel_to_db()

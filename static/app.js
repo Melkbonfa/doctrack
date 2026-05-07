@@ -173,8 +173,17 @@ async function reimportExcel() {
     if(!ok) return;
     try {
         const res = await apiFetch('/reimport', {method: 'POST'});
-        const data = await res.json();
-        if(res && res.ok) {
+        if(!res) {
+            showToast('Erro de rede ou servidor não responde', 'error');
+            return;
+        }
+        let data = {};
+        try { data = await res.json(); } catch(e) { 
+            // Se o servidor retornar HTML (ex: 404, 500), tratamos aqui
+            data = {erro: `Erro no servidor (Status: ${res.status})`}; 
+        }
+        
+        if(res.ok) {
             showToast('Planilha sincronizada com sucesso!', 'success');
             await refreshAll();
         } else {
