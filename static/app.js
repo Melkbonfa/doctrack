@@ -69,7 +69,7 @@ document.body.addEventListener('click',(e)=>{
 });
 
 document.body.addEventListener('change',(e)=>{
-  const sel=e.target.closest('select.status-select');
+  const sel=e.target.closest('select.etapa-select');
   if(sel){
     const docId=parseInt(sel.dataset.docId);
     changeStatus(docId,sel.value);
