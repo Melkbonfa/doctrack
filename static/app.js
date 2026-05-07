@@ -459,14 +459,31 @@ async function filterDocs(){
   document.getElementById('docs-tbody').innerHTML = tbHtml || `<tr><td colspan="8" style="text-align:center;color:var(--t4);padding:32px">Nenhum resultado</td></tr>`;
 }
 
+function getStatusClass(v) {
+    if(!v) return 's-elaborar';
+    const lower = v.toLowerCase();
+    if(lower.includes('homologado') || lower === 'concluído') return 's-concluido';
+    if(lower.includes('homologação')) return 's-homologacao';
+    if(lower.includes('piloto') || lower === 'em andamento') return 's-treinamento';
+    return 's-elaborar';
+}
+
 function renderStatusSelect(docId, val, canEdit) {
     const v=val||'Elaborar';
-    const cls = v.includes('Homologado') || v === 'Concluído' ? 's-concluido' : v.includes('Piloto') || v.includes('Env') || v === 'Em andamento' ? 's-andamento' : 's-pendente';
-    if(!canEdit) return `<span class="pill" style="font-size:9px">${esc(v)}</span>`;
+    const cls = getStatusClass(v);
+    
+    // Fallback pra exibição sem dropdown
+    if(!canEdit) {
+        let pCls = 'pill-elab';
+        if (cls === 's-concluido') pCls = 'pill-ok';
+        else if (cls === 's-homologacao') pCls = 'pill-wip';
+        else if (cls === 's-treinamento') pCls = 'pill-warn';
+        return `<span class="pill ${pCls}" style="font-size:9px">${esc(v)}</span>`;
+    }
     
     const options = _enums.status_map[_currentSetor].map(opt => `<option value="${esc(opt)}" ${v===opt?'selected':''}>${esc(opt)}</option>`).join('');
     
-    return `<select class="status-select ${cls}" data-doc-id="${docId}" aria-label="Status">
+    return `<select class="etapa-select ${cls}" data-doc-id="${docId}" aria-label="Status">
       ${options}
     </select>`;
 }
@@ -493,8 +510,8 @@ async function changeStatus(docId, novoStatus){
       localDoc.status_global=data.documento.status_global;
       localDoc.version=data.documento.version;
     }
-    const cls = novoStatus.includes('Homologado') || novoStatus === 'Concluído' ? 's-concluido' : novoStatus.includes('Piloto') || novoStatus.includes('Env') || novoStatus === 'Em andamento' ? 's-andamento' : 's-pendente';
-    sel.className='status-select '+cls;
+    const cls = getStatusClass(novoStatus);
+    sel.className='etapa-select '+cls;
     td.insertAdjacentHTML('beforeend','<div class="cell-feedback">✨</div>');
     setTimeout(()=>{const f=td.querySelector('.cell-feedback');if(f)f.remove()},1000);
   }catch(e){showToast('Erro','error')}

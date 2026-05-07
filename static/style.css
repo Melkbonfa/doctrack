@@ -398,9 +398,11 @@ td.mono{font-family:var(--font-mono);font-size:11px;color:var(--t3)}
 /* ═══════ ETAPAS (selects inline) ═══════ */
 .etapa-select{padding:5px 10px;background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--r);color:var(--t2);font-size:11px;font-family:var(--font-body);cursor:pointer;outline:none;transition:all .15s;font-weight:500;min-width:110px}
 .etapa-select:hover{border-color:var(--border-mid)}
-.etapa-select.s-pendente{color:#94a3ff;border-color:rgba(167,139,250,.2)}
-.etapa-select.s-andamento{color:#67e8f9;border-color:rgba(34,211,238,.3)}
-.etapa-select.s-concluido{color:#6ee7b7;border-color:rgba(16,185,129,.3)}
+.etapa-select option { background: var(--bg-surface); color: var(--t1); }
+.etapa-select.s-elaborar { color: #c4b5fd; background: rgba(168,85,247,.15); border-color: rgba(168,85,247,.3); }
+.etapa-select.s-treinamento { color: #fcd34d; background: rgba(245,158,11,.15); border-color: rgba(245,158,11,.3); }
+.etapa-select.s-homologacao { color: #93c5fd; background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.3); }
+.etapa-select.s-concluido { color: #6ee7b7; background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.3); }
 .etapa-cell{position:relative}
 .etapa-cell .cell-feedback{position:absolute;top:50%;right:6px;transform:translateY(-50%);font-size:13px;animation:feedbackPop .5s ease both}
 @keyframes feedbackPop{0%{opacity:0;transform:translateY(-50%) scale(.5)}50%{opacity:1;transform:translateY(-50%) scale(1.3)}100%{opacity:0;transform:translateY(-50%) scale(1)}}
