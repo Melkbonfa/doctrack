@@ -1,4 +1,4 @@
-const API='http://localhost:5000/api';
+const API='/api';
 let allDocs=[],chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
