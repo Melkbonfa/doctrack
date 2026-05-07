@@ -186,7 +186,13 @@
             <div class="card-title">Conexão</div>
             <div class="setting-row"><div><div class="setting-label">Servidor</div><div class="setting-desc">Flask local · porta 5000</div></div><span id="api-status-badge" style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:var(--green);font-size:11px;padding:4px 10px;border-radius:20px;font-family:var(--font-mono)">Online</span></div>
             <div class="setting-row"><div><div class="setting-label">Excel</div><div class="setting-desc" style="font-family:var(--font-mono);font-size:10px">Lista_de_Documentos_IT_padronizada_1.xlsx</div></div></div>
-            <div class="setting-row"><div><div class="setting-label">Última sync</div></div><span style="font-family:var(--font-mono);font-size:11px;color:var(--t3)" id="last-sync">—</span></div>
+            <div class="setting-row">
+              <div><div class="setting-label">Última sync</div></div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-family:var(--font-mono);font-size:11px;color:var(--t3)" id="last-sync">—</span>
+                <button class="btn btn-ghost btn-sm" onclick="reimportExcel()" style="padding:4px 8px;font-size:10px">Sincronizar Planilha</button>
+              </div>
+            </div>
           </div>
           <div class="card">
             <div class="card-title">Perfil</div>

@@ -168,6 +168,23 @@ async function refreshAll(){await loadData();renderDashboard();renderDocs();show
   document.getElementById('sync-label').textContent='Atualizado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 }
 
+async function reimportExcel() {
+    const ok = await confirmModal('Sincronizar Planilha', 'Isso irá limpar os documentos antigos e carregar todos os dados novamente da planilha excel. Deseja continuar?');
+    if(!ok) return;
+    try {
+        const res = await apiFetch('/reimport', {method: 'POST'});
+        const data = await res.json();
+        if(res && res.ok) {
+            showToast('Planilha sincronizada com sucesso!', 'success');
+            await refreshAll();
+        } else {
+            showToast(data.erro || 'Erro ao sincronizar planilha', 'error');
+        }
+    } catch(e) {
+        showToast('Erro de rede', 'error');
+    }
+}
+
 // ═══ DASHBOARD ═══
 function renderDashboard(){
   if(!_lastKpis) return;

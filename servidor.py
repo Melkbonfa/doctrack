@@ -178,7 +178,7 @@ def _import_excel_to_db():
                     return "" if str(v).strip() in ("nan", "None", "—") else str(v).strip()
                 
                 doc_nome = s("DOCUMENTOS - PRODUÇÃO (PRE) - ITs E CHECKLISTS")
-                if not doc_nome: doc_nome = "Documento sem título"
+                if not doc_nome: doc_nome = f"IT/Checklist - {eq}"
                 
                 dt_treino = row.get("Data Treinamento Piloto")
                 dt_homol = row.get("Data Envio Homologação")
