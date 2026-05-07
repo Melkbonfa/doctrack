@@ -177,7 +177,7 @@ function exportKPIs() {
     window._repCharts.push(new Chart(gCtx, {
         type: 'doughnut',
         data: { labels: ['Finalizado', 'Em progresso', 'Pendente'], datasets: [{ data: gData, backgroundColor: ringColors }] },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { responsive: true, maintainAspectRatio: false, animation: false }
     }));
 
     const catLabels = Object.keys(_lastKpis.por_setor), catVals = Object.values(_lastKpis.por_setor);
@@ -185,7 +185,7 @@ function exportKPIs() {
     window._repCharts.push(new Chart(sCtx, {
         type: 'doughnut',
         data: { labels: catLabels, datasets: [{ data: catVals, backgroundColor: dColors }] },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { responsive: true, maintainAspectRatio: false, animation: false }
     }));
 
     const flatStatus = {};
@@ -198,18 +198,29 @@ function exportKPIs() {
     window._repCharts.push(new Chart(stCtx, {
         type: 'bar',
         data: { labels: stLabels, datasets: [{ data: stVals, backgroundColor: stColors }] },
-        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } } }
     }));
 
     setTimeout(() => {
         const el = document.getElementById('pdf-report-container');
+        
+        // Traga para o viewport (mas por baixo de tudo para não piscar na tela)
+        const oldLeft = el.style.left;
+        const oldZ = el.style.zIndex;
+        el.style.left = '0px';
+        el.style.zIndex = '-9999';
+        
         html2pdf().set({
             margin: 10,
             filename: 'DocTrack_KPIs.pdf',
             image: { type: 'jpeg', quality: 1 },
-            html2canvas: { scale: 2, useCORS: true },
+            html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        }).from(el).save().then(() => showToast('PDF Gerado', 'success'));
+        }).from(el).save().then(() => {
+            el.style.left = oldLeft;
+            el.style.zIndex = oldZ;
+            showToast('PDF Gerado', 'success');
+        });
     }, 500);
 }
 
