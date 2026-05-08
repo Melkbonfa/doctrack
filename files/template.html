@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Relatório Executivo - DocTrack Enterprise</title>
+<style>
+  /* ============================================================
+     PÁGINA A4 PAISAGEM — TUDO EM MM PARA WEASYPRINT
+     297mm x 210mm = A4 landscape
+     ============================================================ */
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 297mm;
+    height: 210mm;
+    font-family: 'Helvetica', 'Arial', sans-serif;
+    background: #0f0f28;
+    color: #f1f5f9;
+    font-size: 9pt;
+  }
+
+  .page {
+    width: 297mm;
+    height: 210mm;
+    padding: 10mm 12mm;
+    background: #0f0f28;
+    position: relative;
+    overflow: hidden;
+    page-break-after: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* ============== CABEÇALHO ============== */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 0.5mm solid rgba(34,211,238,0.25);
+    padding-bottom: 4mm;
+    margin-bottom: 6mm;
+    height: 18mm;
+  }
+  .header h1 {
+    margin: 0;
+    color: #f1f5f9;
+    font-size: 16pt;
+    font-weight: 700;
+    letter-spacing: -0.3pt;
+    white-space: nowrap;
+  }
+  .header h2 {
+    margin: 1mm 0 0;
+    color: #22d3ee;
+    font-size: 10pt;
+    font-weight: 600;
+  }
+  .header .meta {
+    text-align: right;
+    color: #94a3ff;
+    font-size: 7.5pt;
+  }
+  .header .meta strong {
+    color: #c4b5fd;
+    font-family: 'Courier New', monospace;
+    font-size: 9pt;
+    display: block;
+    margin-top: 1mm;
+  }
+
+  /* ============== GRID PRINCIPAL ============== */
+  .row {
+    display: flex;
+    gap: 4mm;
+    margin-bottom: 4mm;
+  }
+  .row-1 { height: 78mm; }
+  .row-2 { height: 88mm; }
+
+  /* ============== CARDS DE RESUMO ============== */
+  .cards {
+    flex: 0 0 62mm;
+    display: flex;
+    flex-direction: column;
+    gap: 2.5mm;
+  }
+  .card {
+    flex: 1;
+    background: rgba(30,30,50,0.6);
+    border: 0.3mm solid rgba(167,139,250,0.3);
+    border-radius: 2.5mm;
+    padding: 3mm 4mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .card.fin   { border-color: rgba(16,185,129,0.4); }
+  .card.prog  { border-color: rgba(34,211,238,0.4); }
+  .card.pend  { border-color: rgba(148,163,255,0.4); }
+
+  .card .label { font-size: 8pt; color: #94a3ff; }
+  .card.fin  .label { color: #6ee7b7; }
+  .card.prog .label { color: #67e8f9; }
+  .card.pend .label { color: #cbd5ff; }
+
+  .card .value {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #f1f5f9;
+    font-family: 'Courier New', monospace;
+  }
+  .card.fin  .value { color: #10b981; }
+  .card.prog .value { color: #22d3ee; }
+  .card.pend .value { color: #94a3ff; }
+
+  /* ============== PAINÉIS DE GRÁFICOS ============== */
+  .panel {
+    background: rgba(30,30,50,0.45);
+    border: 0.3mm solid rgba(167,139,250,0.18);
+    border-radius: 2.5mm;
+    padding: 3mm 4mm;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-title {
+    margin: 0 0 2mm 0;
+    font-size: 8pt;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+  }
+  .panel-title.cyan   { color: #22d3ee; }
+  .panel-title.purple { color: #a855f7; }
+  .panel-title.pink   { color: #e879f9; }
+
+  .chart-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    min-height: 0;  /* permite que flex children encolham */
+  }
+  .chart-area svg {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: 100%;
+    display: block;
+  }
+
+  .panel-global { flex: 0 0 70mm; }
+  .panel-setor  { flex: 1; }
+
+  /* ============== TABELA ============== */
+  .panel-table {
+    flex: 0 0 110mm;
+  }
+  .panel-table .panel-title {
+    text-align: left;
+    border-bottom: 0.4mm solid rgba(168,85,247,0.3);
+    padding-bottom: 1.5mm;
+    margin-bottom: 2.5mm;
+  }
+  table.kpi {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+    table-layout: fixed;
+  }
+  table.kpi thead th {
+    background: rgba(168,85,247,0.12);
+    color: #c4b5fd;
+    font-weight: 600;
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    padding: 2mm 2.5mm;
+    border-bottom: 0.3mm solid rgba(168,85,247,0.35);
+  }
+  table.kpi thead th:first-child { text-align: left; border-top-left-radius: 1.5mm; }
+  table.kpi thead th:last-child  { text-align: center; border-top-right-radius: 1.5mm; }
+  table.kpi thead th.center { text-align: center; }
+
+  table.kpi tbody td {
+    padding: 2.2mm 2.5mm;
+    border-bottom: 0.2mm solid rgba(168,85,247,0.18);
+    color: #f1f5f9;
+    font-size: 7.5pt;
+  }
+  table.kpi tbody td.center { text-align: center; }
+  table.kpi tbody td.green  { color: #10b981; font-weight: 700; }
+  table.kpi tbody tr:last-child td { border-bottom: none; }
+
+  /* trunca nomes longos para evitar quebra de layout */
+  .ellipsis {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ============== BARRAS DE STATUS ============== */
+  .panel-status { flex: 1; }
+
+  /* ============== RODAPÉ ============== */
+  .footer {
+    position: absolute;
+    bottom: 4mm;
+    left: 12mm;
+    right: 12mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #6b7299;
+    font-size: 6.5pt;
+    border-top: 0.2mm solid rgba(167,139,250,0.15);
+    padding-top: 2mm;
+  }
+  .footer strong { color: #94a3ff; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <h1>Relatório Executivo de KPIs</h1>
+      <h2>DocTrack Enterprise v4.0</h2>
+    </div>
+    <div class="meta">
+      Gerado em:
+      <strong>{{ generated_at }}</strong>
+    </div>
+  </div>
+
+  <!-- LINHA 1: CARDS + GRÁFICOS REDONDOS -->
+  <div class="row row-1">
+
+    <div class="cards">
+      <div class="card">
+        <span class="label">Total de Documentos</span>
+        <span class="value">{{ total }}</span>
+      </div>
+      <div class="card fin">
+        <span class="label">Finalizados</span>
+        <span class="value">{{ finalizado }}</span>
+      </div>
+      <div class="card prog">
+        <span class="label">Em Progresso</span>
+        <span class="value">{{ em_progresso }}</span>
+      </div>
+      <div class="card pend">
+        <span class="label">Pendentes</span>
+        <span class="value">{{ pendente }}</span>
+      </div>
+    </div>
+
+    <div class="panel panel-global">
+      <h3 class="panel-title pink">Status Global</h3>
+      <div class="chart-area">{{ chart_global | safe }}</div>
+    </div>
+
+    <div class="panel panel-setor">
+      <h3 class="panel-title cyan">Distribuição por Setor</h3>
+      <div class="chart-area">{{ chart_setor | safe }}</div>
+    </div>
+
+  </div>
+
+  <!-- LINHA 2: TABELA + BARRAS -->
+  <div class="row row-2">
+
+    <div class="panel panel-table">
+      <h3 class="panel-title purple">Composição por Setor</h3>
+      <table class="kpi">
+        <thead>
+          <tr>
+            <th>Setor</th>
+            <th class="center">Docs</th>
+            <th class="center">% Total</th>
+            <th class="center">Conc.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in table_rows %}
+          <tr>
+            <td class="ellipsis">{{ r.setor }}</td>
+            <td class="center">{{ r.qtd }}</td>
+            <td class="center">{{ r.pct }}%</td>
+            <td class="center green">{{ r.concl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel panel-status">
+      <h3 class="panel-title cyan">Detalhamento de Etapas</h3>
+      <div class="chart-area">{{ chart_status | safe }}</div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span>DocTrack Enterprise — Relatório confidencial</span>
+    <span><strong>Página 1 de 1</strong></span>
+  </div>
+
+</div>
+</body>
+</html>

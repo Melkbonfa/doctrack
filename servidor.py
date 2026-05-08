@@ -451,7 +451,36 @@ def update_status(doc_id):
     except Exception: pass
     return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200
 
+
+# ── API — PDF REPORT ─────────────────────────────────────────────────────────
+@app.route("/api/report/pdf", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def api_report_pdf():
+    try:
+        import sys
+        files_dir = os.path.join(BASE_DIR, "files")
+        if files_dir not in sys.path:
+            sys.path.append(files_dir)
+        import generate_report
+        
+        payload = request.get_json(force=True, silent=True) or {}
+        kpis = payload.get("kpis") or payload
+        pdf_bytes = generate_report.render_pdf(kpis)
+        
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name="DocTrack_Enterprise_KPIs.pdf",
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"erro": f"Erro na geração do PDF: {e}"}), 500
+
 # ── API — METRICS / ENUMS / AUDIT / EXPORT ───────────────────────────────────
+
 @app.route("/api/metrics")
 @jwt_required()
 def api_metrics():
