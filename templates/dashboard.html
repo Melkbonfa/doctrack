@@ -309,7 +309,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
   <!-- OVERLAY DE CARREGAMENTO & CONTAINER DO RELATÓRIO PDF -->
-  <div id="pdf-wrapper" style="position: fixed; inset: 0; background: rgba(15,15,40,0.98); z-index: 99999; display: none; overflow: auto; padding: 0; margin: 0;">
+  <div id="pdf-wrapper" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15,15,40,0.98); z-index: 99999; display: none; overflow: auto; align-items: flex-start; justify-content: flex-start;">
     
     <div style="position: fixed; bottom: 30px; right: 30px; color: #22d3ee; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; background: rgba(15,15,40,0.9); padding: 12px 24px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.3); z-index: 100000; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
       <span style="display:inline-block; width: 20px; height: 20px; border: 3px solid rgba(34,211,238,0.3); border-top-color: #22d3ee; border-radius: 50%; animation: repSpin 1s linear infinite;"></span>
@@ -318,7 +318,7 @@
     </div>
 
     <!-- PÁGINA A4 PAISAGEM EXATA EM PIXELS (1123x794) -->
-    <div id="pdf-report-container" style="width: 1123px; height: 794px; background: #0f0f28; color: #f1f5f9; font-family: 'Inter', sans-serif; padding: 30px 40px; box-sizing: border-box; position: absolute; top: 0; left: 0; overflow: hidden; margin: 0;">
+    <div id="pdf-report-container" style="width: 1123px; min-width: 1123px; height: 794px; background: #0f0f28; color: #f1f5f9; font-family: 'Inter', sans-serif; padding: 30px 40px; box-sizing: border-box; position: relative; overflow: hidden; margin: 0; flex-shrink: 0;">
       
       <!-- Cabeçalho -->
       <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid rgba(34,211,238,0.2); padding-bottom: 15px; margin-bottom: 25px;">
