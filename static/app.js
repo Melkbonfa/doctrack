@@ -217,8 +217,8 @@ function exportKPIs() {
                 margin: 0,
                 filename: 'DocTrack_Enterprise_KPIs.pdf',
                 image: { type: 'jpeg', quality: 1 },
-                html2canvas: { scale: 4, useCORS: true, backgroundColor: '#0f0f28', windowWidth: 794, windowHeight: 1123, width: 794, height: 1123 },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                html2canvas: { scale: 3, useCORS: true, backgroundColor: '#0f0f28', scrollX: 0, scrollY: 0 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
             }).from(el).save().then(() => {
                 wrapper.style.display = 'none';
                 showToast('Relatório de Alta Qualidade Gerado', 'success');
