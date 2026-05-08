@@ -166,7 +166,7 @@ function exportKPIs() {
         console.error("Erro na exportação via servidor: ", err);
         showToast('Erro ao gerar PDF: ' + err.message, 'error');
     });
-}}
+}
 
 async function loadEnums(){
   try{const res=await apiFetch('/enums');if(res&&res.ok)_enums=await res.json()}catch(e){}
