@@ -275,7 +275,6 @@ def _import_excel_to_db():
     except Exception as e:
         db.session.rollback()
         print(f"  Aviso: não foi possível importar Planilha — {e}")
-        raise e
 
 # ── PÁGINAS ───────────────────────────────────────────────────────────────────
 @app.route("/")
@@ -628,9 +627,12 @@ def on_ping(data):
 
 # ── INIT PARA GUNICORN (produção) ─────────────────────────────────────────────
 with app.app_context():
-    db.create_all()
-    if User.query.count() == 0:
-        init_db()
+    try:
+        db.create_all()
+        if User.query.count() == 0:
+            init_db()
+    except Exception as _startup_err:
+        print(f"[WARN] Erro na inicialização do banco: {_startup_err}")
 
 # ── MAIN (desenvolvimento local) ─────────────────────────────────────────────
 if __name__ == "__main__":
