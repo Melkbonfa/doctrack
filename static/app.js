@@ -4,7 +4,7 @@ let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
 let _currentSetor = 'PRE';
 
-const CAT_COLORS={'PRE':'#22d3ee','Fabricante':'#a855f7','PDE':'#ec4899'};
+const CAT_COLORS={'PRE':'#22d3ee','Fabricante':'#06b6d4','PDE':'#ec4899'};
 const STATUS_PILL={'Elaborar':'pill-elab','Homologado':'pill-ok','Enviado para Homologação':'pill-wip','Treinamento Piloto':'pill-warn','Concluído':'pill-ok','Em andamento':'pill-wip'};
 
 function esc(str){
@@ -220,7 +220,7 @@ function renderDashboard(){
   document.getElementById('dash-updated').textContent='Última atualização: '+new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   document.getElementById('dash-pct-badge').textContent=total+' documentos';
 
-  const ringColors=['#10b981','#22d3ee','#a855f7'];
+  const ringColors=['#10b981','#22d3ee','#06b6d4'];
   const ringBgs=['rgba(16,185,129,.15)','rgba(34,211,238,.15)','rgba(168,85,247,.15)'];
   const sgKeys=['Finalizado','Em progresso','Pendente'];
   let kpiHTML='';
@@ -259,7 +259,7 @@ function renderDashboard(){
   const etapaNames=_enums.status_map?_enums.status_map['PRE']:[];
   const preStatusCounts = _lastKpis.status_counts['PRE'] || {};
   const preTotal = catLabels.indexOf('PRE') >= 0 ? catVals[catLabels.indexOf('PRE')] : 0;
-  const etapaColors=['#a855f7','#f59e0b','#22d3ee','#10b981'];
+  const etapaColors=['#06b6d4','#f59e0b','#22d3ee','#10b981'];
   
   if(etapaNames.length > 0) {
     document.getElementById('prog-list').innerHTML=etapaNames.map((n,i)=>{
@@ -287,7 +287,7 @@ function renderDashboard(){
     Object.keys(sc).forEach(k => flatStatus[k] = (flatStatus[k]||0) + sc[k]);
   });
   const stLabels=Object.keys(flatStatus),stVals=Object.values(flatStatus);
-  const stColors=stLabels.map(s=>STATUS_PILL[s] ? (s==='Elaborar'?'#a855f7':s.includes('Homologado')||s==='Concluído'?'#10b981':'#22d3ee') : '#ec4899');
+  const stColors=stLabels.map(s=>STATUS_PILL[s] ? (s==='Elaborar'?'#06b6d4':s.includes('Homologado')||s==='Concluído'?'#10b981':'#22d3ee') : '#ec4899');
   
   if(chartInstances.status)chartInstances.status.destroy();
   chartInstances.status=new Chart(document.getElementById('chartStatus'),{

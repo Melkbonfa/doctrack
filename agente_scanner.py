@@ -45,40 +45,28 @@ def ensure_directory_structure():
 
 
 def validate_file_location(doc):
-    """Valida se um documento está no diretório correto baseado no tipo."""
+    """Valida se um documento tem o arquivo correspondente cadastrado e acessível."""
     issues = []
-    local = doc.get("local", "")
-    tipo = doc.get("tipo_documento", "")
-    subtipo = doc.get("subtipo", "")
+    armazenamento = doc.get("armazenamento", "")
+    documento_id = doc.get("id")
+    documento_nome = doc.get("documento", "")
 
-    if not local:
+    if not armazenamento:
         issues.append({
             "tipo": "SEM_LOCAL",
-            "mensagem": f"Documento '{doc.get('documento', '')}' sem local definido",
-            "documento_id": doc.get("id"),
+            "mensagem": f"Documento '{documento_nome}' sem local de armazenamento definido",
+            "documento_id": documento_id,
             "severidade": "warning",
         })
         return issues
 
-    if not os.path.exists(local):
+    if not os.path.exists(armazenamento):
         issues.append({
             "tipo": "ARQUIVO_NAO_ENCONTRADO",
-            "mensagem": f"Arquivo não encontrado: {local}",
-            "documento_id": doc.get("id"),
+            "mensagem": f"Arquivo não encontrado no caminho: {armazenamento}",
+            "documento_id": documento_id,
             "severidade": "error",
         })
-
-    if tipo and subtipo:
-        expected = os.path.join(BASE_DOCS_DIR, tipo, subtipo)
-        if not os.path.normpath(local).startswith(os.path.normpath(expected)):
-            issues.append({
-                "tipo": "DIRETORIO_INCORRETO",
-                "mensagem": f"Esperado em '{expected}', encontrado em '{os.path.dirname(local)}'",
-                "documento_id": doc.get("id"),
-                "severidade": "warning",
-                "diretorio_esperado": expected,
-                "diretorio_atual": os.path.dirname(local),
-            })
 
     return issues
 
@@ -120,7 +108,8 @@ def scan_documents(documents):
     }
 
     for doc in documents:
-        if doc.get("local"):
+        armazenamento = doc.get("armazenamento", "")
+        if armazenamento:
             stats["com_local"] += 1
         else:
             stats["sem_local"] += 1
@@ -132,7 +121,7 @@ def scan_documents(documents):
             elif issue["tipo"] == "DIRETORIO_INCORRETO":
                 stats["diretorio_incorreto"] += 1
 
-        if doc.get("local") and os.path.exists(doc["local"]):
+        if armazenamento and os.path.exists(armazenamento):
             stats["arquivos_encontrados"] += 1
 
         all_issues.extend(issues)

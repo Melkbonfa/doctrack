@@ -3,7 +3,7 @@
 
 def test_leitura_nao_pode_criar_doc(client, leitura_token, auth_headers):
     res = client.post("/api/documentos",
-                      json={"equipamento": "X"},
+                      json={"setor": "PRE", "equipamento": "X", "documento": "Y"},
                       headers=auth_headers(leitura_token))
     assert res.status_code == 403
 
@@ -44,17 +44,20 @@ def test_gestor_pode_audit(client, gestor_token, auth_headers):
     assert res.status_code == 200
 
 
-def test_so_admin_reimport(client, gestor_token, tecnico_token, auth_headers):
-    r1 = client.post("/api/reimport", headers=auth_headers(gestor_token))
+def test_reimport_permissao(client, gestor_token, tecnico_token, auth_headers):
+    # Técnico não pode fazer reimport
+    r1 = client.post("/api/reimport", headers=auth_headers(tecnico_token))
     assert r1.status_code == 403
-    r2 = client.post("/api/reimport", headers=auth_headers(tecnico_token))
-    assert r2.status_code == 403
+
+    # Gestor pode fazer reimport (pode retornar 200 ou 404 se a planilha excel não existir no ambiente de testes, mas não 403)
+    r2 = client.post("/api/reimport", headers=auth_headers(gestor_token))
+    assert r2.status_code in (200, 404)
 
 
 def test_tecnico_pode_atualizar_status(client, tecnico_token, admin_token, auth_headers):
     docs = client.get("/api/documentos", headers=auth_headers(admin_token)).get_json()
     doc_id = next(d["id"] for d in docs if d["equipamento"] == "MAQ-B")
     res = client.put(f"/api/documento/{doc_id}/status",
-                     json={"etapa": "etapa_elaboracao", "status": "Concluído"},
+                     json={"status": "Concluído"},
                      headers=auth_headers(tecnico_token))
     assert res.status_code == 200

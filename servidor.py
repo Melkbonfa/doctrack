@@ -83,6 +83,21 @@ def check_revoked(jwt_header, jwt_payload):
         return False
     return db.session.query(RevokedToken.id).filter_by(jti=jti).first() is not None
 
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.socket.io; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss: http: https:;"
+    )
+    return response
+
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def require_role(*roles):
     def deco(fn):
@@ -408,8 +423,9 @@ def delete_documento(doc_id):
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
     nome = doc.documento
+    snapshot_data = json.dumps(doc.snapshot())
     doc.ativo = False; doc.deleted_at = datetime.now(); db.session.commit()
-    log_action(caller, "DELETE", entidade=nome, campo="*", documento_id=doc.id, ip=get_client_ip())
+    log_action(caller, "DELETE", entidade=nome, campo="*", antigo=snapshot_data, documento_id=doc.id, ip=get_client_ip())
     try:
         publish_event(EventType.DOCUMENT_DELETED,
             payload={"documento_id": doc_id, "setor": doc.setor, "equipamento": doc.equipamento},

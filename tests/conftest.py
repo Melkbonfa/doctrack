@@ -28,8 +28,10 @@ def app(tmp_path):
     flask_app.config["TESTING"] = True
 
     with flask_app.app_context():
+        # Substituir o engine padrão pelo banco de testes
+        from sqlalchemy import create_engine
+        db.engines[None] = create_engine(f"sqlite:///{db_file}")
         # Recriar tabelas no DB de teste
-        db.engine.dispose()
         db.create_all()
 
         # Seed users
@@ -46,18 +48,14 @@ def app(tmp_path):
 
         # Seed documentos
         docs = [
-            Documento(equipamento="MAQ-A", documento="POP-001", categoria="Qualidade",
-                      origem="Producao", versao="1.0", tipo_documento="Qualidade", subtipo="POP",
-                      etapa_elaboracao="Concluído", etapa_revisao1="Concluído",
-                      etapa_diagramacao="Concluído", etapa_revisao2="Concluído"),
-            Documento(equipamento="MAQ-B", documento="IT-002", categoria="Tecnico",
-                      origem="P&D", versao="2.1", tipo_documento="Técnico", subtipo="IT",
-                      etapa_elaboracao="Em andamento", etapa_revisao1="Pendente",
-                      etapa_diagramacao="Pendente", etapa_revisao2="Pendente"),
-            Documento(equipamento="MAQ-C", documento="Manual-003", categoria="Documentacao",
-                      origem="Producao", versao="", tipo_documento="Técnico", subtipo="Manual",
-                      etapa_elaboracao="Pendente", etapa_revisao1="Pendente",
-                      etapa_diagramacao="Pendente", etapa_revisao2="Pendente"),
+            Documento(setor="PRE", equipamento="MAQ-A", documento="POP-001", sku="SKU-A",
+                      codigo_doc="COD-A", responsavel="Carlos Mota", status="Homologado",
+                      armazenamento="P:/Qualidade/POP-001.pdf"),
+            Documento(setor="Fabricante", equipamento="MAQ-B", documento="Manual-002", sku="SKU-B",
+                      codigo_doc="COD-B", status="Em andamento", tipo_doc="Manual_Usuario",
+                      fabricante="Siemens", armazenamento="P:/Tecnico/Manual-002.pdf"),
+            Documento(setor="PDE", equipamento="P&D (Processos)", documento="Desenho-003",
+                      codigo_doc="COD-C", status="Elaborar", armazenamento="P:/Engenharia/Desenho-003.pdf"),
         ]
         for d in docs:
             db.session.add(d)

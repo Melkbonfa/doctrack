@@ -48,15 +48,26 @@ def test_logout_revokes_token(client, admin_token, auth_headers):
 def test_jwt_secret_required(monkeypatch):
     """Importar servidor sem JWT_SECRET (env e .env) levanta RuntimeError."""
     import os, sys, importlib
+    
+    # Backup do módulo servidor original
+    orig_servidor = sys.modules.get("servidor")
+    
     monkeypatch.delenv("JWT_SECRET", raising=False)
     # Neutralizar load_dotenv para não recuperar o valor de .env
     import dotenv
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **kw: False)
+    
     sys.modules.pop("servidor", None)
     try:
         importlib.import_module("servidor")
         raised = False
     except RuntimeError:
         raised = True
-    sys.modules.pop("servidor", None)
+    finally:
+        # Restaurar o módulo servidor original
+        if orig_servidor:
+            sys.modules["servidor"] = orig_servidor
+        else:
+            sys.modules.pop("servidor", None)
+            
     assert raised, "RuntimeError esperado quando JWT_SECRET ausente"

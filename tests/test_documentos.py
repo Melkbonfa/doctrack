@@ -17,8 +17,8 @@ def test_listagem_so_ativos(client, admin_token, auth_headers):
 def test_create_documento(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
     res = client.post("/api/documentos",
-                      json={"equipamento": "MAQ-NEW", "documento": "POP-NEW",
-                            "categoria": "Qualidade", "tipo_documento": "Qualidade"},
+                      json={"setor": "PRE", "equipamento": "MAQ-NEW", "documento": "POP-NEW",
+                            "sku": "SKU-NEW", "codigo_doc": "COD-NEW"},
                       headers=h)
     assert res.status_code == 201
     assert res.get_json()["documento"]["equipamento"] == "MAQ-NEW"
@@ -26,9 +26,9 @@ def test_create_documento(client, admin_token, auth_headers):
     assert len(docs) == 4
 
 
-def test_create_sem_equipamento_falha(client, admin_token, auth_headers):
+def test_create_setor_invalido_falha(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
-    res = client.post("/api/documentos", json={"documento": "x"}, headers=h)
+    res = client.post("/api/documentos", json={"setor": "Invalido", "documento": "x"}, headers=h)
     assert res.status_code == 400
 
 
