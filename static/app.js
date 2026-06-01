@@ -657,45 +657,83 @@ function renderEquipManuaisPanel(){
   `;
 }
 
-async function saveDoc(){
-  const id=document.getElementById('doc-id').value;
-  const payload={
-    setor: document.getElementById('doc-setor').value,
-    equipamento:document.getElementById('doc-equipamento').value,
-    documento:document.getElementById('doc-documento').value,
-    sku:document.getElementById('doc-sku').value,
-    codigo_doc:document.getElementById('doc-codigo').value,
-    responsavel:document.getElementById('doc-responsavel').value,
-    fabricante:document.getElementById('doc-fabricante').value,
-    tipo_doc:document.getElementById('doc-tipo_doc').value,
-    data_treinamento:document.getElementById('doc-data_treinamento').value,
-    data_homologacao:document.getElementById('doc-data_homologacao').value,
-    obs_treinamento:document.getElementById('doc-obs_treinamento').value,
-    obs_homologacao:document.getElementById('doc-obs_homologacao').value,
-    armazenamento:document.getElementById('doc-armazenamento').value
-  };
-  
-  if(payload.setor !== 'PDE' && !payload.equipamento){showToast('Equipamento é obrigatório','error');return}
-  if(!payload.documento){showToast('Documento é obrigatório','error');return}
+async function _patchDoc(id, payload){
+  const res = await apiFetch(`/documentos/${id}`, {method:'PATCH', body:JSON.stringify(payload)});
+  return res;
+}
 
+async function saveEquipPre(){
+  const p = _equipCtx.pre;
+  if(!p) return;
+  const payload = {
+    equipamento: document.getElementById('ep-equipamento').value,
+    sku: document.getElementById('ep-sku').value,
+    codigo_doc: document.getElementById('ep-codigo').value,
+    responsavel: document.getElementById('ep-responsavel').value,
+    status: document.getElementById('ep-status').value,
+    data_treinamento: document.getElementById('ep-data_treinamento').value,
+    data_homologacao: document.getElementById('ep-data_homologacao').value,
+    obs_treinamento: document.getElementById('ep-obs_treinamento').value,
+    obs_homologacao: document.getElementById('ep-obs_homologacao').value,
+    armazenamento: document.getElementById('ep-armazenamento').value,
+  };
   try{
-    const method = id ? 'PATCH' : 'POST';
-    const url = id ? `/documentos/${id}` : `/documentos`;
-    const res=await apiFetch(url,{method:method,body:JSON.stringify(payload)});
-    if(res&&res.ok){
-      showToast('Salvo','success');
-      closeModal('doc');
-      _currentSetor = payload.setor;
-      document.querySelectorAll('.docs-tab').forEach(b => {
-          b.classList.remove('active');
-          if(b.dataset.setor === payload.setor) b.classList.add('active');
-      });
-      await refreshAll();
-    } else {
-        const errData = await res.json().catch(() => ({}));
-        showToast(errData.erro || errData.message || 'Erro ao salvar documento', 'error');
+    const res = await _patchDoc(p.id, payload);
+    if(res && res.ok){ showToast('IT/PRE salvo','success'); closeModal('equip'); await refreshAll(); }
+    else { const e = await res.json().catch(()=>({})); showToast(e.erro||'Erro ao salvar','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+async function saveEquipManuais(){
+  const fabricante = document.getElementById('em-fabricante').value;
+  const armazenamento = document.getElementById('em-armazenamento').value;
+  const tipos = Object.keys(_equipCtx.manuais);
+  try{
+    for(const tipo of tipos){
+      const d = _equipCtx.manuais[tipo];
+      const payload = {
+        fabricante,
+        armazenamento,
+        codigo_doc: document.getElementById('em-cod-'+tipo).value,
+        status: document.getElementById('em-st-'+tipo).value,
+      };
+      const res = await _patchDoc(d.id, payload);
+      if(!res || !res.ok){ const e = res ? await res.json().catch(()=>({})) : {}; showToast(e.erro||'Erro ao salvar manuais','error'); return; }
     }
-  }catch(e){showToast('Erro de rede ou servidor', 'error')}
+    showToast('Manuais salvos','success'); closeModal('equip'); await refreshAll();
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// Cria o documento IT/PRE para o equipamento aberto
+async function createPreDoc(){
+  const payload = { setor:'PRE', equipamento:_equipCtx.equipamento, documento:`IT/Checklist - ${_equipCtx.equipamento}`, sku:_equipCtx.sku };
+  try{
+    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
+    if(res && res.ok){ showToast('IT/PRE criado','success'); closeModal('equip'); await refreshAll(); }
+    else { showToast('Erro ao criar IT/PRE','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// Cria os 5 manuais para o equipamento aberto (backend gera os 5 a partir de um POST Manuais)
+async function createManuais(){
+  const payload = { setor:'Manuais', equipamento:_equipCtx.equipamento, documento:`Manual ES - ${_equipCtx.equipamento}`, tipo_doc:'Manual_ES', sku:_equipCtx.sku, fabricante:_equipCtx.fabricante };
+  try{
+    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
+    if(res && res.ok){ showToast('Manuais criados','success'); closeModal('equip'); await refreshAll(); }
+    else { showToast('Erro ao criar manuais','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+function openNewEquip(){
+  // Novo equipamento = criar primeiro o IT/PRE com nome digitado
+  const nome = prompt('Nome do novo equipamento:');
+  if(!nome || !nome.trim()) return;
+  apiFetch('/documentos', {method:'POST', body:JSON.stringify({setor:'PRE', equipamento:nome.trim(), documento:`IT/Checklist - ${nome.trim()}`})})
+    .then(async res => {
+      if(res && res.ok){ showToast('Equipamento criado','success'); await refreshAll(); }
+      else { showToast('Erro ao criar equipamento','error'); }
+    })
+    .catch(()=>showToast('Erro de rede','error'));
 }
 
 // ═══ AUDIT ═══
