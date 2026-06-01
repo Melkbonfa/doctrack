@@ -4,7 +4,23 @@ let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
 let _currentSetor = 'PRE';
 
-const CAT_COLORS={'PRE':'#22d3ee','Fabricante':'#06b6d4','PDE':'#ec4899'};
+// ═══ TEMA CLARO/ESCURO ═══
+function applyTheme(theme){
+  const isLight = theme === 'light';
+  document.body.classList.toggle('theme-light', isLight);
+  const btn = document.getElementById('theme-toggle');
+  if(btn) btn.textContent = isLight ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
+  localStorage.setItem('doctrack_theme', next);
+  applyTheme(next);
+}
+function initTheme(){
+  applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
+}
+
+const CAT_COLORS={'PRE':'#22d3ee','Manuais':'#06b6d4','PDE':'#ec4899'};
 const STATUS_PILL={'Elaborar':'pill-elab','Homologado':'pill-ok','Enviado para Homologação':'pill-wip','Treinamento Piloto':'pill-warn','Concluído':'pill-ok','Em andamento':'pill-wip'};
 
 function esc(str){
@@ -302,7 +318,7 @@ function renderDashboard(){
   ).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }
 
-function pillCls(c){if(!c)return'pill-elab';if(c.includes('PRE'))return'pill-wip';if(c.includes('Fabricante'))return'pill-elab';return'pill-warn'}
+function pillCls(c){if(!c)return'pill-elab';if(c.includes('PRE'))return'pill-wip';if(c.includes('Manuais'))return'pill-elab';return'pill-warn'}
 function pillSt(s){if(!s)return'<span style="color:var(--t4)">—</span>';const cls=STATUS_PILL[s]||'pill-elab';return`<span class="pill ${cls}">${esc(s)}</span>`}
 function pillGlobal(s){
   if(s==='Finalizado')return'<span class="sg-badge sg-finalizado">Finalizado</span>';
@@ -312,7 +328,63 @@ function pillGlobal(s){
 
 function renderLink(url) {
     if(!url || url === '—') return '—';
-    return `<a href="${esc(url)}" target="_blank" title="Abrir localização do arquivo" style="color:var(--cyan);text-decoration:none"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
+    const normalizedUrl = url.replace(/\\/g, '/');
+    const escapedUrl = esc(normalizedUrl).replace(/'/g, "\\'");
+    return `<a href="javascript:void(0)" onclick="abrirPasta('${escapedUrl}')" title="Abrir localização do arquivo" style="color:var(--cyan);text-decoration:none"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
+}
+
+function copiarTexto(texto) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(texto);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) resolve();
+      else reject(new Error('Cópia rejeitada pelo navegador'));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+async function abrirPasta(caminho) {
+  if(!caminho) return;
+  try {
+    const res = await apiFetch('/documentos/abrir-pasta', {
+      method: 'POST',
+      body: JSON.stringify({ caminho })
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) {
+      showToast(data.erro || 'Não foi possível abrir a pasta', 'error');
+      return;
+    }
+    
+    if(data.local === false) {
+      const caminhoParaCopiar = data.caminho_aberto;
+      try {
+        await copiarTexto(caminhoParaCopiar);
+        showToast('Caminho de rede copiado! Cole no Windows Explorer.', 'success');
+      } catch (clipErr) {
+        console.error('Falha ao usar API clipboard, usando fallback...', clipErr);
+        window.prompt('Copie o caminho do documento:', caminhoParaCopiar);
+      }
+    } else {
+      showToast(data.mensagem || 'Pasta aberta localmente', 'success');
+    }
+  } catch(e) {
+    showToast('Erro de rede ao tentar abrir a pasta', 'error');
+  }
 }
 
 // ═══ DOCS TABLE ═══
@@ -336,10 +408,10 @@ function populateFilters(){
         <th data-sortable="data_treinamento">Trein. Piloto</th><th data-sortable="data_homologacao">Envio Homol.</th>
         <th>Ações</th>
       </tr>`;
-  } else if (_currentSetor === 'Fabricante') {
+  } else if (_currentSetor === 'Manuais') {
       thHtml = `<tr>
         <th data-sortable="equipamento">Equipamento</th><th data-sortable="fabricante">Fabricante</th><th data-sortable="sku">SKU</th>
-        <th data-sortable="codigo_doc">Código Doc</th>
+        <th>Manual ES</th>
         <th>Manual do Usuário</th><th>QI/QO/QD</th><th>Manual de Serviço</th><th>Spare Parts</th>
         <th>Ações</th>
       </tr>`;
@@ -387,7 +459,7 @@ async function filterDocs(){
           </div>
         </td>
       </tr>`).join('');
-  } else if (_currentSetor === 'Fabricante') {
+  } else if (_currentSetor === 'Manuais') {
       const groups = {};
       data.forEach(d => {
           const key = d.equipamento + '|' + d.sku;
@@ -409,7 +481,7 @@ async function filterDocs(){
           };
           return `<tr>
             <td class="bold">${esc(g.equipamento)}</td><td>${esc(g.fabricante)}</td><td class="mono">${esc(g.sku)}</td>
-            <td class="mono">${esc(g.codigo_doc)}</td>
+            ${getCol('Manual_ES')}
             ${getCol('Manual_Usuario')}
             ${getCol('QIQOQD')}
             ${getCol('Manual_Servico')}
@@ -524,7 +596,7 @@ function configureDocModal(setor) {
         document.getElementById('fg-equipamento').style.display = 'block';
         document.getElementById('row-resp-fab').style.display = 'flex';
         document.getElementById('fg-responsavel').style.display = 'block';
-    } else if(setor === 'Fabricante') {
+    } else if(setor === 'Manuais') {
         document.getElementById('fg-sku').style.display = 'block';
         document.getElementById('fg-equipamento').style.display = 'block';
         document.getElementById('row-resp-fab').style.display = 'flex';
@@ -540,7 +612,7 @@ function configureDocModal(setor) {
 
 function openModal(id) {
     if(id.startsWith('add-doc-')) {
-        const setorMap = {'add-doc-pre': 'PRE', 'add-doc-fab': 'Fabricante', 'add-doc-pde': 'PDE'};
+        const setorMap = {'add-doc-pre': 'PRE', 'add-doc-fab': 'Manuais', 'add-doc-pde': 'PDE'};
         configureDocModal(setorMap[id]);
         document.getElementById('doc-id').value = '';
         ['doc-equipamento', 'doc-documento', 'doc-sku', 'doc-codigo', 'doc-responsavel', 'doc-fabricante', 'doc-data_treinamento', 'doc-data_homologacao', 'doc-obs_treinamento', 'doc-obs_homologacao', 'doc-armazenamento'].forEach(f => {
@@ -645,7 +717,7 @@ async function filterAudit(){
 }
 
 function exportAudit() {
-    window.location.href = API + '/export/audit?token=' + getToken();
+    window.open(API + '/export/audit?token=' + getToken(), '_blank');
 }
 
 // ═══ USERS ═══
@@ -811,3 +883,6 @@ function renderSkeletonTable(tbodyId,rows=5,cols=5){
     `<tr class="skeleton-row">${Array(cols).fill(0).map(()=>'<td><span class="skeleton"></span></td>').join('')}</tr>`
   ).join('');
 }
+
+// Aplica o tema salvo assim que o script carrega (vale para tela de login também)
+initTheme();
