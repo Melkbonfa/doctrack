@@ -156,11 +156,6 @@ Todos os campos são editáveis inline. O modal abre já em modo edição (sem b
 
 ---
 
-**Footer do modal (fora das abas):**
-- Botão `Excluir equipamento` (vermelho, role admin/gestor/tecnico apenas) — exclui o documento da aba ativa (IT/PRE ou Manuais), com confirmação
-
----
-
 ## 3. Modo claro / escuro
 
 ### Toggle
