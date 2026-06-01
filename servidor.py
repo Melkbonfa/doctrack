@@ -46,7 +46,7 @@ app.config["SECRET_KEY"]                     = _jwt_secret
 
 from models import (
     db, bcrypt, User, Documento, AuditLog, RevokedToken, Responsavel,
-    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_PDE, STATUS_MAP, TIPOS_DOC_FABRICANTE, TIPOS_DOC_LABELS
+    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP, TIPOS_DOC_FABRICANTE, TIPOS_DOC_LABELS
 )
 from auth import auth_bp, log_action
 from event_bus import publish_event, get_events_since, EventType
