@@ -72,13 +72,13 @@ function navigate(page){
 document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>navigate(el.dataset.page)));
 
 document.body.addEventListener('click',(e)=>{
+  const chip=e.target.closest('.filter-chip');
+  if(chip){ _equipChip = chip.dataset.chip; renderGrid(); return; }
   const btn=e.target.closest('[data-action]');
   if(!btn)return;
   const action=btn.dataset.action;
   const id=btn.dataset.id;
   switch(action){
-    case 'edit-doc': openEditDoc(parseInt(id)); break;
-    case 'delete-doc': delDoc(parseInt(id), btn.dataset.name||''); break;
     case 'edit-user': openEditUser(parseInt(id)); break;
     case 'delete-user': confirmDeleteUser(parseInt(id), btn.dataset.name||''); break;
   }
@@ -100,7 +100,7 @@ document.body.addEventListener('input',(e)=>{
   if(!e.target)return;
   if(e.target.id==='docs-search'||e.target.id==='audit-search'){
     clearTimeout(_filterTimer);
-    const fn=e.target.id==='docs-search'?filterDocs:filterAudit;
+    const fn=e.target.id==='docs-search'?renderGrid:filterAudit;
     _filterTimer=setTimeout(fn,250);
   }
 });
@@ -108,20 +108,8 @@ document.body.addEventListener('input',(e)=>{
 async function initApp(){
   updateUserUI();
   renderSkeletonTable('dash-table',5,5);
-  renderSkeletonTable('docs-tbody',6,8);
   await loadEnums();
   await loadData();
-  
-  // Setup tabs
-  document.querySelectorAll('.docs-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.docs-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      _currentSetor = btn.dataset.setor;
-      populateFilters();
-      filterDocs();
-    });
-  });
 
   renderDashboard();renderDocs();renderAudit();renderUsers();
   makeSortable();
@@ -387,127 +375,107 @@ async function abrirPasta(caminho) {
   }
 }
 
-// ═══ DOCS TABLE ═══
-function renderDocs(){
-  populateFilters();
-  filterDocs();
+// ═══ DOCS — GRADE DE EQUIPAMENTOS ═══
+let _equipChip = 'todos';
+
+// Agrupa allDocs por nome de equipamento (PRE + Manuais juntos)
+function groupByEquip(){
+  const groups = {};
+  allDocs.forEach(d => {
+    const key = (d.equipamento || '—').trim();
+    if(!groups[key]){
+      groups[key] = { equipamento: key, sku:'', fabricante:'', pre:null, manuais:[] };
+    }
+    const g = groups[key];
+    if(d.sku && !g.sku) g.sku = d.sku;
+    if(d.fabricante && !g.fabricante) g.fabricante = d.fabricante;
+    if(d.setor === 'PRE'){ if(!g.pre) g.pre = d; }
+    else if(d.setor === 'Manuais'){ g.manuais.push(d); }
+  });
+  return Object.values(groups).sort((a,b)=>a.equipamento.localeCompare(b.equipamento));
 }
 
-function populateFilters(){
-  if(!_enums.status_map) return;
-  const statuses = _enums.status_map[_currentSetor] || [];
-  const opt=(arr)=>arr.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-  document.getElementById('docs-filter-status').innerHTML='<option value="">Status: Todos</option>'+opt(statuses);
-  
-  // Render THEAD based on Setor
-  let thHtml = '';
-  if(_currentSetor === 'PRE') {
-      thHtml = `<tr>
-        <th data-sortable="equipamento">Equipamento</th><th data-sortable="sku">SKU</th><th data-sortable="codigo_doc">Código Doc</th>
-        <th data-sortable="responsavel">Responsável</th><th data-sortable="status">Status</th>
-        <th data-sortable="data_treinamento">Trein. Piloto</th><th data-sortable="data_homologacao">Envio Homol.</th>
-        <th>Ações</th>
-      </tr>`;
-  } else if (_currentSetor === 'Manuais') {
-      thHtml = `<tr>
-        <th data-sortable="equipamento">Equipamento</th><th data-sortable="fabricante">Fabricante</th><th data-sortable="sku">SKU</th>
-        <th>Manual ES</th>
-        <th>Manual do Usuário</th><th>QI/QO/QD</th><th>Manual de Serviço</th><th>Spare Parts</th>
-        <th>Ações</th>
-      </tr>`;
-  } else if (_currentSetor === 'PDE') {
-      thHtml = `<tr>
-        <th data-sortable="documento">Documento</th><th data-sortable="codigo_doc">Código Doc</th><th data-sortable="status">Status</th>
-        <th>Ações</th>
-      </tr>`;
-  }
-  document.getElementById('docs-thead').innerHTML = thHtml;
-  makeSortable();
+function equipManuaisOk(g){ return g.manuais.filter(d=>d.status==='Concluído').length; }
+
+function equipStatusColor(g){
+  const ok = equipManuaisOk(g), cnt = g.manuais.length;
+  const preElaborar = g.pre && g.pre.status === 'Elaborar';
+  const preHomolog  = g.pre && g.pre.status === 'Homologado';
+  if(preElaborar || (cnt>0 && ok===0)) return 'red';
+  if(preHomolog && cnt>0 && ok===cnt) return 'green';
+  return 'amber';
 }
 
-async function filterDocs(){
-  const q=document.getElementById('docs-search').value.trim();
-  const st=document.getElementById('docs-filter-status').value;
+function equipMatchesChip(g, chip){
+  const ok = equipManuaisOk(g), cnt = g.manuais.length;
+  const anyElaborar = (g.pre && g.pre.status==='Elaborar') || g.manuais.some(d=>d.status==='Elaborar');
+  const anyProgresso = (g.pre && ['Treinamento Piloto','Enviado para Homologação'].includes(g.pre.status)) || g.manuais.some(d=>d.status==='Em andamento');
+  const finalizado = (g.pre && g.pre.status==='Homologado') && cnt>0 && ok===cnt;
+  switch(chip){
+    case 'todos': return true;
+    case 'pendente': return anyElaborar;
+    case 'progresso': return anyProgresso && !anyElaborar;
+    case 'finalizado': return finalizado;
+    case 'pre-pendente': return g.pre && g.pre.status==='Elaborar';
+    case 'manuais-incompletos': return ok < (cnt || 5);
+    default: return true;
+  }
+}
 
-  renderSkeletonTable('docs-tbody',6,8);
+function renderChips(groups){
+  const chips = [
+    {id:'todos', label:'Todos'},
+    {id:'pendente', label:'Pendente'},
+    {id:'progresso', label:'Em progresso'},
+    {id:'finalizado', label:'Finalizado'},
+    {id:'pre-pendente', label:'IT/PRE pendente'},
+    {id:'manuais-incompletos', label:'Manuais incompletos'},
+  ];
+  document.getElementById('equip-chips').innerHTML = chips.map(c => {
+    const n = groups.filter(g => equipMatchesChip(g, c.id)).length;
+    const active = _equipChip === c.id ? ' active' : '';
+    return `<button type="button" class="filter-chip${active}" data-chip="${c.id}">${esc(c.label)}<span class="chip-count">${n}</span></button>`;
+  }).join('');
+}
 
-  let data=allDocs.filter(d => d.setor === _currentSetor);
-  if(st) data = data.filter(d => d.status === st);
-  if(q) {
-      data = data.filter(d => {
-          const blob = [d.equipamento, d.documento, d.sku, d.codigo_doc, d.responsavel, d.fabricante, d.tipo_doc_label].join(' ').toLowerCase();
-          return blob.includes(q.toLowerCase());
-      });
+function renderDocs(){ renderGrid(); }
+
+function renderGrid(){
+  const groups = groupByEquip();
+  renderChips(groups);
+
+  const q = (document.getElementById('docs-search').value || '').trim().toLowerCase();
+  let filtered = groups.filter(g => equipMatchesChip(g, _equipChip));
+  if(q){
+    filtered = filtered.filter(g =>
+      [g.equipamento, g.sku, g.fabricante].join(' ').toLowerCase().includes(q)
+    );
   }
 
-  data=applySort(data);
+  document.getElementById('docs-badge').textContent = filtered.length + ' equip.';
 
-  document.getElementById('docs-badge').textContent=data.length+' docs';
-  const canEdit=currentUser.role!=='leitura';
-  
-  let tbHtml = '';
-  if(_currentSetor === 'PRE') {
-      tbHtml = data.map(d=>`<tr>
-        <td class="bold">${esc(d.equipamento)}</td><td class="mono">${esc(d.sku)}</td><td class="mono">${esc(d.codigo_doc)}</td>
-        <td>${esc(d.responsavel)}</td>
-        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
-        <td>${esc(d.data_treinamento)}</td><td>${esc(d.data_homologacao)}</td>
-        <td>
-          <div class="row-actions">
-            ${renderLink(d.armazenamento)}
-            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
-          </div>
-        </td>
-      </tr>`).join('');
-  } else if (_currentSetor === 'Manuais') {
-      const groups = {};
-      data.forEach(d => {
-          const key = d.equipamento + '|' + d.sku;
-          if (!groups[key]) {
-              groups[key] = {
-                  equipamento: d.equipamento, fabricante: d.fabricante, sku: d.sku, codigo_doc: d.codigo_doc,
-                  armazenamento: d.armazenamento, firstId: d.id, docs: {}
-              };
-          }
-          groups[key].docs[d.tipo_doc] = d;
-          if (!groups[key].armazenamento && d.armazenamento) groups[key].armazenamento = d.armazenamento;
-      });
-
-      tbHtml = Object.values(groups).map(g => {
-          const getCol = (tipo) => {
-              const doc = g.docs[tipo];
-              if(!doc) return `<td style="color:var(--t4);text-align:center">—</td>`;
-              return `<td id="td-${doc.id}-status" style="min-width:130px">${renderStatusSelect(doc.id, doc.status, canEdit)}</td>`;
-          };
-          return `<tr>
-            <td class="bold">${esc(g.equipamento)}</td><td>${esc(g.fabricante)}</td><td class="mono">${esc(g.sku)}</td>
-            ${getCol('Manual_ES')}
-            ${getCol('Manual_Usuario')}
-            ${getCol('QIQOQD')}
-            ${getCol('Manual_Servico')}
-            ${getCol('Spare_Parts')}
-            <td>
-              <div class="row-actions">
-                ${renderLink(g.armazenamento)}
-                ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${g.firstId}" aria-label="Editar">Editar</button>`:''}
-              </div>
-            </td>
-          </tr>`;
-      }).join('');
-  } else if (_currentSetor === 'PDE') {
-      tbHtml = data.map(d=>`<tr>
-        <td class="bold">${esc(d.documento)}</td><td class="mono">${esc(d.codigo_doc)}</td>
-        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
-        <td>
-          <div class="row-actions">
-            ${renderLink(d.armazenamento)}
-            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
-          </div>
-        </td>
-      </tr>`).join('');
+  const grid = document.getElementById('equip-grid');
+  if(!filtered.length){
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--t4);padding:32px">Nenhum equipamento encontrado</div>';
+    return;
   }
-  
-  document.getElementById('docs-tbody').innerHTML = tbHtml || `<tr><td colspan="8" style="text-align:center;color:var(--t4);padding:32px">Nenhum resultado</td></tr>`;
+  grid.innerHTML = filtered.map(g => {
+    const color = equipStatusColor(g);
+    const preTxt = g.pre ? esc(g.pre.status) : '—';
+    const preMuted = g.pre ? '' : ' muted';
+    const ok = equipManuaisOk(g);
+    const manTxt = g.manuais.length ? `${ok} / 5` : '—';
+    const manMuted = g.manuais.length ? '' : ' muted';
+    const preColor = color==='red' ? 'var(--red)' : color==='green' ? 'var(--green)' : 'var(--amber)';
+    return `<div class="equip-card st-${color}" data-equip="${esc(g.equipamento)}" onclick="openEquipModal('${esc(g.equipamento).replace(/'/g,"\\'")}')">
+      <div class="equip-card-name">${esc(g.equipamento)}</div>
+      <div class="equip-card-meta">${esc(g.sku||'—')}${g.fabricante?' · '+esc(g.fabricante):''}</div>
+      <div class="equip-card-blocks">
+        <div class="equip-block"><div class="equip-block-label">IT / PRE</div><div class="equip-block-val${preMuted}" style="${g.pre?`color:${preColor}`:''}">${preTxt}</div></div>
+        <div class="equip-block"><div class="equip-block-label">Manuais</div><div class="equip-block-val${manMuted}">${manTxt}</div></div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function getStatusClass(v) {
