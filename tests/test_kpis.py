@@ -5,7 +5,7 @@ def test_compute_kpis_basico():
     from servidor import compute_kpis
     docs = [
         {"setor": "PRE", "status": "Homologado", "status_global": "Finalizado"},
-        {"setor": "Fabricante", "status": "Elaborar", "status_global": "Pendente"},
+        {"setor": "Manuais", "status": "Elaborar", "status_global": "Pendente"},
     ]
     k = compute_kpis(docs)
     assert k["total"] == 2
@@ -13,10 +13,10 @@ def test_compute_kpis_basico():
     assert k["pendentes"] == 1
     assert k["em_progresso"] == 0
     assert k["pct_concluidos"] == 50.0
-    assert k["por_setor"] == {"PRE": 1, "Fabricante": 1, "PDE": 0}
+    assert k["por_setor"] == {"PRE": 1, "Manuais": 1}
     assert k["global_counts"] == {"Finalizado": 1, "Em progresso": 0, "Pendente": 1}
     assert k["status_counts"]["PRE"]["Homologado"] == 1
-    assert k["status_counts"]["Fabricante"]["Elaborar"] == 1
+    assert k["status_counts"]["Manuais"]["Elaborar"] == 1
 
 
 def test_compute_kpis_lista_vazia():
@@ -25,7 +25,7 @@ def test_compute_kpis_lista_vazia():
     assert k["total"] == 0
     assert k["finalizados"] == 0
     assert k["pct_concluidos"] == 0
-    assert k["por_setor"] == {"PRE": 0, "Fabricante": 0, "PDE": 0}
+    assert k["por_setor"] == {"PRE": 0, "Manuais": 0}
 
 
 def test_metrics_endpoint(client, admin_token, auth_headers):
@@ -36,10 +36,10 @@ def test_metrics_endpoint(client, admin_token, auth_headers):
     for key in ("total", "finalizados", "em_progresso", "pendentes",
                 "backlog", "pct_concluidos", "por_setor", "status_counts", "global_counts"):
         assert key in m, f"Falta chave: {key}"
-    assert m["total"] == 3
+    assert m["total"] == 2
     assert m["finalizados"] == 1    # MAQ-A (PRE Homologado -> Finalizado)
-    assert m["em_progresso"] == 1   # MAQ-B (Fabricante Em andamento -> Em progresso)
-    assert m["pendentes"] == 1      # MAQ-C (PDE Elaborar -> Pendente)
+    assert m["em_progresso"] == 1   # MAQ-B (Manuais Em andamento -> Em progresso)
+    assert m["pendentes"] == 0
 
 
 def test_data_endpoint_inclui_kpis(client, admin_token, auth_headers):
@@ -47,4 +47,4 @@ def test_data_endpoint_inclui_kpis(client, admin_token, auth_headers):
     data = res.get_json()
     assert "items" in data
     assert "kpis" in data
-    assert data["kpis"]["total"] == 3
+    assert data["kpis"]["total"] == 2

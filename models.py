@@ -14,21 +14,20 @@ bcrypt = Bcrypt()
 
 # ── CONSTANTES DE DOMÍNIO ─────────────────────────────────────────────────────
 
-SETORES = ["PRE", "Fabricante", "PDE"]
+SETORES = ["PRE", "Manuais"]
 
 STATUS_PRE = ["Elaborar", "Treinamento Piloto", "Enviado para Homologação", "Homologado"]
 STATUS_FABRICANTE = ["Elaborar", "Em andamento", "Concluído"]
-STATUS_PDE = ["Elaborar", "Em andamento", "Concluído"]
 
 STATUS_MAP = {
     "PRE": STATUS_PRE,
-    "Fabricante": STATUS_FABRICANTE,
-    "PDE": STATUS_PDE,
+    "Manuais": STATUS_FABRICANTE,
 }
 
-TIPOS_DOC_FABRICANTE = ["Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
+TIPOS_DOC_FABRICANTE = ["Manual_ES", "Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
 
 TIPOS_DOC_LABELS = {
+    "Manual_ES": "Manual ES",
     "Manual_Servico": "Manual de Serviço",
     "Manual_Usuario": "Manual do Usuário",
     "QIQOQD": "QI/QO/QD",

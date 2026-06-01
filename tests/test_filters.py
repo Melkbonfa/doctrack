@@ -41,22 +41,13 @@ def test_filter_setor_pre(client, admin_token, auth_headers):
     assert docs[0]["setor"] == "PRE"
 
 
-def test_filter_setor_fabricante(client, admin_token, auth_headers):
+def test_filter_setor_manuais(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
-    r = client.get("/api/documentos?setor=Fabricante", headers=h)
+    r = client.get("/api/documentos?setor=Manuais", headers=h)
     assert r.status_code == 200
     docs = r.get_json()
     assert len(docs) == 1
-    assert docs[0]["setor"] == "Fabricante"
-
-
-def test_filter_setor_pde(client, admin_token, auth_headers):
-    h = auth_headers(admin_token)
-    r = client.get("/api/documentos?setor=PDE", headers=h)
-    assert r.status_code == 200
-    docs = r.get_json()
-    assert len(docs) == 1
-    assert docs[0]["setor"] == "PDE"
+    assert docs[0]["setor"] == "Manuais"
 
 
 def test_filter_sem_resultados(client, admin_token, auth_headers):

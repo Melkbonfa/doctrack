@@ -51,11 +51,9 @@ def app(tmp_path):
             Documento(setor="PRE", equipamento="MAQ-A", documento="POP-001", sku="SKU-A",
                       codigo_doc="COD-A", responsavel="Carlos Mota", status="Homologado",
                       armazenamento="P:/Qualidade/POP-001.pdf"),
-            Documento(setor="Fabricante", equipamento="MAQ-B", documento="Manual-002", sku="SKU-B",
+            Documento(setor="Manuais", equipamento="MAQ-B", documento="Manual-002", sku="SKU-B",
                       codigo_doc="COD-B", status="Em andamento", tipo_doc="Manual_Usuario",
                       fabricante="Siemens", armazenamento="P:/Tecnico/Manual-002.pdf"),
-            Documento(setor="PDE", equipamento="P&D (Processos)", documento="Desenho-003",
-                      codigo_doc="COD-C", status="Elaborar", armazenamento="P:/Engenharia/Desenho-003.pdf"),
         ]
         for d in docs:
             db.session.add(d)
