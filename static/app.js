@@ -543,84 +543,118 @@ async function delDoc(id,nome){
   try{const res=await apiFetch(`/documentos/${id}`,{method:'DELETE'});if(!res||!res.ok)return;showToast('Excluído','success');await refreshAll()}catch(e){}
 }
 
-function configureDocModal(setor) {
-    document.getElementById('doc-setor').value = setor;
-    document.getElementById('modal-doc-sub').textContent = `Setor: ${setor}`;
-    
-    // reset visibilities
-    document.getElementById('row-datas-pre').style.display = 'none';
-    document.getElementById('row-obs-pre').style.display = 'none';
-    document.getElementById('row-resp-fab').style.display = 'none';
-    document.getElementById('fg-sku').style.display = 'none';
-    document.getElementById('fg-equipamento').style.display = 'none';
-    document.getElementById('fg-responsavel').style.display = 'none';
-    document.getElementById('fg-fabricante').style.display = 'none';
-    document.getElementById('fg-tipo_doc').style.display = 'none';
-    
-    if(setor === 'PRE') {
-        document.getElementById('row-datas-pre').style.display = 'flex';
-        document.getElementById('row-obs-pre').style.display = 'flex';
-        document.getElementById('fg-sku').style.display = 'block';
-        document.getElementById('fg-equipamento').style.display = 'block';
-        document.getElementById('row-resp-fab').style.display = 'flex';
-        document.getElementById('fg-responsavel').style.display = 'block';
-    } else if(setor === 'Manuais') {
-        document.getElementById('fg-sku').style.display = 'block';
-        document.getElementById('fg-equipamento').style.display = 'block';
-        document.getElementById('row-resp-fab').style.display = 'flex';
-        document.getElementById('fg-fabricante').style.display = 'block';
-        document.getElementById('fg-tipo_doc').style.display = 'block';
-        
-        const selTipo = document.getElementById('doc-tipo_doc');
-        selTipo.innerHTML = _enums.tipos_doc_fabricante.map(t => `<option value="${t}">${_enums.tipos_doc_labels[t]}</option>`).join('');
-    } else if(setor === 'PDE') {
-        // Just Document, Codigo, and Armazenamento
-    }
+// ═══ MODAL DE EQUIPAMENTO ═══
+let _equipCtx = null; // { equipamento, pre, manuais: {tipo: doc} }
+
+// Wrapper mantido para o modal de usuário (e quaisquer outros modais simples)
+function openModal(id){ openBaseModal(id); }
+
+const _PRE_STATUS = ['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
+const _MAN_STATUS = ['Elaborar','Em andamento','Concluído'];
+const _MAN_TIPOS = [
+  ['Manual_ES','Manual ES'],
+  ['Manual_Usuario','Manual do Usuário'],
+  ['QIQOQD','QI/QO/QD'],
+  ['Manual_Servico','Manual de Serviço'],
+  ['Spare_Parts','Spare Parts'],
+];
+
+function _dateToInput(br){ // "dd/mm/yyyy" -> "yyyy-mm-dd"
+  if(!br) return '';
+  const p = br.split('/');
+  return p.length===3 ? `${p[2]}-${p[1]}-${p[0]}` : '';
 }
 
-function openModal(id) {
-    if(id.startsWith('add-doc-')) {
-        const setorMap = {'add-doc-pre': 'PRE', 'add-doc-fab': 'Manuais', 'add-doc-pde': 'PDE'};
-        configureDocModal(setorMap[id]);
-        document.getElementById('doc-id').value = '';
-        ['doc-equipamento', 'doc-documento', 'doc-sku', 'doc-codigo', 'doc-responsavel', 'doc-fabricante', 'doc-data_treinamento', 'doc-data_homologacao', 'doc-obs_treinamento', 'doc-obs_homologacao', 'doc-armazenamento'].forEach(f => {
-            const el = document.getElementById(f);
-            if(el) el.value = '';
-        });
-        openBaseModal('doc');
-        return;
-    }
-    openBaseModal(id);
+function switchEquipTab(tab){
+  document.querySelectorAll('.equip-modal-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.getElementById('equip-panel-pre').classList.toggle('active', tab==='pre');
+  document.getElementById('equip-panel-manuais').classList.toggle('active', tab==='manuais');
 }
 
-function openEditDoc(id){
-  const d=allDocs.find(x=>x.id===id);if(!d)return;
-  configureDocModal(d.setor);
-  
-  document.getElementById('doc-id').value=d.id;
-  document.getElementById('doc-equipamento').value=d.equipamento;
-  document.getElementById('doc-documento').value=d.documento;
-  document.getElementById('doc-sku').value=d.sku;
-  document.getElementById('doc-codigo').value=d.codigo_doc;
-  document.getElementById('doc-responsavel').value=d.responsavel;
-  document.getElementById('doc-fabricante').value=d.fabricante;
-  document.getElementById('doc-tipo_doc').value=d.tipo_doc;
-  
-  // input date formats
-  if(d.data_treinamento) {
-      const parts = d.data_treinamento.split('/');
-      if(parts.length===3) document.getElementById('doc-data_treinamento').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+function openEquipModal(equipName){
+  const docs = allDocs.filter(d => (d.equipamento||'').trim() === equipName);
+  const pre = docs.find(d => d.setor==='PRE') || null;
+  const manuais = {};
+  docs.filter(d=>d.setor==='Manuais').forEach(d=>{ manuais[d.tipo_doc] = d; });
+  const fabricante = (docs.find(d=>d.fabricante)||{}).fabricante || '';
+  const sku = (docs.find(d=>d.sku)||{}).sku || '';
+  _equipCtx = { equipamento: equipName, pre, manuais, fabricante, sku };
+
+  document.getElementById('equip-modal-title').textContent = equipName;
+  document.getElementById('equip-modal-sub').textContent = (sku?('SKU '+sku):'') + (fabricante?(' · '+fabricante):'');
+
+  renderEquipPrePanel();
+  renderEquipManuaisPanel();
+  switchEquipTab('pre');
+  openBaseModal('equip');
+}
+
+function renderEquipPrePanel(){
+  const p = _equipCtx.pre;
+  const panel = document.getElementById('equip-panel-pre');
+  if(!p){
+    panel.innerHTML = `<div style="text-align:center;padding:24px;color:var(--t3)">
+      <p style="margin-bottom:12px">Este equipamento ainda não tem documento IT/PRE.</p>
+      <button class="btn btn-primary btn-sm" onclick="createPreDoc()">Criar documento IT/PRE</button>
+    </div>`;
+    return;
   }
-  if(d.data_homologacao) {
-      const parts = d.data_homologacao.split('/');
-      if(parts.length===3) document.getElementById('doc-data_homologacao').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  const statusOpts = _PRE_STATUS.map(s=>`<option value="${esc(s)}" ${p.status===s?'selected':''}>${esc(s)}</option>`).join('');
+  panel.innerHTML = `
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Equipamento</label><input class="form-input" id="ep-equipamento" value="${esc(p.equipamento)}"></div>
+      <div class="form-group"><label class="form-label">SKU</label><input class="form-input" id="ep-sku" value="${esc(p.sku)}"></div>
+    </div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="ep-codigo" value="${esc(p.codigo_doc)}"></div>
+      <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="ep-responsavel" value="${esc(p.responsavel)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="ep-status">${statusOpts}</select></div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Data Treinamento Piloto</label><input class="form-input" type="date" id="ep-data_treinamento" value="${_dateToInput(p.data_treinamento)}"></div>
+      <div class="form-group"><label class="form-label">Data Envio Homologação</label><input class="form-input" type="date" id="ep-data_homologacao" value="${_dateToInput(p.data_homologacao)}"></div>
+    </div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="ep-obs_treinamento" value="${esc(p.obs_treinamento)}"></div>
+      <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="ep-obs_homologacao" value="${esc(p.obs_homologacao)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label><input class="form-input" id="ep-armazenamento" value="${esc(p.armazenamento)}"></div>
+    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipPre()">Salvar alterações</button></div>
+  `;
+}
+
+function renderEquipManuaisPanel(){
+  const panel = document.getElementById('equip-panel-manuais');
+  const hasManuais = Object.keys(_equipCtx.manuais).length > 0;
+  if(!hasManuais){
+    panel.innerHTML = `<div style="text-align:center;padding:24px;color:var(--t3)">
+      <p style="margin-bottom:12px">Este equipamento ainda não tem documentos de Manuais.</p>
+      <button class="btn btn-primary btn-sm" onclick="createManuais()">Criar manuais para este equipamento</button>
+    </div>`;
+    return;
   }
-  
-  document.getElementById('doc-obs_treinamento').value=d.obs_treinamento;
-  document.getElementById('doc-obs_homologacao').value=d.obs_homologacao;
-  document.getElementById('doc-armazenamento').value=d.armazenamento;
-  
-  openBaseModal('doc');
+  const rows = _MAN_TIPOS.map(([tipo, label]) => {
+    const d = _equipCtx.manuais[tipo];
+    if(!d) return '';
+    const statusOpts = _MAN_STATUS.map(s=>`<option value="${esc(s)}" ${d.status===s?'selected':''}>${esc(s)}</option>`).join('');
+    return `<div class="manual-row">
+      <div class="manual-row-head"><span class="manual-row-name">${esc(label)}</span></div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label">Código</label><input class="form-input" id="em-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
+        <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="em-st-${tipo}">${statusOpts}</select></div>
+      </div>
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="section-label-line">Dados do fabricante (compartilhados)</div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Fabricante</label><input class="form-input" id="em-fabricante" value="${esc(_equipCtx.fabricante)}"></div>
+      <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="em-armazenamento" value="${esc((Object.values(_equipCtx.manuais)[0]||{}).armazenamento||'')}"></div>
+    </div>
+    <div class="section-label-line">Documentos por tipo</div>
+    ${rows}
+    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipManuais()">Salvar alterações</button></div>
+  `;
 }
 
 async function saveDoc(){
