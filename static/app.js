@@ -2,9 +2,24 @@ const API='/api';
 let allDocs=[],chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
-let _currentSetor = 'PRE';
 
-const CAT_COLORS={'PRE':'#22d3ee','Fabricante':'#06b6d4','PDE':'#ec4899'};
+// ═══ TEMA CLARO/ESCURO ═══
+function applyTheme(theme){
+  const isLight = theme === 'light';
+  document.body.classList.toggle('theme-light', isLight);
+  const btn = document.getElementById('theme-toggle');
+  if(btn) btn.textContent = isLight ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
+  localStorage.setItem('doctrack_theme', next);
+  applyTheme(next);
+}
+function initTheme(){
+  applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
+}
+
+const CAT_COLORS={'PRE':'#22d3ee','Manuais':'#06b6d4'};
 const STATUS_PILL={'Elaborar':'pill-elab','Homologado':'pill-ok','Enviado para Homologação':'pill-wip','Treinamento Piloto':'pill-warn','Concluído':'pill-ok','Em andamento':'pill-wip'};
 
 function esc(str){
@@ -56,27 +71,19 @@ function navigate(page){
 document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>navigate(el.dataset.page)));
 
 document.body.addEventListener('click',(e)=>{
+  const chip=e.target.closest('.filter-chip');
+  if(chip){ _equipChip = chip.dataset.chip; renderGrid(); return; }
   const btn=e.target.closest('[data-action]');
   if(!btn)return;
   const action=btn.dataset.action;
   const id=btn.dataset.id;
   switch(action){
-    case 'edit-doc': openEditDoc(parseInt(id)); break;
-    case 'delete-doc': delDoc(parseInt(id), btn.dataset.name||''); break;
     case 'edit-user': openEditUser(parseInt(id)); break;
     case 'delete-user': confirmDeleteUser(parseInt(id), btn.dataset.name||''); break;
   }
 });
 
 document.body.addEventListener('change',(e)=>{
-  const sel=e.target.closest('select.etapa-select');
-  if(sel){
-    const docId=parseInt(sel.dataset.docId);
-    changeStatus(docId,sel.value);
-    return;
-  }
-  const filterIds=['docs-filter-status'];
-  if(e.target&&filterIds.includes(e.target.id)){filterDocs();return}
   if(e.target&&e.target.id==='audit-filter-action'){filterAudit();return}
 });
 
@@ -84,7 +91,7 @@ document.body.addEventListener('input',(e)=>{
   if(!e.target)return;
   if(e.target.id==='docs-search'||e.target.id==='audit-search'){
     clearTimeout(_filterTimer);
-    const fn=e.target.id==='docs-search'?filterDocs:filterAudit;
+    const fn=e.target.id==='docs-search'?renderGrid:filterAudit;
     _filterTimer=setTimeout(fn,250);
   }
 });
@@ -92,20 +99,8 @@ document.body.addEventListener('input',(e)=>{
 async function initApp(){
   updateUserUI();
   renderSkeletonTable('dash-table',5,5);
-  renderSkeletonTable('docs-tbody',6,8);
   await loadEnums();
   await loadData();
-  
-  // Setup tabs
-  document.querySelectorAll('.docs-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.docs-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      _currentSetor = btn.dataset.setor;
-      populateFilters();
-      filterDocs();
-    });
-  });
 
   renderDashboard();renderDocs();renderAudit();renderUsers();
   makeSortable();
@@ -126,9 +121,8 @@ function updateUserUI(){
   
   // Visibility rules
   if(rl==='leitura') {
-    document.getElementById('btn-add-doc-pre').style.display='none';
-    document.getElementById('btn-add-doc-fab').style.display='none';
-    document.getElementById('btn-add-doc-pde').style.display='none';
+    const b = document.getElementById('btn-add-equip');
+    if(b) b.style.display='none';
   }
   if(rl==='admin' || rl==='gestor') {
       const btnExp = document.getElementById('btn-export-kpis');
@@ -302,7 +296,7 @@ function renderDashboard(){
   ).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }
 
-function pillCls(c){if(!c)return'pill-elab';if(c.includes('PRE'))return'pill-wip';if(c.includes('Fabricante'))return'pill-elab';return'pill-warn'}
+function pillCls(c){if(!c)return'pill-elab';if(c.includes('PRE'))return'pill-wip';if(c.includes('Manuais'))return'pill-elab';return'pill-warn'}
 function pillSt(s){if(!s)return'<span style="color:var(--t4)">—</span>';const cls=STATUS_PILL[s]||'pill-elab';return`<span class="pill ${cls}">${esc(s)}</span>`}
 function pillGlobal(s){
   if(s==='Finalizado')return'<span class="sg-badge sg-finalizado">Finalizado</span>';
@@ -312,316 +306,359 @@ function pillGlobal(s){
 
 function renderLink(url) {
     if(!url || url === '—') return '—';
-    return `<a href="${esc(url)}" target="_blank" title="Abrir localização do arquivo" style="color:var(--cyan);text-decoration:none"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
+    const normalizedUrl = url.replace(/\\/g, '/');
+    const escapedUrl = esc(normalizedUrl).replace(/'/g, "\\'");
+    return `<a href="javascript:void(0)" onclick="abrirPasta('${escapedUrl}')" title="Abrir localização do arquivo" style="color:var(--cyan);text-decoration:none"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
 }
 
-// ═══ DOCS TABLE ═══
-function renderDocs(){
-  populateFilters();
-  filterDocs();
-}
-
-function populateFilters(){
-  if(!_enums.status_map) return;
-  const statuses = _enums.status_map[_currentSetor] || [];
-  const opt=(arr)=>arr.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
-  document.getElementById('docs-filter-status').innerHTML='<option value="">Status: Todos</option>'+opt(statuses);
-  
-  // Render THEAD based on Setor
-  let thHtml = '';
-  if(_currentSetor === 'PRE') {
-      thHtml = `<tr>
-        <th data-sortable="equipamento">Equipamento</th><th data-sortable="sku">SKU</th><th data-sortable="codigo_doc">Código Doc</th>
-        <th data-sortable="responsavel">Responsável</th><th data-sortable="status">Status</th>
-        <th data-sortable="data_treinamento">Trein. Piloto</th><th data-sortable="data_homologacao">Envio Homol.</th>
-        <th>Ações</th>
-      </tr>`;
-  } else if (_currentSetor === 'Fabricante') {
-      thHtml = `<tr>
-        <th data-sortable="equipamento">Equipamento</th><th data-sortable="fabricante">Fabricante</th><th data-sortable="sku">SKU</th>
-        <th data-sortable="codigo_doc">Código Doc</th>
-        <th>Manual do Usuário</th><th>QI/QO/QD</th><th>Manual de Serviço</th><th>Spare Parts</th>
-        <th>Ações</th>
-      </tr>`;
-  } else if (_currentSetor === 'PDE') {
-      thHtml = `<tr>
-        <th data-sortable="documento">Documento</th><th data-sortable="codigo_doc">Código Doc</th><th data-sortable="status">Status</th>
-        <th>Ações</th>
-      </tr>`;
+function copiarTexto(texto) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(texto);
   }
-  document.getElementById('docs-thead').innerHTML = thHtml;
-  makeSortable();
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) resolve();
+      else reject(new Error('Cópia rejeitada pelo navegador'));
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
-async function filterDocs(){
-  const q=document.getElementById('docs-search').value.trim();
-  const st=document.getElementById('docs-filter-status').value;
-
-  renderSkeletonTable('docs-tbody',6,8);
-
-  let data=allDocs.filter(d => d.setor === _currentSetor);
-  if(st) data = data.filter(d => d.status === st);
-  if(q) {
-      data = data.filter(d => {
-          const blob = [d.equipamento, d.documento, d.sku, d.codigo_doc, d.responsavel, d.fabricante, d.tipo_doc_label].join(' ').toLowerCase();
-          return blob.includes(q.toLowerCase());
-      });
-  }
-
-  data=applySort(data);
-
-  document.getElementById('docs-badge').textContent=data.length+' docs';
-  const canEdit=currentUser.role!=='leitura';
-  
-  let tbHtml = '';
-  if(_currentSetor === 'PRE') {
-      tbHtml = data.map(d=>`<tr>
-        <td class="bold">${esc(d.equipamento)}</td><td class="mono">${esc(d.sku)}</td><td class="mono">${esc(d.codigo_doc)}</td>
-        <td>${esc(d.responsavel)}</td>
-        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
-        <td>${esc(d.data_treinamento)}</td><td>${esc(d.data_homologacao)}</td>
-        <td>
-          <div class="row-actions">
-            ${renderLink(d.armazenamento)}
-            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
-          </div>
-        </td>
-      </tr>`).join('');
-  } else if (_currentSetor === 'Fabricante') {
-      const groups = {};
-      data.forEach(d => {
-          const key = d.equipamento + '|' + d.sku;
-          if (!groups[key]) {
-              groups[key] = {
-                  equipamento: d.equipamento, fabricante: d.fabricante, sku: d.sku, codigo_doc: d.codigo_doc,
-                  armazenamento: d.armazenamento, firstId: d.id, docs: {}
-              };
-          }
-          groups[key].docs[d.tipo_doc] = d;
-          if (!groups[key].armazenamento && d.armazenamento) groups[key].armazenamento = d.armazenamento;
-      });
-
-      tbHtml = Object.values(groups).map(g => {
-          const getCol = (tipo) => {
-              const doc = g.docs[tipo];
-              if(!doc) return `<td style="color:var(--t4);text-align:center">—</td>`;
-              return `<td id="td-${doc.id}-status" style="min-width:130px">${renderStatusSelect(doc.id, doc.status, canEdit)}</td>`;
-          };
-          return `<tr>
-            <td class="bold">${esc(g.equipamento)}</td><td>${esc(g.fabricante)}</td><td class="mono">${esc(g.sku)}</td>
-            <td class="mono">${esc(g.codigo_doc)}</td>
-            ${getCol('Manual_Usuario')}
-            ${getCol('QIQOQD')}
-            ${getCol('Manual_Servico')}
-            ${getCol('Spare_Parts')}
-            <td>
-              <div class="row-actions">
-                ${renderLink(g.armazenamento)}
-                ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${g.firstId}" aria-label="Editar">Editar</button>`:''}
-              </div>
-            </td>
-          </tr>`;
-      }).join('');
-  } else if (_currentSetor === 'PDE') {
-      tbHtml = data.map(d=>`<tr>
-        <td class="bold">${esc(d.documento)}</td><td class="mono">${esc(d.codigo_doc)}</td>
-        <td id="td-${d.id}-status">${renderStatusSelect(d.id, d.status, canEdit)}</td>
-        <td>
-          <div class="row-actions">
-            ${renderLink(d.armazenamento)}
-            ${canEdit?`<button class="btn-edit" type="button" data-action="edit-doc" data-id="${d.id}" aria-label="Editar">Editar</button><button class="btn-del" type="button" data-action="delete-doc" data-id="${d.id}" aria-label="Excluir">×</button>`:''}
-          </div>
-        </td>
-      </tr>`).join('');
-  }
-  
-  document.getElementById('docs-tbody').innerHTML = tbHtml || `<tr><td colspan="8" style="text-align:center;color:var(--t4);padding:32px">Nenhum resultado</td></tr>`;
-}
-
-function getStatusClass(v) {
-    if(!v) return 's-elaborar';
-    const lower = v.toLowerCase();
-    if(lower.includes('homologado') || lower === 'concluído') return 's-concluido';
-    if(lower.includes('homologação')) return 's-homologacao';
-    if(lower.includes('piloto') || lower === 'em andamento') return 's-treinamento';
-    return 's-elaborar';
-}
-
-function renderStatusSelect(docId, val, canEdit) {
-    const v=val||'Elaborar';
-    const cls = getStatusClass(v);
-    
-    // Fallback pra exibição sem dropdown
-    if(!canEdit) {
-        let pCls = 'pill-elab';
-        if (cls === 's-concluido') pCls = 'pill-ok';
-        else if (cls === 's-homologacao') pCls = 'pill-wip';
-        else if (cls === 's-treinamento') pCls = 'pill-warn';
-        return `<span class="pill ${pCls}" style="font-size:9px">${esc(v)}</span>`;
+async function abrirPasta(caminho) {
+  if(!caminho) return;
+  try {
+    const res = await apiFetch('/documentos/abrir-pasta', {
+      method: 'POST',
+      body: JSON.stringify({ caminho })
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) {
+      showToast(data.erro || 'Não foi possível abrir a pasta', 'error');
+      return;
     }
     
-    const options = _enums.status_map[_currentSetor].map(opt => `<option value="${esc(opt)}" ${v===opt?'selected':''}>${esc(opt)}</option>`).join('');
-    
-    return `<select class="etapa-select ${cls}" data-doc-id="${docId}" aria-label="Status">
-      ${options}
-    </select>`;
-}
-
-async function changeStatus(docId, novoStatus){
-  const td=document.getElementById(`td-${docId}-status`);
-  const sel=td.querySelector('select');
-  td.classList.add('loading');
-  const localDoc=allDocs.find(d=>d.id===docId);
-  const expectedVersion=localDoc?(localDoc.version||0):null;
-  try{
-    const res=await apiFetch(`/documento/${docId}/status`,{method:'PUT',body:JSON.stringify({status:novoStatus,version:expectedVersion})});
-    const data=await res.json();
-    if(res.status===409){
-      showToast('Documento foi alterado por outro usuário. Recarregando…','error');
-      if(data.documento&&localDoc){Object.assign(localDoc,data.documento)}
-      td.innerHTML=renderStatusSelect(docId,data.documento?data.documento.status:novoStatus,true);
-      td.classList.remove('loading');return;
-    }
-    if(!res.ok){showToast(data.erro||'Erro','error');td.innerHTML=renderStatusSelect(docId,localDoc.status,true);td.classList.remove('loading');return}
-    showToast(`Status atualizado`,'success');
-    if(localDoc){
-      localDoc.status=novoStatus;
-      localDoc.status_global=data.documento.status_global;
-      localDoc.version=data.documento.version;
-    }
-    const cls = getStatusClass(novoStatus);
-    sel.className='etapa-select '+cls;
-    td.insertAdjacentHTML('beforeend','<div class="cell-feedback">✨</div>');
-    setTimeout(()=>{const f=td.querySelector('.cell-feedback');if(f)f.remove()},1000);
-  }catch(e){showToast('Erro','error')}
-  td.classList.remove('loading');
-}
-
-async function delDoc(id,nome){
-  const ok=await confirmModal('Excluir documento',`Tem certeza que deseja excluir o documento? Essa ação pode ser revertida no banco (soft delete).`);
-  if(!ok)return;
-  try{const res=await apiFetch(`/documentos/${id}`,{method:'DELETE'});if(!res||!res.ok)return;showToast('Excluído','success');await refreshAll()}catch(e){}
-}
-
-function configureDocModal(setor) {
-    document.getElementById('doc-setor').value = setor;
-    document.getElementById('modal-doc-sub').textContent = `Setor: ${setor}`;
-    
-    // reset visibilities
-    document.getElementById('row-datas-pre').style.display = 'none';
-    document.getElementById('row-obs-pre').style.display = 'none';
-    document.getElementById('row-resp-fab').style.display = 'none';
-    document.getElementById('fg-sku').style.display = 'none';
-    document.getElementById('fg-equipamento').style.display = 'none';
-    document.getElementById('fg-responsavel').style.display = 'none';
-    document.getElementById('fg-fabricante').style.display = 'none';
-    document.getElementById('fg-tipo_doc').style.display = 'none';
-    
-    if(setor === 'PRE') {
-        document.getElementById('row-datas-pre').style.display = 'flex';
-        document.getElementById('row-obs-pre').style.display = 'flex';
-        document.getElementById('fg-sku').style.display = 'block';
-        document.getElementById('fg-equipamento').style.display = 'block';
-        document.getElementById('row-resp-fab').style.display = 'flex';
-        document.getElementById('fg-responsavel').style.display = 'block';
-    } else if(setor === 'Fabricante') {
-        document.getElementById('fg-sku').style.display = 'block';
-        document.getElementById('fg-equipamento').style.display = 'block';
-        document.getElementById('row-resp-fab').style.display = 'flex';
-        document.getElementById('fg-fabricante').style.display = 'block';
-        document.getElementById('fg-tipo_doc').style.display = 'block';
-        
-        const selTipo = document.getElementById('doc-tipo_doc');
-        selTipo.innerHTML = _enums.tipos_doc_fabricante.map(t => `<option value="${t}">${_enums.tipos_doc_labels[t]}</option>`).join('');
-    } else if(setor === 'PDE') {
-        // Just Document, Codigo, and Armazenamento
-    }
-}
-
-function openModal(id) {
-    if(id.startsWith('add-doc-')) {
-        const setorMap = {'add-doc-pre': 'PRE', 'add-doc-fab': 'Fabricante', 'add-doc-pde': 'PDE'};
-        configureDocModal(setorMap[id]);
-        document.getElementById('doc-id').value = '';
-        ['doc-equipamento', 'doc-documento', 'doc-sku', 'doc-codigo', 'doc-responsavel', 'doc-fabricante', 'doc-data_treinamento', 'doc-data_homologacao', 'doc-obs_treinamento', 'doc-obs_homologacao', 'doc-armazenamento'].forEach(f => {
-            const el = document.getElementById(f);
-            if(el) el.value = '';
-        });
-        openBaseModal('doc');
-        return;
-    }
-    openBaseModal(id);
-}
-
-function openEditDoc(id){
-  const d=allDocs.find(x=>x.id===id);if(!d)return;
-  configureDocModal(d.setor);
-  
-  document.getElementById('doc-id').value=d.id;
-  document.getElementById('doc-equipamento').value=d.equipamento;
-  document.getElementById('doc-documento').value=d.documento;
-  document.getElementById('doc-sku').value=d.sku;
-  document.getElementById('doc-codigo').value=d.codigo_doc;
-  document.getElementById('doc-responsavel').value=d.responsavel;
-  document.getElementById('doc-fabricante').value=d.fabricante;
-  document.getElementById('doc-tipo_doc').value=d.tipo_doc;
-  
-  // input date formats
-  if(d.data_treinamento) {
-      const parts = d.data_treinamento.split('/');
-      if(parts.length===3) document.getElementById('doc-data_treinamento').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
-  }
-  if(d.data_homologacao) {
-      const parts = d.data_homologacao.split('/');
-      if(parts.length===3) document.getElementById('doc-data_homologacao').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
-  }
-  
-  document.getElementById('doc-obs_treinamento').value=d.obs_treinamento;
-  document.getElementById('doc-obs_homologacao').value=d.obs_homologacao;
-  document.getElementById('doc-armazenamento').value=d.armazenamento;
-  
-  openBaseModal('doc');
-}
-
-async function saveDoc(){
-  const id=document.getElementById('doc-id').value;
-  const payload={
-    setor: document.getElementById('doc-setor').value,
-    equipamento:document.getElementById('doc-equipamento').value,
-    documento:document.getElementById('doc-documento').value,
-    sku:document.getElementById('doc-sku').value,
-    codigo_doc:document.getElementById('doc-codigo').value,
-    responsavel:document.getElementById('doc-responsavel').value,
-    fabricante:document.getElementById('doc-fabricante').value,
-    tipo_doc:document.getElementById('doc-tipo_doc').value,
-    data_treinamento:document.getElementById('doc-data_treinamento').value,
-    data_homologacao:document.getElementById('doc-data_homologacao').value,
-    obs_treinamento:document.getElementById('doc-obs_treinamento').value,
-    obs_homologacao:document.getElementById('doc-obs_homologacao').value,
-    armazenamento:document.getElementById('doc-armazenamento').value
-  };
-  
-  if(payload.setor !== 'PDE' && !payload.equipamento){showToast('Equipamento é obrigatório','error');return}
-  if(!payload.documento){showToast('Documento é obrigatório','error');return}
-
-  try{
-    const method = id ? 'PATCH' : 'POST';
-    const url = id ? `/documentos/${id}` : `/documentos`;
-    const res=await apiFetch(url,{method:method,body:JSON.stringify(payload)});
-    if(res&&res.ok){
-      showToast('Salvo','success');
-      closeModal('doc');
-      _currentSetor = payload.setor;
-      document.querySelectorAll('.docs-tab').forEach(b => {
-          b.classList.remove('active');
-          if(b.dataset.setor === payload.setor) b.classList.add('active');
-      });
-      await refreshAll();
+    if(data.local === false) {
+      const caminhoParaCopiar = data.caminho_aberto;
+      try {
+        await copiarTexto(caminhoParaCopiar);
+        showToast('Caminho de rede copiado! Cole no Windows Explorer.', 'success');
+      } catch (clipErr) {
+        console.error('Falha ao usar API clipboard, usando fallback...', clipErr);
+        window.prompt('Copie o caminho do documento:', caminhoParaCopiar);
+      }
     } else {
-        const errData = await res.json().catch(() => ({}));
-        showToast(errData.erro || errData.message || 'Erro ao salvar documento', 'error');
+      showToast(data.mensagem || 'Pasta aberta localmente', 'success');
     }
-  }catch(e){showToast('Erro de rede ou servidor', 'error')}
+  } catch(e) {
+    showToast('Erro de rede ao tentar abrir a pasta', 'error');
+  }
+}
+
+// ═══ DOCS — GRADE DE EQUIPAMENTOS ═══
+let _equipChip = 'todos';
+
+// Agrupa allDocs por nome de equipamento (PRE + Manuais juntos)
+function groupByEquip(){
+  const groups = {};
+  allDocs.forEach(d => {
+    const key = (d.equipamento || '—').trim();
+    if(!groups[key]){
+      groups[key] = { equipamento: key, sku:'', fabricante:'', pre:null, manuais:[] };
+    }
+    const g = groups[key];
+    if(d.sku && !g.sku) g.sku = d.sku;
+    if(d.fabricante && !g.fabricante) g.fabricante = d.fabricante;
+    if(d.setor === 'PRE'){ if(!g.pre) g.pre = d; }
+    else if(d.setor === 'Manuais'){ g.manuais.push(d); }
+  });
+  return Object.values(groups).sort((a,b)=>a.equipamento.localeCompare(b.equipamento));
+}
+
+function equipManuaisOk(g){ return g.manuais.filter(d=>d.status==='Concluído').length; }
+
+function equipStatusColor(g){
+  const ok = equipManuaisOk(g), cnt = g.manuais.length;
+  const preElaborar = g.pre && g.pre.status === 'Elaborar';
+  const preHomolog  = g.pre && g.pre.status === 'Homologado';
+  if(preElaborar || (cnt>0 && ok===0)) return 'red';
+  if(preHomolog && cnt>0 && ok===cnt) return 'green';
+  return 'amber';
+}
+
+function equipMatchesChip(g, chip){
+  const ok = equipManuaisOk(g), cnt = g.manuais.length;
+  const anyElaborar = (g.pre && g.pre.status==='Elaborar') || g.manuais.some(d=>d.status==='Elaborar');
+  const anyProgresso = (g.pre && ['Treinamento Piloto','Enviado para Homologação'].includes(g.pre.status)) || g.manuais.some(d=>d.status==='Em andamento');
+  const finalizado = (g.pre && g.pre.status==='Homologado') && cnt>0 && ok===cnt;
+  switch(chip){
+    case 'todos': return true;
+    case 'pendente': return anyElaborar;
+    case 'progresso': return anyProgresso && !anyElaborar;
+    case 'finalizado': return finalizado;
+    case 'pre-pendente': return g.pre && g.pre.status==='Elaborar';
+    case 'manuais-incompletos': return ok < (cnt || 5);
+    default: return true;
+  }
+}
+
+function renderChips(groups){
+  const chips = [
+    {id:'todos', label:'Todos'},
+    {id:'pendente', label:'Pendente'},
+    {id:'progresso', label:'Em progresso'},
+    {id:'finalizado', label:'Finalizado'},
+    {id:'pre-pendente', label:'IT/PRE pendente'},
+    {id:'manuais-incompletos', label:'Manuais incompletos'},
+  ];
+  document.getElementById('equip-chips').innerHTML = chips.map(c => {
+    const n = groups.filter(g => equipMatchesChip(g, c.id)).length;
+    const active = _equipChip === c.id ? ' active' : '';
+    return `<button type="button" class="filter-chip${active}" data-chip="${c.id}">${esc(c.label)}<span class="chip-count">${n}</span></button>`;
+  }).join('');
+}
+
+function renderDocs(){ renderGrid(); }
+
+function renderGrid(){
+  const groups = groupByEquip();
+  renderChips(groups);
+
+  const q = (document.getElementById('docs-search').value || '').trim().toLowerCase();
+  let filtered = groups.filter(g => equipMatchesChip(g, _equipChip));
+  if(q){
+    filtered = filtered.filter(g =>
+      [g.equipamento, g.sku, g.fabricante].join(' ').toLowerCase().includes(q)
+    );
+  }
+
+  document.getElementById('docs-badge').textContent = filtered.length + ' equip.';
+
+  const grid = document.getElementById('equip-grid');
+  if(!filtered.length){
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--t4);padding:32px">Nenhum equipamento encontrado</div>';
+    return;
+  }
+  grid.innerHTML = filtered.map(g => {
+    const color = equipStatusColor(g);
+    const preTxt = g.pre ? esc(g.pre.status) : '—';
+    const preMuted = g.pre ? '' : ' muted';
+    const ok = equipManuaisOk(g);
+    const manTxt = g.manuais.length ? `${ok} / 5` : '—';
+    const manMuted = g.manuais.length ? '' : ' muted';
+    const preColor = color==='red' ? 'var(--red)' : color==='green' ? 'var(--green)' : 'var(--amber)';
+    return `<div class="equip-card st-${color}" data-equip="${esc(g.equipamento)}" onclick="openEquipModal('${esc(g.equipamento).replace(/'/g,"\\'")}')">
+      <div class="equip-card-name">${esc(g.equipamento)}</div>
+      <div class="equip-card-meta">${esc(g.sku||'—')}${g.fabricante?' · '+esc(g.fabricante):''}</div>
+      <div class="equip-card-blocks">
+        <div class="equip-block"><div class="equip-block-label">IT / PRE</div><div class="equip-block-val${preMuted}" style="${g.pre?`color:${preColor}`:''}">${preTxt}</div></div>
+        <div class="equip-block"><div class="equip-block-label">Manuais</div><div class="equip-block-val${manMuted}">${manTxt}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══ MODAL DE EQUIPAMENTO ═══
+let _equipCtx = null; // { equipamento, pre, manuais: {tipo: doc} }
+
+// Wrapper mantido para o modal de usuário (e quaisquer outros modais simples)
+function openModal(id){ openBaseModal(id); }
+
+const _PRE_STATUS = ['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
+const _MAN_STATUS = ['Elaborar','Em andamento','Concluído'];
+const _MAN_TIPOS = [
+  ['Manual_ES','Manual ES'],
+  ['Manual_Usuario','Manual do Usuário'],
+  ['QIQOQD','QI/QO/QD'],
+  ['Manual_Servico','Manual de Serviço'],
+  ['Spare_Parts','Spare Parts'],
+];
+
+function _dateToInput(br){ // "dd/mm/yyyy" -> "yyyy-mm-dd"
+  if(!br) return '';
+  const p = br.split('/');
+  return p.length===3 ? `${p[2]}-${p[1]}-${p[0]}` : '';
+}
+
+function switchEquipTab(tab){
+  document.querySelectorAll('.equip-modal-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.getElementById('equip-panel-pre').classList.toggle('active', tab==='pre');
+  document.getElementById('equip-panel-manuais').classList.toggle('active', tab==='manuais');
+}
+
+function openEquipModal(equipName){
+  const docs = allDocs.filter(d => (d.equipamento||'').trim() === equipName);
+  const pre = docs.find(d => d.setor==='PRE') || null;
+  const manuais = {};
+  docs.filter(d=>d.setor==='Manuais').forEach(d=>{ manuais[d.tipo_doc] = d; });
+  const fabricante = (docs.find(d=>d.fabricante)||{}).fabricante || '';
+  const sku = (docs.find(d=>d.sku)||{}).sku || '';
+  _equipCtx = { equipamento: equipName, pre, manuais, fabricante, sku };
+
+  document.getElementById('equip-modal-title').textContent = equipName;
+  document.getElementById('equip-modal-sub').textContent = (sku?('SKU '+sku):'') + (fabricante?(' · '+fabricante):'');
+
+  renderEquipPrePanel();
+  renderEquipManuaisPanel();
+  switchEquipTab('pre');
+  openBaseModal('equip');
+}
+
+function renderEquipPrePanel(){
+  const p = _equipCtx.pre;
+  const panel = document.getElementById('equip-panel-pre');
+  if(!p){
+    panel.innerHTML = `<div style="text-align:center;padding:24px;color:var(--t3)">
+      <p style="margin-bottom:12px">Este equipamento ainda não tem documento IT/PRE.</p>
+      <button class="btn btn-primary btn-sm" onclick="createPreDoc()">Criar documento IT/PRE</button>
+    </div>`;
+    return;
+  }
+  const statusOpts = _PRE_STATUS.map(s=>`<option value="${esc(s)}" ${p.status===s?'selected':''}>${esc(s)}</option>`).join('');
+  panel.innerHTML = `
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Equipamento</label><input class="form-input" id="ep-equipamento" value="${esc(p.equipamento)}"></div>
+      <div class="form-group"><label class="form-label">SKU</label><input class="form-input" id="ep-sku" value="${esc(p.sku)}"></div>
+    </div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="ep-codigo" value="${esc(p.codigo_doc)}"></div>
+      <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="ep-responsavel" value="${esc(p.responsavel)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="ep-status">${statusOpts}</select></div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Data Treinamento Piloto</label><input class="form-input" type="date" id="ep-data_treinamento" value="${_dateToInput(p.data_treinamento)}"></div>
+      <div class="form-group"><label class="form-label">Data Envio Homologação</label><input class="form-input" type="date" id="ep-data_homologacao" value="${_dateToInput(p.data_homologacao)}"></div>
+    </div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="ep-obs_treinamento" value="${esc(p.obs_treinamento)}"></div>
+      <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="ep-obs_homologacao" value="${esc(p.obs_homologacao)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label><input class="form-input" id="ep-armazenamento" value="${esc(p.armazenamento)}"></div>
+    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipPre()">Salvar alterações</button></div>
+  `;
+}
+
+function renderEquipManuaisPanel(){
+  const panel = document.getElementById('equip-panel-manuais');
+  const hasManuais = Object.keys(_equipCtx.manuais).length > 0;
+  if(!hasManuais){
+    panel.innerHTML = `<div style="text-align:center;padding:24px;color:var(--t3)">
+      <p style="margin-bottom:12px">Este equipamento ainda não tem documentos de Manuais.</p>
+      <button class="btn btn-primary btn-sm" onclick="createManuais()">Criar manuais para este equipamento</button>
+    </div>`;
+    return;
+  }
+  const rows = _MAN_TIPOS.map(([tipo, label]) => {
+    const d = _equipCtx.manuais[tipo];
+    if(!d) return '';
+    const statusOpts = _MAN_STATUS.map(s=>`<option value="${esc(s)}" ${d.status===s?'selected':''}>${esc(s)}</option>`).join('');
+    return `<div class="manual-row">
+      <div class="manual-row-head"><span class="manual-row-name">${esc(label)}</span></div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label">Código</label><input class="form-input" id="em-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
+        <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="em-st-${tipo}">${statusOpts}</select></div>
+      </div>
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="section-label-line">Dados do fabricante (compartilhados)</div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Fabricante</label><input class="form-input" id="em-fabricante" value="${esc(_equipCtx.fabricante)}"></div>
+      <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="em-armazenamento" value="${esc((Object.values(_equipCtx.manuais)[0]||{}).armazenamento||'')}"></div>
+    </div>
+    <div class="section-label-line">Documentos por tipo</div>
+    ${rows}
+    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipManuais()">Salvar alterações</button></div>
+  `;
+}
+
+async function _patchDoc(id, payload){
+  const res = await apiFetch(`/documentos/${id}`, {method:'PATCH', body:JSON.stringify(payload)});
+  return res;
+}
+
+async function saveEquipPre(){
+  const p = _equipCtx.pre;
+  if(!p) return;
+  const payload = {
+    equipamento: document.getElementById('ep-equipamento').value,
+    sku: document.getElementById('ep-sku').value,
+    codigo_doc: document.getElementById('ep-codigo').value,
+    responsavel: document.getElementById('ep-responsavel').value,
+    status: document.getElementById('ep-status').value,
+    data_treinamento: document.getElementById('ep-data_treinamento').value,
+    data_homologacao: document.getElementById('ep-data_homologacao').value,
+    obs_treinamento: document.getElementById('ep-obs_treinamento').value,
+    obs_homologacao: document.getElementById('ep-obs_homologacao').value,
+    armazenamento: document.getElementById('ep-armazenamento').value,
+  };
+  try{
+    const res = await _patchDoc(p.id, payload);
+    if(res && res.ok){ showToast('IT/PRE salvo','success'); closeModal('equip'); await refreshAll(); }
+    else { const e = await res.json().catch(()=>({})); showToast(e.erro||'Erro ao salvar','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+async function saveEquipManuais(){
+  const fabricante = document.getElementById('em-fabricante').value;
+  const armazenamento = document.getElementById('em-armazenamento').value;
+  const tipos = Object.keys(_equipCtx.manuais);
+  try{
+    for(const tipo of tipos){
+      const d = _equipCtx.manuais[tipo];
+      const payload = {
+        fabricante,
+        armazenamento,
+        codigo_doc: document.getElementById('em-cod-'+tipo).value,
+        status: document.getElementById('em-st-'+tipo).value,
+      };
+      const res = await _patchDoc(d.id, payload);
+      if(!res || !res.ok){ const e = res ? await res.json().catch(()=>({})) : {}; showToast(e.erro||'Erro ao salvar manuais','error'); return; }
+    }
+    showToast('Manuais salvos','success'); closeModal('equip'); await refreshAll();
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// Cria o documento IT/PRE para o equipamento aberto
+async function createPreDoc(){
+  const payload = { setor:'PRE', equipamento:_equipCtx.equipamento, documento:`IT/Checklist - ${_equipCtx.equipamento}`, sku:_equipCtx.sku };
+  try{
+    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
+    if(res && res.ok){ showToast('IT/PRE criado','success'); closeModal('equip'); await refreshAll(); }
+    else { showToast('Erro ao criar IT/PRE','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// Cria os 5 manuais para o equipamento aberto (backend gera os 5 a partir de um POST Manuais)
+async function createManuais(){
+  const payload = { setor:'Manuais', equipamento:_equipCtx.equipamento, documento:`Manual ES - ${_equipCtx.equipamento}`, tipo_doc:'Manual_ES', sku:_equipCtx.sku, fabricante:_equipCtx.fabricante };
+  try{
+    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
+    if(res && res.ok){ showToast('Manuais criados','success'); closeModal('equip'); await refreshAll(); }
+    else { showToast('Erro ao criar manuais','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+function openNewEquip(){
+  // Novo equipamento = criar primeiro o IT/PRE com nome digitado
+  const nome = prompt('Nome do novo equipamento:');
+  if(!nome || !nome.trim()) return;
+  apiFetch('/documentos', {method:'POST', body:JSON.stringify({setor:'PRE', equipamento:nome.trim(), documento:`IT/Checklist - ${nome.trim()}`})})
+    .then(async res => {
+      if(res && res.ok){ showToast('Equipamento criado','success'); await refreshAll(); }
+      else { showToast('Erro ao criar equipamento','error'); }
+    })
+    .catch(()=>showToast('Erro de rede','error'));
 }
 
 // ═══ AUDIT ═══
@@ -645,7 +682,7 @@ async function filterAudit(){
 }
 
 function exportAudit() {
-    window.location.href = API + '/export/audit?token=' + getToken();
+    window.open(API + '/export/audit?token=' + getToken(), '_blank');
 }
 
 // ═══ USERS ═══
@@ -774,7 +811,6 @@ document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListene
 
 let _sortState={col:null,dir:1};
 function makeSortable(){
-  document.querySelectorAll('#docs-tbody').forEach(()=>{});
   const ths=document.querySelectorAll('table thead th');
   ths.forEach((th,idx)=>{
     if(!th.dataset.sortable)return;
@@ -788,7 +824,7 @@ function makeSortable(){
       _sortState.col=key;
       ths.forEach(t=>t.classList.remove('sort-asc','sort-desc'));
       th.classList.add(_sortState.dir>0?'sort-asc':'sort-desc');
-      filterDocs();
+      renderGrid();
     };
     th.onclick=handler;
     th.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler()}};
@@ -811,3 +847,6 @@ function renderSkeletonTable(tbodyId,rows=5,cols=5){
     `<tr class="skeleton-row">${Array(cols).fill(0).map(()=>'<td><span class="skeleton"></span></td>').join('')}</tr>`
   ).join('');
 }
+
+// Aplica o tema salvo assim que o script carrega (vale para tela de login também)
+initTheme();

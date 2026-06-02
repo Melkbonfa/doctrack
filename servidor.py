@@ -43,10 +43,12 @@ app.config["JWT_SECRET_KEY"]                 = _jwt_secret
 app.config["JWT_ACCESS_TOKEN_EXPIRES"]       = timedelta(hours=1)
 app.config["JWT_REFRESH_TOKEN_EXPIRES"]      = timedelta(days=7)
 app.config["SECRET_KEY"]                     = _jwt_secret
+app.config["JWT_TOKEN_LOCATION"]             = ["headers", "query_string"]
+app.config["JWT_QUERY_STRING_NAME"]          = "token"
 
 from models import (
     db, bcrypt, User, Documento, AuditLog, RevokedToken, Responsavel,
-    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_PDE, STATUS_MAP, TIPOS_DOC_FABRICANTE, TIPOS_DOC_LABELS
+    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP, TIPOS_DOC_FABRICANTE, TIPOS_DOC_LABELS
 )
 from auth import auth_bp, log_action
 from event_bus import publish_event, get_events_since, EventType
@@ -231,6 +233,8 @@ def _import_excel_to_db():
                 
                 # Para cada tipo de documento na linha
                 cols_tipos = {
+                    "Manuais ES": "Manual_ES",
+                    "Manual ES": "Manual_ES",
                     "Manual de Serviço": "Manual_Servico",
                     "Manual do Usuário": "Manual_Usuario",
                     "QI/QO/QD": "QIQOQD",
@@ -240,7 +244,7 @@ def _import_excel_to_db():
                     status_val = s(col_name)
                     if status_val:
                         docs_to_add.append(Documento(
-                            setor="Fabricante",
+                            setor="Manuais",
                             equipamento=eq,
                             sku=sku,
                             codigo_doc=cod,
@@ -346,29 +350,83 @@ def create_documento():
     if setor not in SETORES:
         return jsonify({"erro": f"Setor inválido. Escolha entre {SETORES}"}), 400
 
-    doc = Documento(
-        setor=setor,
-        equipamento=data.get("equipamento", ""),
-        sku=data.get("sku", ""),
-        codigo_doc=data.get("codigo_doc", ""),
-        documento=data.get("documento", ""),
-        responsavel=data.get("responsavel", ""),
-        status=data.get("status", "Elaborar"),
-        tipo_doc=data.get("tipo_doc", ""),
-        fabricante=data.get("fabricante", ""),
-        obs_treinamento=data.get("obs_treinamento", ""),
-        obs_homologacao=data.get("obs_homologacao", ""),
-        armazenamento=data.get("armazenamento", "")
-    )
-    
-    if data.get("data_treinamento"):
-        try: doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d")
-        except: pass
-    if data.get("data_homologacao"):
-        try: doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
-        except: pass
+    # Busca SKU existente para manter a integração do equipamento
+    equip = data.get("equipamento", "").strip()
+    sku = data.get("sku", "").strip()
+    if equip:
+        existing = Documento.query.filter(
+            Documento.ativo == True,
+            Documento.equipamento == equip,
+            Documento.sku != ""
+        ).first()
+        if existing:
+            sku = existing.sku
 
-    db.session.add(doc); db.session.commit()
+    if setor == "Manuais":
+        tipos_exigidos = ["Manual_ES", "Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
+        selected_tipo = data.get("tipo_doc", "")
+        
+        # O documento principal selecionado
+        doc = Documento(
+            setor=setor,
+            equipamento=equip,
+            sku=sku,
+            codigo_doc=data.get("codigo_doc", ""),
+            documento=data.get("documento", ""),
+            responsavel=data.get("responsavel", ""),
+            status=data.get("status", "Elaborar"),
+            tipo_doc=selected_tipo,
+            fabricante=data.get("fabricante", ""),
+            obs_treinamento=data.get("obs_treinamento", ""),
+            obs_homologacao=data.get("obs_homologacao", ""),
+            armazenamento=data.get("armazenamento", "")
+        )
+        db.session.add(doc)
+        
+        # Criar os outros 4
+        for t in tipos_exigidos:
+            if t != selected_tipo:
+                label = TIPOS_DOC_LABELS.get(t, t)
+                outro_doc = Documento(
+                    setor=setor,
+                    equipamento=equip,
+                    sku=sku,
+                    codigo_doc=data.get("codigo_doc", ""),
+                    documento=f"{label} - {equip}",
+                    responsavel=data.get("responsavel", ""),
+                    status="Elaborar",
+                    tipo_doc=t,
+                    fabricante=data.get("fabricante", ""),
+                    armazenamento=data.get("armazenamento", "")
+                )
+                db.session.add(outro_doc)
+        
+        db.session.commit()
+    else:
+        doc = Documento(
+            setor=setor,
+            equipamento=equip,
+            sku=sku,
+            codigo_doc=data.get("codigo_doc", ""),
+            documento=data.get("documento", ""),
+            responsavel=data.get("responsavel", ""),
+            status=data.get("status", "Elaborar"),
+            tipo_doc=data.get("tipo_doc", ""),
+            fabricante=data.get("fabricante", ""),
+            obs_treinamento=data.get("obs_treinamento", ""),
+            obs_homologacao=data.get("obs_homologacao", ""),
+            armazenamento=data.get("armazenamento", "")
+        )
+        
+        if data.get("data_treinamento"):
+            try: doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d")
+            except: pass
+        if data.get("data_homologacao"):
+            try: doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
+            except: pass
+
+        db.session.add(doc); db.session.commit()
+    
     log_action(caller, "CREATE", entidade=doc.documento, campo="setor", novo=setor, documento_id=doc.id, ip=get_client_ip())
     
     try:
@@ -387,7 +445,40 @@ def update_documento(doc_id):
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
     
-    CAMPOS_STR = ["equipamento", "sku", "codigo_doc", "documento", "responsavel", "tipo_doc", "fabricante", "obs_treinamento", "obs_homologacao", "armazenamento"]
+    original_sku = doc.sku
+    original_equipamento = doc.equipamento
+    
+    if doc.setor == "Manuais":
+        campos_sync = ["equipamento", "sku", "fabricante", "armazenamento"]
+        has_changes = False
+        for campo in campos_sync:
+            if campo in data and str(getattr(doc, campo)) != str(data[campo]):
+                has_changes = True
+        
+        if has_changes:
+            novo_equip = data.get("equipamento", doc.equipamento)
+            novo_sku = data.get("sku", doc.sku)
+            novo_fab = data.get("fabricante", doc.fabricante)
+            novo_arm = data.get("armazenamento", doc.armazenamento)
+            
+            grupo_docs = Documento.query.filter_by(
+                setor="Manuais",
+                equipamento=original_equipamento,
+                sku=original_sku,
+                ativo=True
+            ).all()
+            
+            for gdoc in grupo_docs:
+                if gdoc.id != doc.id:
+                    gdoc.equipamento = novo_equip
+                    gdoc.sku = novo_sku
+                    gdoc.fabricante = novo_fab
+                    gdoc.armazenamento = novo_arm
+                    gdoc.updated_em = datetime.now()
+                    gdoc.version = (gdoc.version or 0) + 1
+                    log_action(caller, "UPDATE", entidade=gdoc.documento, campo="grupo_sync", antigo=f"{original_equipamento}|{original_sku}", novo=f"{novo_equip}|{novo_sku}", documento_id=gdoc.id, ip=get_client_ip())
+
+    CAMPOS_STR = ["equipamento", "sku", "codigo_doc", "documento", "responsavel", "status", "tipo_doc", "fabricante", "obs_treinamento", "obs_homologacao", "armazenamento"]
     
     for campo in CAMPOS_STR:
         if campo in data:
@@ -404,6 +495,32 @@ def update_documento(doc_id):
         try: 
             doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d") if data["data_homologacao"] else None
         except: pass
+
+    # Propagação global do SKU para documentos ativos do mesmo equipamento
+    final_sku_str = str(doc.sku).strip() if doc.sku else ""
+    original_sku_str = str(original_sku).strip() if original_sku else ""
+    
+    if final_sku_str != original_sku_str:
+        equip_nome = doc.equipamento
+        if equip_nome and str(equip_nome).strip() != "P&D (Processos)":
+            outros_docs = Documento.query.filter(
+                Documento.ativo == True,
+                Documento.equipamento == equip_nome,
+                Documento.id != doc.id
+            ).all()
+            for odoc in outros_docs:
+                if odoc.sku != doc.sku:
+                    antigo_val = odoc.sku
+                    odoc.sku = doc.sku
+                    odoc.updated_em = datetime.now()
+                    odoc.version = (odoc.version or 0) + 1
+                    
+                    log_action(caller, "UPDATE", entidade=odoc.documento, campo="sku", antigo=antigo_val, novo=doc.sku, documento_id=odoc.id, ip=get_client_ip())
+                    try:
+                        publish_event(EventType.DOCUMENT_UPDATED,
+                            payload={"documento_id": odoc.id, "documento": odoc.to_dict(), "setor": odoc.setor, "equipamento": odoc.equipamento},
+                            user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
+                    except Exception: pass
 
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
@@ -432,6 +549,88 @@ def delete_documento(doc_id):
             user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
     except Exception: pass
     return jsonify({"mensagem": f"Documento '{nome}' excluído"}), 200
+
+@app.route("/api/documentos/abrir-pasta", methods=["POST"])
+@jwt_required()
+def abrir_pasta():
+    data = request.get_json(silent=True) or {}
+    caminho = data.get("caminho", "").strip()
+    if not caminho:
+        return jsonify({"erro": "Caminho não fornecido"}), 400
+        
+    import os
+    import subprocess
+    import socket
+    
+    caminho_norm = os.path.normpath(caminho)
+    
+    # 1. Determina se o cliente está na mesma máquina física que o servidor
+    client_ip = request.remote_addr
+    is_local = False
+    if client_ip in ("127.0.0.1", "::1", "localhost"):
+        is_local = True
+    else:
+        try:
+            hostname = socket.gethostname()
+            server_ips = socket.gethostbyname_ex(hostname)[2]
+            # Adiciona IPs conhecidos de loopback
+            server_ips.extend(["127.0.0.1", "::1"])
+            if client_ip in server_ips:
+                is_local = True
+        except:
+            pass
+            
+    # 2. Resolve o caminho (busca o arquivo/pasta ou o ancestral mais próximo existente)
+    caminho_final = None
+    tipo_abertura = "direto"
+    
+    if os.path.exists(caminho_norm):
+        caminho_final = caminho_norm
+        tipo_abertura = "direto"
+    else:
+        parent = os.path.dirname(caminho_norm)
+        while parent:
+            if not parent.strip():
+                break
+            if os.path.exists(parent) and os.path.isdir(parent):
+                caminho_final = parent
+                tipo_abertura = "ancestral"
+                break
+            next_parent = os.path.dirname(parent)
+            if next_parent == parent:
+                if os.path.exists(parent) and os.path.isdir(parent):
+                    caminho_final = parent
+                    tipo_abertura = "raiz"
+                break
+            parent = next_parent
+
+    if not caminho_final:
+        return jsonify({"erro": f"Caminho não encontrado ou inacessível: {caminho}"}), 404
+        
+    # 3. Executa a abertura física se for acesso local
+    if is_local:
+        try:
+            if os.path.isdir(caminho_final):
+                os.startfile(caminho_final)
+            else:
+                subprocess.Popen(["explorer", f"/select,{caminho_final}"])
+            return jsonify({
+                "mensagem": "Pasta aberta com sucesso",
+                "caminho_aberto": caminho_final,
+                "local": True,
+                "tipo": tipo_abertura
+            }), 200
+        except Exception as e:
+            return jsonify({"erro": f"Erro ao abrir pasta: {str(e)}"}), 500
+    else:
+        # Se for acesso remoto, não abre no servidor, mas retorna o caminho resolvido para o cliente copiar
+        return jsonify({
+            "mensagem": "Acesso remoto detectado. Caminho resolvido pronto para cópia.",
+            "caminho_aberto": caminho_final,
+            "caminho_original": caminho,
+            "local": False,
+            "tipo": tipo_abertura
+        }), 200
 
 # ── API — STATUS FLOW ─────────────────────────────────────────────────────────
 @app.route("/api/documento/<int:doc_id>/status", methods=["PUT"])
@@ -531,25 +730,53 @@ def api_audit():
 @require_role("admin", "gestor")
 def export_audit():
     logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).all()
-    si = io.StringIO()
-    cw = csv.writer(si)
-    cw.writerow(['ID', 'Usuario', 'Acao', 'Entidade', 'Campo', 'Valor Antigo', 'Valor Novo', 'Data'])
+    
+    # Caminho para o template do relatório HTML
+    template_path = os.path.join(BASE_DIR, "audit_log_report.html")
+    if not os.path.exists(template_path):
+        return jsonify({"erro": "Template de relatório não encontrado"}), 500
+        
+    with open(template_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+        
+    # Formata os logs no mesmo padrão da variável RAW no frontend
+    raw_list = []
     for log in logs:
-        cw.writerow([
-            log.id, 
-            log.usuario_email, 
-            log.acao, 
-            log.entidade, 
-            log.campo, 
-            log.valor_antigo, 
-            log.valor_novo, 
-            log.timestamp.strftime("%d/%m/%Y %H:%M:%S") if log.timestamp else ""
-        ])
+        raw_list.append({
+            "ID": log.id,
+            "Usuario": log.usuario_email or "",
+            "Acao": log.acao or "",
+            "Entidade": log.entidade or "",
+            "Campo": log.campo or "",
+            "ValorAntigo": log.valor_antigo or "",
+            "ValorNovo": log.valor_novo or "",
+            "Data": log.timestamp.strftime("%d/%m/%Y %H:%M:%S") if log.timestamp else ""
+        })
+        
+    import json
+    raw_json = json.dumps(raw_list, ensure_ascii=False)
+    
+    # Substitui a definição const RAW no javascript usando index para máxima segurança
+    start_str = "const RAW = ["
+    start_idx = html_content.find(start_str)
+    if start_idx != -1:
+        end_idx = html_content.find("];", start_idx)
+        if end_idx != -1:
+            html_content = html_content[:start_idx] + f"const RAW = {raw_json}" + html_content[end_idx + 1:]
+            
+    # Atualiza a data de exportação no cabeçalho
+    import re
+    current_date = datetime.now().strftime("%d/%m/%Y")
+    html_content = re.sub(
+        r'exportado em \d{2}/\d{2}/\d{4}',
+        f'exportado em {current_date}',
+        html_content
+    )
+    
     return send_file(
-        io.BytesIO(si.getvalue().encode('utf-8-sig')),
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name="audit_log.csv"
+        io.BytesIO(html_content.encode('utf-8')),
+        mimetype="text/html",
+        as_attachment=False
     )
 
 @app.route("/api/events/replay", methods=["GET"])
@@ -645,6 +872,47 @@ def on_ping(data):
 with app.app_context():
     try:
         db.create_all()
+        # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
+        from sqlalchemy import text
+        db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
+        db.session.commit()
+        
+        # Garante que todo equipamento em 'Manuais' tenha os 5 tipos de documentos
+        from models import Documento, TIPOS_DOC_LABELS
+        docs_manuais = Documento.query.filter_by(setor="Manuais", ativo=True).all()
+        equipamentos_grupos = {}
+        for d in docs_manuais:
+            key = (d.equipamento, d.sku)
+            if key not in equipamentos_grupos:
+                equipamentos_grupos[key] = []
+            equipamentos_grupos[key].append(d)
+        
+        tipos_exigidos = ["Manual_ES", "Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
+        
+        migrados_count = 0
+        for (eq, sku), docs in equipamentos_grupos.items():
+            tipos_existentes = {d.tipo_doc for d in docs}
+            ref_doc = docs[0]
+            for t in tipos_exigidos:
+                if t not in tipos_existentes:
+                    label = TIPOS_DOC_LABELS.get(t, t)
+                    novo_doc = Documento(
+                        setor="Manuais",
+                        equipamento=eq,
+                        sku=sku,
+                        fabricante=ref_doc.fabricante,
+                        codigo_doc=ref_doc.codigo_doc,
+                        documento=f"{label} - {eq}",
+                        tipo_doc=t,
+                        status="Elaborar",
+                        armazenamento=ref_doc.armazenamento
+                    )
+                    db.session.add(novo_doc)
+                    migrados_count += 1
+        if migrados_count > 0:
+            db.session.commit()
+            print(f"[INFO] Migração: Criados {migrados_count} documentos de manuais ausentes.")
+        
         if User.query.count() == 0:
             init_db()
     except Exception as _startup_err:
@@ -659,6 +927,5 @@ if __name__ == "__main__":
     print("  DocTrack v4.0 Enterprise — Sector Based + WebSocket")
     print("="*55)
     if args.init: init_db(reset=True)
-    print(f"  Acesse: http://localhost:5000")
-    print("="*55 + "\n")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
+    _debug = os.environ.get("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+    socketio.run(app, host="0.0.0.0", port=5000, debug=_debug, allow_unsafe_werkzeug=True)
