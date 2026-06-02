@@ -294,14 +294,24 @@
       </select>
     </div>
 
-    <div class="section-label-line">Status</div>
-    <div class="form-group"><label class="form-label" for="exp-status">Status global do equipamento</label>
-      <select class="form-input" id="exp-status">
-        <option value="">Todos</option>
-        <option value="Finalizado">Finalizado</option>
-        <option value="Em progresso">Em progresso</option>
-        <option value="Pendente">Pendente</option>
-      </select>
+    <div class="section-label-line">Status &amp; Manuais</div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label" for="exp-status">Status global (IT/PRE + Manuais)</label>
+        <select class="form-input" id="exp-status">
+          <option value="">Todos</option>
+          <option value="Finalizado">Finalizado</option>
+          <option value="Em progresso">Em progresso</option>
+          <option value="Pendente">Pendente</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label" for="exp-manuais">Manuais</label>
+        <select class="form-input" id="exp-manuais">
+          <option value="">Todos</option>
+          <option value="completos">Completos (5/5)</option>
+          <option value="incompletos">Incompletos (&lt; 5)</option>
+          <option value="sem">Sem manuais</option>
+        </select>
+      </div>
     </div>
 
     <div class="modal-sub" id="exp-preview" style="margin:8px 0 0">—</div>

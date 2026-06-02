@@ -169,6 +169,7 @@ function _exportConfig(){
     fim:    (document.getElementById('exp-fim')||{}).value||'',
     base:   (document.getElementById('exp-datebase')||{}).value||'data_homologacao',
     status: (document.getElementById('exp-status')||{}).value||'',
+    manuais:(document.getElementById('exp-manuais')||{}).value||'',
   };
 }
 function _groupGlobalStatus(g){
@@ -187,6 +188,12 @@ function _exportFilteredGroups(){
   const endMs   = cfg.fim ? new Date(cfg.fim+'T23:59:59').getTime() : null;
   return groupByEquip().filter(g=>{
     if(cfg.status && _groupGlobalStatus(g)!==cfg.status) return false;
+    if(cfg.manuais){
+      const cnt=g.manuais.length, ok=equipManuaisOk(g);
+      if(cfg.manuais==='completos' && !(cnt>0 && ok===cnt)) return false;
+      if(cfg.manuais==='incompletos' && !(cnt>0 && ok<cnt)) return false;
+      if(cfg.manuais==='sem' && cnt>0) return false;
+    }
     if(startMs!==null || endMs!==null){
       const dt = _parseBR(g.pre ? g.pre[cfg.base] : '');
       if(!dt) return false;
@@ -206,22 +213,25 @@ function openExportModal(){
   const fim=document.getElementById('exp-fim'); if(fim) fim.value='';
   document.getElementById('exp-datebase').value='data_homologacao';
   document.getElementById('exp-status').value='';
-  ['exp-inicio','exp-fim','exp-datebase','exp-status'].forEach(id=>{const e=document.getElementById(id); if(e) e.onchange=updateExportPreview;});
+  const man=document.getElementById('exp-manuais'); if(man) man.value='';
+  ['exp-inicio','exp-fim','exp-datebase','exp-status','exp-manuais'].forEach(id=>{const e=document.getElementById(id); if(e) e.onchange=updateExportPreview;});
   updateExportPreview();
   openBaseModal('export');
 }
-function _renderChartImage(config, wpx, hpx){
+// build pode ser um objeto de config ou uma função(ctx,w,h)=>config (para gradientes/plugins)
+function _renderChartImage(build, wpx, hpx){
   return new Promise(resolve=>{
     if(typeof Chart==='undefined'){ resolve(null); return; }
     const canvas=document.createElement('canvas');
     canvas.width=wpx; canvas.height=hpx;
     canvas.style.position='fixed'; canvas.style.left='-10000px'; canvas.style.top='0';
     document.body.appendChild(canvas);
-    const cfg=JSON.parse(JSON.stringify(config));
+    const ctx=canvas.getContext('2d');
+    const cfg = (typeof build==='function') ? build(ctx, wpx, hpx) : build;
     cfg.options=cfg.options||{};
     cfg.options.responsive=false; cfg.options.animation=false; cfg.options.maintainAspectRatio=false;
     let chart;
-    try{ chart=new Chart(canvas.getContext('2d'), cfg); }catch(e){ canvas.remove(); resolve(null); return; }
+    try{ chart=new Chart(ctx, cfg); }catch(e){ canvas.remove(); resolve(null); return; }
     requestAnimationFrame(()=>{
       let url=null;
       try{
@@ -236,6 +246,25 @@ function _renderChartImage(config, wpx, hpx){
     });
   });
 }
+const _CHART_FONT = "'Inter', system-ui, sans-serif";
+function _vgrad(ctx, h, c1, c2){ const g=ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,c1); g.addColorStop(1,c2); return g; }
+function _centerTextPlugin(big, small){
+  return { id:'centerText', afterDraw(chart){
+    const a=chart.chartArea; if(!a) return; const ctx=chart.ctx;
+    const cx=(a.left+a.right)/2, cy=(a.top+a.bottom)/2;
+    ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#1a1f3a'; ctx.font='bold 58px '+_CHART_FONT; ctx.fillText(String(big), cx, cy-8);
+    ctx.fillStyle='#6b7280'; ctx.font='600 22px '+_CHART_FONT; ctx.fillText(small, cx, cy+30);
+    ctx.restore();
+  }};
+}
+const _barValuePlugin = { id:'barValues', afterDatasetsDraw(chart){
+  const ctx=chart.ctx; const meta=chart.getDatasetMeta(0);
+  chart.data.datasets[0].data.forEach((v,i)=>{ const el=meta.data[i]; if(!el) return;
+    ctx.save(); ctx.fillStyle='#1a1f3a'; ctx.font='bold 24px '+_CHART_FONT; ctx.textAlign='center';
+    ctx.fillText(String(v), el.x, el.y-12); ctx.restore();
+  });
+}};
 
 async function gerarRelatorioPDF(){
   if(!window.jspdf){ showToast('Aguarde o carregamento do gerador de PDF e tente novamente','error'); return; }
@@ -254,21 +283,37 @@ async function gerarRelatorioPDF(){
   });
   const preStatuses=['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
   const preCounts=preStatuses.map(s=>groups.filter(g=>g.pre&&g.pre.status===s).length);
+  let manOk=0, manTot=0; groups.forEach(g=>{ manOk+=equipManuaisOk(g); manTot+=g.manuais.length; });
+  const manPend = Math.max(0, manTot-manOk);
+  const manPct = manTot? Math.round(manOk/manTot*100) : 0;
 
-  // Renderiza gráficos (Chart.js → imagem) para o resumo executivo
-  const donutImg = await _renderChartImage({
+  // Renderiza gráficos (Chart.js → imagem) — visual alinhado ao dashboard
+  const donutImg = await _renderChartImage((ctx)=>({
     type:'doughnut',
-    data:{labels:[`Finalizado (${fin})`,`Em progresso (${prog})`,`Pendente (${pend})`],
-      datasets:[{data:[fin,prog,pend], backgroundColor:['#10b981','#f59e0b','#f43f5e'], borderColor:'#ffffff', borderWidth:3}]},
-    options:{cutout:'56%', plugins:{legend:{position:'right', labels:{font:{size:22}, padding:18, boxWidth:22}}}}
-  }, 1000, 520);
-  const barImg = await _renderChartImage({
+    data:{labels:['Finalizado','Em progresso','Pendente'],
+      datasets:[{data:[fin,prog,pend], backgroundColor:['#10b981','#f59e0b','#f43f5e'], borderColor:'#ffffff', borderWidth:4, hoverOffset:0}]},
+    options:{cutout:'64%', layout:{padding:10},
+      plugins:{legend:{position:'bottom', labels:{font:{size:22, family:_CHART_FONT}, padding:16, boxWidth:18, usePointStyle:true, pointStyle:'circle'}}}},
+    plugins:[_centerTextPlugin(groups.length, 'equip.')]
+  }), 760, 600);
+  const manuaisImg = await _renderChartImage((ctx)=>({
+    type:'doughnut',
+    data:{labels:['Concluídos','Pendentes'],
+      datasets:[{data:[manOk, manPend], backgroundColor:['#06b6d4','#e5e7eb'], borderColor:'#ffffff', borderWidth:4}]},
+    options:{cutout:'64%', layout:{padding:10},
+      plugins:{legend:{position:'bottom', labels:{font:{size:22, family:_CHART_FONT}, padding:16, boxWidth:18, usePointStyle:true, pointStyle:'circle'}}}},
+    plugins:[_centerTextPlugin(manPct+'%', 'manuais')]
+  }), 760, 600);
+  const barImg = await _renderChartImage((ctx)=>({
     type:'bar',
     data:{labels:['Elaborar','Trein. Piloto','Envio Homol.','Homologado'],
-      datasets:[{data:preCounts, backgroundColor:['#6366f1','#f59e0b','#22d3ee','#10b981'], borderRadius:10}]},
-    options:{plugins:{legend:{display:false}},
-      scales:{x:{ticks:{font:{size:18}}, grid:{display:false}}, y:{beginAtZero:true, ticks:{precision:0, font:{size:18}}}}}
-  }, 1000, 520);
+      datasets:[{data:preCounts, borderRadius:12, maxBarThickness:120,
+        backgroundColor:[_vgrad(ctx,600,'#a5b4fc','#6366f1'), _vgrad(ctx,600,'#fcd34d','#f59e0b'), _vgrad(ctx,600,'#67e8f9','#06b6d4'), _vgrad(ctx,600,'#6ee7b7','#10b981')]}]},
+    options:{layout:{padding:{top:30}}, plugins:{legend:{display:false}},
+      scales:{x:{ticks:{font:{size:20, family:_CHART_FONT}, color:'#374151'}, grid:{display:false}, border:{display:false}},
+              y:{beginAtZero:true, ticks:{display:false}, grid:{color:'#eef0f6'}, border:{display:false}}}},
+    plugins:[_barValuePlugin]
+  }), 1180, 600);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
@@ -286,6 +331,7 @@ async function gerarRelatorioPDF(){
   const filtros = [];
   if(cfg.inicio||cfg.fim) filtros.push(`Período (${baseLabel}): ${cfg.inicio||'…'} a ${cfg.fim||'…'}`);
   if(cfg.status) filtros.push(`Status: ${cfg.status}`);
+  if(cfg.manuais) filtros.push(`Manuais: ${({completos:'Completos (5/5)', incompletos:'Incompletos (<5)', sem:'Sem manuais'})[cfg.manuais]||cfg.manuais}`);
   if(!filtros.length) filtros.push('Sem filtros (todos os equipamentos)');
   doc.text(`Gerado em ${hoje}  ·  ${filtros.join('  ·  ')}`, margin, y+13);
   y += 22;
@@ -304,15 +350,19 @@ async function gerarRelatorioPDF(){
   });
   y += 26;
 
-  // Gráficos lado a lado
-  const chartW = (pageW - margin*2 - 9) / 2;
-  const chartH = 70;
+  // Três gráficos: Status · Manuais · Pipeline IT/PRE
+  const gap=5;
+  const wBar=115;
+  const wDon=(pageW - margin*2 - wBar - gap*2)/2;
+  const chartH=66;
   doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(60,60,66);
-  doc.text('Distribuição por status', margin, y);
-  doc.text('IT/PRE por etapa', margin + chartW + 9, y);
+  doc.text('Status geral', margin, y);
+  doc.text('Manuais (conclusão)', margin + wDon + gap, y);
+  doc.text('IT/PRE por etapa', margin + wDon*2 + gap*2, y);
   y += 3;
-  if(donutImg) doc.addImage(donutImg, 'PNG', margin, y, chartW, chartH);
-  if(barImg)   doc.addImage(barImg, 'PNG', margin + chartW + 9, y, chartW, chartH);
+  if(donutImg)   doc.addImage(donutImg, 'PNG', margin, y, wDon, chartH);
+  if(manuaisImg) doc.addImage(manuaisImg, 'PNG', margin + wDon + gap, y, wDon, chartH);
+  if(barImg)     doc.addImage(barImg, 'PNG', margin + wDon*2 + gap*2, y, wBar, chartH);
   y += chartH;
 
   // Tabela detalhada em nova página
