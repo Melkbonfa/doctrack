@@ -18,6 +18,17 @@ import json
 from datetime import datetime
 from io import BytesIO
 
+# Configuração específica para Windows carregar o GTK3 Runtime (necessário para WeasyPrint)
+if sys.platform == "win32":
+    gtk_bin = r"C:\Program Files\GTK3-Runtime Win64\bin"
+    if os.path.exists(gtk_bin):
+        os.environ["PATH"] = gtk_bin + os.pathsep + os.environ.get("PATH", "")
+        if hasattr(os, "add_dll_directory"):
+            try:
+                os.add_dll_directory(gtk_bin)
+            except Exception:
+                pass
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 

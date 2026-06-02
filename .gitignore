@@ -6,6 +6,10 @@
 # Backups e arquivos temporarios
 *.bak
 *.db.backup-*
+backups/
+
+# Instaladores / binarios grandes
+*.exe
 
 # Database local
 doctrack.db

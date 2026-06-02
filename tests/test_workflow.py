@@ -8,7 +8,7 @@ def _doc_id(client, headers, equip="MAQ-B"):
 
 def test_status_change_valido(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
-    doc_id = _doc_id(client, h, "MAQ-B")  # Setor: Fabricante, Status: Em andamento
+    doc_id = _doc_id(client, h, "MAQ-B")  # Setor: Manuais, Status: Em andamento
     res = client.put(f"/api/documento/{doc_id}/status",
                      json={"status": "Concluído"},
                      headers=h)
@@ -19,8 +19,8 @@ def test_status_change_valido(client, admin_token, auth_headers):
 
 def test_status_change_status_invalido(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
-    doc_id = _doc_id(client, h, "MAQ-B")  # Setor: Fabricante
-    # "Homologado" só é válido para o setor PRE, não para Fabricante
+    doc_id = _doc_id(client, h, "MAQ-B")  # Setor: Manuais
+    # "Homologado" só é válido para o setor PRE, não para Manuais
     res = client.put(f"/api/documento/{doc_id}/status",
                      json={"status": "Homologado"},
                      headers=h)
