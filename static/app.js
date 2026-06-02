@@ -234,12 +234,7 @@ function _renderChartImage(build, wpx, hpx){
     try{ chart=new Chart(ctx, cfg); }catch(e){ canvas.remove(); resolve(null); return; }
     requestAnimationFrame(()=>{
       let url=null;
-      try{
-        const out=document.createElement('canvas'); out.width=chart.canvas.width; out.height=chart.canvas.height;
-        const octx=out.getContext('2d'); octx.fillStyle='#ffffff'; octx.fillRect(0,0,out.width,out.height);
-        octx.drawImage(chart.canvas,0,0);
-        url=out.toDataURL('image/png');
-      }catch(e){}
+      try{ url=chart.canvas.toDataURL('image/png'); }catch(e){}
       try{ chart.destroy(); }catch(e){}
       canvas.remove();
       resolve(url);
@@ -248,21 +243,23 @@ function _renderChartImage(build, wpx, hpx){
 }
 const _CHART_FONT = "'Inter', system-ui, sans-serif";
 function _vgrad(ctx, h, c1, c2){ const g=ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,c1); g.addColorStop(1,c2); return g; }
+function _hgrad(ctx, w, c1, c2){ const g=ctx.createLinearGradient(0,0,w,0); g.addColorStop(0,c1); g.addColorStop(1,c2); return g; }
 function _centerTextPlugin(big, small){
   return { id:'centerText', afterDraw(chart){
     const a=chart.chartArea; if(!a) return; const ctx=chart.ctx;
     const cx=(a.left+a.right)/2, cy=(a.top+a.bottom)/2;
     ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillStyle='#1a1f3a'; ctx.font='bold 58px '+_CHART_FONT; ctx.fillText(String(big), cx, cy-8);
-    ctx.fillStyle='#6b7280'; ctx.font='600 22px '+_CHART_FONT; ctx.fillText(small, cx, cy+30);
+    ctx.fillStyle='#f1f5f9'; ctx.font='bold 60px '+_CHART_FONT; ctx.fillText(String(big), cx, cy-6);
+    ctx.fillStyle='#94a3ff'; ctx.font='600 22px '+_CHART_FONT; ctx.fillText(small, cx, cy+32);
     ctx.restore();
   }};
 }
-const _barValuePlugin = { id:'barValues', afterDatasetsDraw(chart){
+// valores ao final de barras horizontais (texto claro)
+const _barValueHPlugin = { id:'barValuesH', afterDatasetsDraw(chart){
   const ctx=chart.ctx; const meta=chart.getDatasetMeta(0);
   chart.data.datasets[0].data.forEach((v,i)=>{ const el=meta.data[i]; if(!el) return;
-    ctx.save(); ctx.fillStyle='#1a1f3a'; ctx.font='bold 24px '+_CHART_FONT; ctx.textAlign='center';
-    ctx.fillText(String(v), el.x, el.y-12); ctx.restore();
+    ctx.save(); ctx.fillStyle='#f1f5f9'; ctx.font='bold 26px '+_CHART_FONT; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(String(v), el.x+10, el.y); ctx.restore();
   });
 }};
 
@@ -287,88 +284,118 @@ async function gerarRelatorioPDF(){
   const manPend = Math.max(0, manTot-manOk);
   const manPct = manTot? Math.round(manOk/manTot*100) : 0;
 
-  // Renderiza gráficos (Chart.js → imagem) — visual alinhado ao dashboard
+  // Gráficos (Chart.js → PNG transparente, para os cartões escuros)
+  const LEG = {color:'#cbd5ff', font:{size:24, family:_CHART_FONT}, padding:18, boxWidth:16, usePointStyle:true, pointStyle:'circle'};
   const donutImg = await _renderChartImage((ctx)=>({
     type:'doughnut',
     data:{labels:['Finalizado','Em progresso','Pendente'],
-      datasets:[{data:[fin,prog,pend], backgroundColor:['#10b981','#f59e0b','#f43f5e'], borderColor:'#ffffff', borderWidth:4, hoverOffset:0}]},
-    options:{cutout:'64%', layout:{padding:10},
-      plugins:{legend:{position:'bottom', labels:{font:{size:22, family:_CHART_FONT}, padding:16, boxWidth:18, usePointStyle:true, pointStyle:'circle'}}}},
-    plugins:[_centerTextPlugin(groups.length, 'equip.')]
-  }), 760, 600);
+      datasets:[{data:[fin,prog,pend], backgroundColor:['#34d399','#fbbf24','#fb7185'], borderColor:'#1a1f3a', borderWidth:5}]},
+    options:{cutout:'66%', layout:{padding:12}, plugins:{legend:{position:'bottom', labels:LEG}}},
+    plugins:[_centerTextPlugin(groups.length, 'equipamentos')]
+  }), 820, 660);
   const manuaisImg = await _renderChartImage((ctx)=>({
     type:'doughnut',
     data:{labels:['Concluídos','Pendentes'],
-      datasets:[{data:[manOk, manPend], backgroundColor:['#06b6d4','#e5e7eb'], borderColor:'#ffffff', borderWidth:4}]},
-    options:{cutout:'64%', layout:{padding:10},
-      plugins:{legend:{position:'bottom', labels:{font:{size:22, family:_CHART_FONT}, padding:16, boxWidth:18, usePointStyle:true, pointStyle:'circle'}}}},
-    plugins:[_centerTextPlugin(manPct+'%', 'manuais')]
-  }), 760, 600);
+      datasets:[{data:[manOk, manPend], backgroundColor:['#22d3ee','#3a4170'], borderColor:'#1a1f3a', borderWidth:5}]},
+    options:{cutout:'66%', layout:{padding:12}, plugins:{legend:{position:'bottom', labels:LEG}}},
+    plugins:[_centerTextPlugin(manPct+'%', manOk+' de '+manTot)]
+  }), 820, 660);
   const barImg = await _renderChartImage((ctx)=>({
     type:'bar',
     data:{labels:['Elaborar','Trein. Piloto','Envio Homol.','Homologado'],
-      datasets:[{data:preCounts, borderRadius:12, maxBarThickness:120,
-        backgroundColor:[_vgrad(ctx,600,'#a5b4fc','#6366f1'), _vgrad(ctx,600,'#fcd34d','#f59e0b'), _vgrad(ctx,600,'#67e8f9','#06b6d4'), _vgrad(ctx,600,'#6ee7b7','#10b981')]}]},
-    options:{layout:{padding:{top:30}}, plugins:{legend:{display:false}},
-      scales:{x:{ticks:{font:{size:20, family:_CHART_FONT}, color:'#374151'}, grid:{display:false}, border:{display:false}},
-              y:{beginAtZero:true, ticks:{display:false}, grid:{color:'#eef0f6'}, border:{display:false}}}},
-    plugins:[_barValuePlugin]
-  }), 1180, 600);
+      datasets:[{data:preCounts, borderRadius:8, maxBarThickness:48,
+        backgroundColor:[_hgrad(ctx,1300,'#818cf8','#a78bfa'), _hgrad(ctx,1300,'#fbbf24','#fcd34d'), _hgrad(ctx,1300,'#22d3ee','#67e8f9'), _hgrad(ctx,1300,'#34d399','#6ee7b7')]}]},
+    options:{indexAxis:'y', layout:{padding:{right:54, left:6, top:4, bottom:4}}, plugins:{legend:{display:false}},
+      scales:{x:{beginAtZero:true, ticks:{display:false}, grid:{color:'rgba(148,163,255,.14)'}, border:{display:false}},
+              y:{ticks:{color:'#cbd5ff', font:{size:27, family:_CHART_FONT}}, grid:{display:false}, border:{display:false}}}},
+    plugins:[_barValueHPlugin]
+  }), 1320, 700);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const margin = 14;
-  let y = margin;
+  const margin = 12;
+  const C = { bg:[13,16,32], card:[26,31,58], rowAlt:[20,24,46], border:[42,54,98],
+    t1:[241,245,249], tmut:[148,163,255], accent:[34,211,238],
+    green:[52,211,153], amber:[251,191,36], red:[251,113,133], cyan:[34,211,238] };
+  const globColor = {Finalizado:C.green, 'Em progresso':C.amber, Pendente:C.red};
+  function paintBg(){ doc.setFillColor(...C.bg); doc.rect(0,0,pageW,pageH,'F'); }
+  function card(x,yy,w,h){ doc.setFillColor(...C.card); doc.setDrawColor(...C.border); doc.setLineWidth(0.3); doc.roundedRect(x,yy,w,h,2.5,2.5,'FD'); }
+  function cardTitle(txt,x,yy,w){ doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...C.accent); doc.text(txt.toUpperCase(), x+w/2, yy+6.5, {align:'center'}); }
 
-  doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F');
-
-  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(26,25,24);
-  doc.text('DocTrack — Relatório Executivo', margin, y+6);
-  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120,120,120);
   const hoje = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const filtros = [];
   if(cfg.inicio||cfg.fim) filtros.push(`Período (${baseLabel}): ${cfg.inicio||'…'} a ${cfg.fim||'…'}`);
   if(cfg.status) filtros.push(`Status: ${cfg.status}`);
   if(cfg.manuais) filtros.push(`Manuais: ${({completos:'Completos (5/5)', incompletos:'Incompletos (<5)', sem:'Sem manuais'})[cfg.manuais]||cfg.manuais}`);
-  if(!filtros.length) filtros.push('Sem filtros (todos os equipamentos)');
-  doc.text(`Gerado em ${hoje}  ·  ${filtros.join('  ·  ')}`, margin, y+13);
-  y += 22;
+  if(!filtros.length) filtros.push('Sem filtros');
 
-  const stats = [['Equipamentos',groups.length],['Finalizados',fin],['Em progresso',prog],['Pendentes',pend],['IT/PRE homologados',preHom],['Manuais 100%',man100]];
-  const statColors = [[26,25,24],[16,133,89],[180,83,9],[190,18,60],[8,109,122],[124,58,237]];
-  const statW = (pageW - margin*2 - 8*5)/6;
-  stats.forEach(([label,val],i)=>{
-    const sx = margin + i*(statW+8);
-    doc.setFillColor(248,248,250); doc.setDrawColor(210,210,215); doc.setLineWidth(0.3);
-    doc.roundedRect(sx, y, statW, 18, 2,2,'FD');
-    doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(...statColors[i]);
-    doc.text(String(val), sx+statW/2, y+9, {align:'center'});
-    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,120);
-    doc.text(label, sx+statW/2, y+14.5, {align:'center'});
+  paintBg();
+  // ── Cabeçalho
+  doc.setFont('helvetica','bold'); doc.setFontSize(19); doc.setTextColor(...C.t1);
+  doc.text('Relatório Executivo de KPIs', margin, 18);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...C.accent);
+  doc.text('DocTrack Enterprise v4.0', margin, 25);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...C.tmut);
+  doc.text('Gerado em '+hoje, pageW-margin, 16, {align:'right'});
+  doc.text(filtros.join('   ·   '), pageW-margin, 22, {align:'right'});
+  doc.setDrawColor(...C.accent); doc.setLineWidth(0.5); doc.line(margin, 29, pageW-margin, 29);
+
+  let y = 34;
+  // ── Linha A: KPIs + 2 donuts
+  const rowAh = 74, gap = 4, colW = 58;
+  const kpis = [['Equipamentos', groups.length, C.t1],['Finalizados', fin, C.green],['Em progresso', prog, C.amber],['Pendentes', pend, C.red]];
+  const kh = (rowAh - gap*3)/4;
+  kpis.forEach(([lab,val,col],i)=>{
+    const cy = y + i*(kh+gap);
+    card(margin, cy, colW, kh);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...C.tmut);
+    doc.text(lab, margin+5, cy+kh/2+1);
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...col);
+    doc.text(String(val), margin+colW-5, cy+kh/2+1.5, {align:'right'});
   });
-  y += 26;
+  const donW = (pageW - margin*2 - colW - gap*2)/2;
+  const d1x = margin+colW+gap, d2x = d1x+donW+gap;
+  card(d1x, y, donW, rowAh); cardTitle('Status global', d1x, y, donW);
+  if(donutImg) doc.addImage(donutImg, 'PNG', d1x+6, y+9, donW-12, rowAh-13);
+  card(d2x, y, donW, rowAh); cardTitle('Manuais (conclusão)', d2x, y, donW);
+  if(manuaisImg) doc.addImage(manuaisImg, 'PNG', d2x+6, y+9, donW-12, rowAh-13);
 
-  // Três gráficos: Status · Manuais · Pipeline IT/PRE
-  const gap=5;
-  const wBar=115;
-  const wDon=(pageW - margin*2 - wBar - gap*2)/2;
-  const chartH=66;
-  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(60,60,66);
-  doc.text('Status geral', margin, y);
-  doc.text('Manuais (conclusão)', margin + wDon + gap, y);
-  doc.text('IT/PRE por etapa', margin + wDon*2 + gap*2, y);
-  y += 3;
-  if(donutImg)   doc.addImage(donutImg, 'PNG', margin, y, wDon, chartH);
-  if(manuaisImg) doc.addImage(manuaisImg, 'PNG', margin + wDon + gap, y, wDon, chartH);
-  if(barImg)     doc.addImage(barImg, 'PNG', margin + wDon*2 + gap*2, y, wBar, chartH);
-  y += chartH;
+  y += rowAh + gap;
+  // ── Linha B: composição (tabela) + IT/PRE por etapa (barras)
+  const rowBh = pageH - y - 11;
+  const tblW = 118, barsW = pageW - margin*2 - tblW - gap;
+  card(margin, y, tblW, rowBh); cardTitle('Composição por status', margin, y, tblW);
+  let ty = y+16;
+  doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...C.tmut);
+  doc.text('STATUS', margin+11, ty); doc.text('EQUIP.', margin+tblW-38, ty, {align:'right'}); doc.text('%', margin+tblW-9, ty, {align:'right'});
+  ty += 2.5; doc.setDrawColor(...C.border); doc.setLineWidth(0.3); doc.line(margin+6, ty, margin+tblW-6, ty); ty += 8;
+  [['Finalizado', fin, C.green],['Em progresso', prog, C.amber],['Pendente', pend, C.red]].forEach(([lab,val,col])=>{
+    doc.setFillColor(...col); doc.circle(margin+9, ty-1.4, 1.7, 'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(...C.t1); doc.text(lab, margin+14, ty);
+    doc.setFont('helvetica','bold'); doc.text(String(val), margin+tblW-38, ty, {align:'right'});
+    doc.setFont('helvetica','normal'); doc.setTextColor(...C.tmut); doc.text((groups.length?Math.round(val/groups.length*100):0)+'%', margin+tblW-9, ty, {align:'right'});
+    ty += 11;
+  });
+  // resumo manuais dentro do mesmo cartão
+  ty += 2; doc.setDrawColor(...C.border); doc.line(margin+6, ty-4, margin+tblW-6, ty-4);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...C.tmut);
+  doc.text('Manuais concluídos', margin+9, ty);
+  doc.setFont('helvetica','bold'); doc.setTextColor(...C.cyan); doc.text(`${manOk} / ${manTot}  (${manPct}%)`, margin+tblW-9, ty, {align:'right'});
+  ty += 11;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...C.tmut);
+  doc.text('IT/PRE homologados', margin+9, ty);
+  doc.setFont('helvetica','bold'); doc.setTextColor(...C.green); doc.text(String(preHom), margin+tblW-9, ty, {align:'right'});
 
-  // Tabela detalhada em nova página
-  doc.addPage(); doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F'); y = margin;
-  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(26,25,24);
-  doc.text('Detalhamento por equipamento', margin, y+5); y += 12;
+  const bx = margin+tblW+gap;
+  card(bx, y, barsW, rowBh); cardTitle('IT/PRE por etapa', bx, y, barsW);
+  if(barImg) doc.addImage(barImg, 'PNG', bx+4, y+10, barsW-8, rowBh-14);
+
+  // ── Página 2: detalhamento por equipamento (escuro)
+  doc.addPage(); paintBg(); y = margin+4;
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(...C.t1);
+  doc.text('Detalhamento por equipamento', margin, y+4); y += 11;
 
   const cols = [
     {h:'Equipamento', k:'equip', w:62},
@@ -379,43 +406,42 @@ async function gerarRelatorioPDF(){
     {h:'Status', k:'glob', w:30},
     {h:baseLabel, k:'data', w:27},
   ];
-  const rowH=7, headerH=8;
-  function header(){
-    doc.setFillColor(240,239,232); doc.rect(margin,y,pageW-margin*2,headerH,'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(95,94,90);
-    let cx=margin; cols.forEach(c=>{doc.text(c.h, cx+2, y+5.5); cx+=c.w;}); y+=headerH;
+  const rowH=7.2, headerH=9;
+  function thead(){
+    doc.setFillColor(...C.card); doc.rect(margin,y,pageW-margin*2,headerH,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...C.accent);
+    let cx=margin; cols.forEach(c=>{doc.text(c.h, cx+3, y+6); cx+=c.w;}); y+=headerH;
   }
-  header();
+  thead();
   groups.forEach((g,idx)=>{
-    if(y+rowH > pageH-margin){ doc.addPage(); doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F'); y=margin; header(); }
-    if(idx%2===0){ doc.setFillColor(250,250,252); doc.rect(margin,y,pageW-margin*2,rowH,'F'); }
-    doc.setDrawColor(225,225,228); doc.setLineWidth(0.2); doc.line(margin,y,pageW-margin,y);
+    if(y+rowH > pageH-11){ doc.addPage(); paintBg(); y=margin+4; thead(); }
+    if(idx%2===0){ doc.setFillColor(...C.rowAlt); doc.rect(margin,y,pageW-margin*2,rowH,'F'); }
+    doc.setDrawColor(...C.border); doc.setLineWidth(0.15); doc.line(margin,y+rowH,pageW-margin,y+rowH);
     const ok=equipManuaisOk(g);
+    const glob=_groupGlobalStatus(g);
     const row = {
-      equip: g.equipamento,
-      sku: g.sku||'—',
-      resp: (g.pre&&g.pre.responsavel)||'—',
-      pre: g.pre? g.pre.status : '—',
-      man: g.manuais.length? (ok+'/5') : '—',
-      glob: _groupGlobalStatus(g),
-      data: g.pre? ((g.pre[cfg.base]||'—').split(' ')[0]||'—') : '—',
+      equip: g.equipamento, sku: g.sku||'—', resp: (g.pre&&g.pre.responsavel)||'—',
+      pre: g.pre? g.pre.status : '—', man: g.manuais.length? (ok+'/5') : '—',
+      glob: glob, data: g.pre? ((g.pre[cfg.base]||'—').split(' ')[0]||'—') : '—',
     };
     let cx=margin;
-    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(26,25,24);
+    doc.setFontSize(7.5);
     cols.forEach(c=>{
       let v=String(row[c.k]==null?'':row[c.k]);
       const maxW=c.w-4;
       if(doc.getTextWidth(v)>maxW){ v=v.substring(0, Math.max(1, Math.floor(v.length*maxW/doc.getTextWidth(v))-1))+'…'; }
-      doc.text(v, cx+2, y+5); cx+=c.w;
+      if(c.k==='glob'){ doc.setFont('helvetica','bold'); doc.setTextColor(...(globColor[glob]||C.t1)); }
+      else { doc.setFont('helvetica', c.k==='equip'?'bold':'normal'); doc.setTextColor(...(c.k==='equip'?C.t1:C.tmut)); }
+      doc.text(v, cx+3, y+4.8); cx+=c.w;
     });
     y+=rowH;
   });
-  doc.setDrawColor(225,225,228); doc.line(margin,y,pageW-margin,y);
 
+  // ── Rodapés
   const pages=doc.internal.getNumberOfPages();
-  for(let i=1;i<=pages;i++){ doc.setPage(i); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(170,168,162);
-    doc.text(`Página ${i} de ${pages}`, pageW-margin, pageH-6, {align:'right'});
-    doc.text('DocTrack — relatório gerado automaticamente', margin, pageH-6); }
+  for(let i=1;i<=pages;i++){ doc.setPage(i); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...C.tmut);
+    doc.text('DocTrack Enterprise — Relatório confidencial', margin, pageH-5);
+    doc.text(`Página ${i} de ${pages}`, pageW-margin, pageH-5, {align:'right'}); }
 
   doc.save('DocTrack_Relatorio.pdf');
   closeModal('export');
