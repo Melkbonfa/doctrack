@@ -38,6 +38,7 @@ if _database_url.startswith("postgres://"):
 
 app.config["SQLALCHEMY_DATABASE_URI"]        = _database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["TEMPLATES_AUTO_RELOAD"]          = True
 app.config["SQLALCHEMY_ENGINE_OPTIONS"]      = {"pool_pre_ping": True}
 app.config["JWT_SECRET_KEY"]                 = _jwt_secret
 app.config["JWT_ACCESS_TOKEN_EXPIRES"]       = timedelta(hours=1)

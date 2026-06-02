@@ -101,7 +101,7 @@
           <div><div class="page-title">Dashboard Executivo</div><div class="page-sub" id="dash-updated">Carregando dados...</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center;">
             <span id="dash-pct-badge" class="docs-count-badge">—</span>
-            <button id="btn-export-kpis" class="btn btn-ghost btn-sm" onclick="exportKPIs()" style="display:none">Exportar Gráficos</button>
+            <button id="btn-export-kpis" class="btn btn-ghost btn-sm" onclick="openExportModal()" style="display:none">Exportar relatório</button>
           </div>
         </div>
         <div class="kpi-grid" id="kpi-grid"><div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando KPIs...</div></div>
@@ -275,6 +275,41 @@
   </div>
 </div>
 
+<!-- MODAL: Exportar Relatório -->
+<div class="modal-overlay" id="modal-export" role="dialog" aria-modal="true" aria-labelledby="export-title" aria-hidden="true">
+  <div class="modal" style="width:520px" tabindex="-1">
+    <div class="modal-title" id="export-title">Exportar relatório (PDF)</div>
+    <div class="modal-sub">Resumo de KPIs + lista de equipamentos, conforme os filtros abaixo</div>
+
+    <div class="section-label-line">Período</div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label" for="exp-inicio">De</label><input type="date" class="form-input" id="exp-inicio"></div>
+      <div class="form-group"><label class="form-label" for="exp-fim">Até</label><input type="date" class="form-input" id="exp-fim"></div>
+    </div>
+    <div class="form-group"><label class="form-label" for="exp-datebase">Considerar a data de</label>
+      <select class="form-input" id="exp-datebase">
+        <option value="data_homologacao">Homologação</option>
+        <option value="data_treinamento">Treinamento Piloto</option>
+        <option value="updated_em">Última atualização</option>
+      </select>
+    </div>
+
+    <div class="section-label-line">Status</div>
+    <div class="form-group"><label class="form-label" for="exp-status">Status global do equipamento</label>
+      <select class="form-input" id="exp-status">
+        <option value="">Todos</option>
+        <option value="Finalizado">Finalizado</option>
+        <option value="Em progresso">Em progresso</option>
+        <option value="Pendente">Pendente</option>
+      </select>
+    </div>
+
+    <div class="modal-sub" id="exp-preview" style="margin:8px 0 0">—</div>
+
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('export')">Cancelar</button><button class="btn btn-primary" onclick="gerarRelatorioPDF()">Gerar PDF</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><div class="toast-dot" id="toast-dot"></div><span id="toast-msg"></span></div>
 
 <!-- Confirm modal (substitui confirm() nativo — U8) -->
@@ -290,6 +325,7 @@
 </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>

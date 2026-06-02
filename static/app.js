@@ -162,6 +162,152 @@ function exportKPIs() {
     });
 }
 
+// ═══ EXPORTAÇÃO DE RELATÓRIO (PDF client-side, com filtros) ═══
+function _exportConfig(){
+  return {
+    inicio: (document.getElementById('exp-inicio')||{}).value||'',
+    fim:    (document.getElementById('exp-fim')||{}).value||'',
+    base:   (document.getElementById('exp-datebase')||{}).value||'data_homologacao',
+    status: (document.getElementById('exp-status')||{}).value||'',
+  };
+}
+function _groupGlobalStatus(g){
+  const c = equipStatusColor(g);
+  return c==='green' ? 'Finalizado' : c==='red' ? 'Pendente' : 'Em progresso';
+}
+function _parseBR(str){
+  if(!str) return null;
+  const p = String(str).split(' ')[0].split('/');
+  if(p.length!==3) return null;
+  return new Date(+p[2], +p[1]-1, +p[0]);
+}
+function _exportFilteredGroups(){
+  const cfg = _exportConfig();
+  const startMs = cfg.inicio ? new Date(cfg.inicio+'T00:00:00').getTime() : null;
+  const endMs   = cfg.fim ? new Date(cfg.fim+'T23:59:59').getTime() : null;
+  return groupByEquip().filter(g=>{
+    if(cfg.status && _groupGlobalStatus(g)!==cfg.status) return false;
+    if(startMs!==null || endMs!==null){
+      const dt = _parseBR(g.pre ? g.pre[cfg.base] : '');
+      if(!dt) return false;
+      const t = dt.getTime();
+      if(startMs!==null && t<startMs) return false;
+      if(endMs!==null && t>endMs) return false;
+    }
+    return true;
+  });
+}
+function updateExportPreview(){
+  const el = document.getElementById('exp-preview');
+  if(el) el.textContent = `${_exportFilteredGroups().length} equipamento(s) serão incluídos no relatório`;
+}
+function openExportModal(){
+  const ini=document.getElementById('exp-inicio'); if(ini) ini.value='';
+  const fim=document.getElementById('exp-fim'); if(fim) fim.value='';
+  document.getElementById('exp-datebase').value='data_homologacao';
+  document.getElementById('exp-status').value='';
+  ['exp-inicio','exp-fim','exp-datebase','exp-status'].forEach(id=>{const e=document.getElementById(id); if(e) e.onchange=updateExportPreview;});
+  updateExportPreview();
+  openBaseModal('export');
+}
+function gerarRelatorioPDF(){
+  if(!window.jspdf){ showToast('Aguarde o carregamento do gerador de PDF e tente novamente','error'); return; }
+  const groups = _exportFilteredGroups();
+  if(!groups.length){ showToast('Nenhum equipamento corresponde aos filtros','error'); return; }
+  const cfg = _exportConfig();
+  const baseLabel = {data_homologacao:'Homologação', data_treinamento:'Treinamento', updated_em:'Últ. atualização'}[cfg.base]||cfg.base;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  let y = margin;
+
+  doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F');
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(26,25,24);
+  doc.text('DocTrack — Relatório de Equipamentos', margin, y+6);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120,120,120);
+  const hoje = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const filtros = [];
+  if(cfg.inicio||cfg.fim) filtros.push(`Período (${baseLabel}): ${cfg.inicio||'…'} a ${cfg.fim||'…'}`);
+  if(cfg.status) filtros.push(`Status: ${cfg.status}`);
+  if(!filtros.length) filtros.push('Sem filtros (todos os equipamentos)');
+  doc.text(`Gerado em ${hoje}  ·  ${filtros.join('  ·  ')}`, margin, y+13);
+  y += 22;
+
+  let fin=0, prog=0, pend=0, preHom=0, man100=0;
+  groups.forEach(g=>{
+    const st=_groupGlobalStatus(g);
+    if(st==='Finalizado')fin++; else if(st==='Em progresso')prog++; else pend++;
+    if(g.pre && g.pre.status==='Homologado') preHom++;
+    if(g.manuais.length>0 && equipManuaisOk(g)===g.manuais.length) man100++;
+  });
+  const stats = [['Equipamentos',groups.length],['Finalizados',fin],['Em progresso',prog],['Pendentes',pend],['IT/PRE homologados',preHom],['Manuais 100%',man100]];
+  const statW = (pageW - margin*2 - 8*5)/6;
+  stats.forEach(([label,val],i)=>{
+    const sx = margin + i*(statW+8);
+    doc.setFillColor(248,248,250); doc.setDrawColor(210,210,215); doc.setLineWidth(0.3);
+    doc.roundedRect(sx, y, statW, 16, 2,2,'FD');
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(26,25,24);
+    doc.text(String(val), sx+statW/2, y+8, {align:'center'});
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,120);
+    doc.text(label, sx+statW/2, y+13, {align:'center'});
+  });
+  y += 24;
+
+  const cols = [
+    {h:'Equipamento', k:'equip', w:62},
+    {h:'SKU', k:'sku', w:28},
+    {h:'Responsável', k:'resp', w:46},
+    {h:'IT / PRE', k:'pre', w:42},
+    {h:'Manuais', k:'man', w:22},
+    {h:'Status', k:'glob', w:30},
+    {h:baseLabel, k:'data', w:27},
+  ];
+  const rowH=7, headerH=8;
+  function header(){
+    doc.setFillColor(240,239,232); doc.rect(margin,y,pageW-margin*2,headerH,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(95,94,90);
+    let cx=margin; cols.forEach(c=>{doc.text(c.h, cx+2, y+5.5); cx+=c.w;}); y+=headerH;
+  }
+  header();
+  groups.forEach((g,idx)=>{
+    if(y+rowH > pageH-margin){ doc.addPage(); doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F'); y=margin; header(); }
+    if(idx%2===0){ doc.setFillColor(250,250,252); doc.rect(margin,y,pageW-margin*2,rowH,'F'); }
+    doc.setDrawColor(225,225,228); doc.setLineWidth(0.2); doc.line(margin,y,pageW-margin,y);
+    const ok=equipManuaisOk(g);
+    const row = {
+      equip: g.equipamento,
+      sku: g.sku||'—',
+      resp: (g.pre&&g.pre.responsavel)||'—',
+      pre: g.pre? g.pre.status : '—',
+      man: g.manuais.length? (ok+'/5') : '—',
+      glob: _groupGlobalStatus(g),
+      data: g.pre? ((g.pre[cfg.base]||'—').split(' ')[0]||'—') : '—',
+    };
+    let cx=margin;
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(26,25,24);
+    cols.forEach(c=>{
+      let v=String(row[c.k]==null?'':row[c.k]);
+      const maxW=c.w-4;
+      if(doc.getTextWidth(v)>maxW){ v=v.substring(0, Math.max(1, Math.floor(v.length*maxW/doc.getTextWidth(v))-1))+'…'; }
+      doc.text(v, cx+2, y+5); cx+=c.w;
+    });
+    y+=rowH;
+  });
+  doc.setDrawColor(225,225,228); doc.line(margin,y,pageW-margin,y);
+
+  const pages=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pages;i++){ doc.setPage(i); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(170,168,162);
+    doc.text(`Página ${i} de ${pages}`, pageW-margin, pageH-6, {align:'right'});
+    doc.text('DocTrack — relatório gerado automaticamente', margin, pageH-6); }
+
+  doc.save('DocTrack_Relatorio.pdf');
+  closeModal('export');
+  showToast('Relatório gerado','success');
+}
+
 async function loadEnums(){
   try{const res=await apiFetch('/enums');if(res&&res.ok)_enums=await res.json()}catch(e){}
 }
