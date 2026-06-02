@@ -123,8 +123,11 @@ body.theme-light .pill-err,
 body.theme-light .sg-pendente,
 body.theme-light .role-admin{color:#be123c}
 body.theme-light .role-gestor{color:#6d28d9}
+/* Botões ghost (ex.: Exportar Gráficos): texto/borda com contraste no claro */
+body.theme-light .btn-ghost{color:var(--cyan-brand-dim);border-color:var(--border-mid)}
+body.theme-light .btn-ghost:hover{background:rgba(8,145,178,.08);border-color:var(--cyan-brand-dim)}
 /* Badge de contagem de docs no header do dashboard */
-body.theme-light #dash-pct-badge{color:var(--cyan-brand-dim)}
+body.theme-light .docs-count-badge{background:rgba(8,145,178,.10);border-color:rgba(8,145,178,.30);color:var(--cyan-brand-dim)}
 
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -259,6 +262,7 @@ body::before{
 .page-title{font-size:24px;font-weight:700;color:var(--t1);letter-spacing:-.5px;margin-bottom:4px}
 .page-sub{font-size:13px;color:var(--t3)}
 .page-actions{display:flex;gap:10px;align-items:center}
+.docs-count-badge{background:linear-gradient(135deg,rgba(34,211,238,.1),rgba(139,92,246,.1));border:1px solid var(--border-mid);color:var(--cyan-lt);font-size:11px;padding:5px 14px;border-radius:20px;font-family:var(--font-mono)}
 
 /* ═══════ BUTTONS ═══════ */
 .btn{padding:9px 18px;border-radius:var(--r);font-size:13px;font-family:var(--font-body);font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;white-space:nowrap}
