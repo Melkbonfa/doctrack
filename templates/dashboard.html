@@ -320,6 +320,32 @@
   </div>
 </div>
 
+<!-- MODAL: Arquivos do equipamento -->
+<div class="modal-overlay" id="modal-arquivos" role="dialog" aria-modal="true" aria-labelledby="arquivos-title" aria-hidden="true">
+  <div class="modal" style="width:620px" tabindex="-1">
+    <div class="modal-title" id="arquivos-title">Documentos</div>
+    <div class="modal-sub" id="arquivos-sub"></div>
+    <div id="arquivos-body" style="max-height:60vh;overflow:auto;margin-top:4px"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('arquivos')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Visualizador de documento (docx) -->
+<div class="modal-overlay" id="modal-docview" role="dialog" aria-modal="true" aria-labelledby="docview-title" aria-hidden="true">
+  <div class="modal docview-modal" tabindex="-1">
+    <div class="docview-head">
+      <div class="docview-titlewrap">
+        <div class="modal-title" id="docview-title" style="margin:0">Documento</div>
+      </div>
+      <div class="docview-actions">
+        <button class="btn btn-ghost btn-sm" id="docview-download" type="button">⬇ Baixar</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('docview')" type="button">Fechar</button>
+      </div>
+    </div>
+    <div id="docview-body" class="docview-body"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><div class="toast-dot" id="toast-dot"></div><span id="toast-msg"></span></div>
 
 <!-- Confirm modal (substitui confirm() nativo — U8) -->
@@ -336,6 +362,8 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.5/dist/docx-preview.min.js"></script>
 
   
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>

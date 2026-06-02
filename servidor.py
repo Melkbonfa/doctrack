@@ -32,6 +32,12 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 EXCEL_PATH = os.path.join(BASE_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
 DB_PATH    = os.path.join(BASE_DIR, "doctrack.db")
 
+# Raízes permitidas para visualizar/baixar arquivos dos equipamentos.
+# Configurável via DOCTRACK_FILE_ROOTS (separado por ';'). Default: a pasta de Engenharia na rede.
+ARQUIVOS_ROOTS = [
+    r.strip() for r in os.environ.get("DOCTRACK_FILE_ROOTS", r"P:\Engenharia").split(";") if r.strip()
+]
+
 _database_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
 if _database_url.startswith("postgres://"):
     _database_url = _database_url.replace("postgres://", "postgresql://", 1)
@@ -641,6 +647,113 @@ def abrir_pasta():
             "local": False,
             "tipo": tipo_abertura
         }), 200
+
+# ── API — VISUALIZAR ARQUIVOS DO EQUIPAMENTO ──────────────────────────────────
+def _validar_caminho_arquivo(caminho):
+    """Resolve o caminho e garante que está dentro de uma raiz permitida.
+    Retorna o caminho real (absoluto) ou None se inválido/fora das raízes."""
+    if not caminho:
+        return None
+    try:
+        real = os.path.realpath(os.path.abspath(caminho))
+    except Exception:
+        return None
+    nreal = os.path.normcase(real)
+    for root in ARQUIVOS_ROOTS:
+        try:
+            nroot = os.path.normcase(os.path.realpath(os.path.abspath(root)))
+            if os.path.commonpath([nreal, nroot]) == nroot:
+                return real
+        except ValueError:
+            continue  # caminhos em drives diferentes
+        except Exception:
+            continue
+    return None
+
+_EXT_INLINE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt"}
+
+@app.route("/api/documentos/arquivos", methods=["GET"])
+@jwt_required()
+def listar_arquivos():
+    """Lista os arquivos da pasta de armazenamento de um equipamento,
+    classificando por IT / Checklist / Outros (até 2 níveis de subpasta)."""
+    caminho = (request.args.get("caminho") or "").strip()
+    if not caminho:
+        return jsonify({"erro": "Caminho não fornecido"}), 400
+    pasta = _validar_caminho_arquivo(caminho)
+    if not pasta:
+        return jsonify({"erro": "Caminho fora das pastas permitidas"}), 403
+    if not os.path.isdir(pasta):
+        return jsonify({"erro": "Pasta não encontrada ou inacessível"}), 404
+
+    arquivos = []
+    try:
+        for base, dirs, files in os.walk(pasta):
+            depth = base[len(pasta):].count(os.sep)
+            if depth >= 2:
+                dirs[:] = []
+                continue
+            for nome in files:
+                full = os.path.join(base, nome)
+                ext = os.path.splitext(nome)[1].lower()
+                low = nome.lower()
+                if low.startswith(("it.", "it ", "it-", "it_")):
+                    cat = "IT"
+                elif low.startswith("rsq") or "checklist" in low or "check list" in low:
+                    cat = "Checklist"
+                else:
+                    cat = "Outros"
+                try:
+                    st = os.stat(full)
+                    tamanho = st.st_size
+                    mod = datetime.fromtimestamp(st.st_mtime).strftime("%d/%m/%Y %H:%M")
+                except Exception:
+                    tamanho, mod = 0, ""
+                arquivos.append({
+                    "nome": nome,
+                    "caminho": full,
+                    "rel": os.path.relpath(full, pasta),
+                    "ext": ext.lstrip("."),
+                    "tamanho": tamanho,
+                    "modificado": mod,
+                    "categoria": cat,
+                    "inline": ext in _EXT_INLINE,
+                })
+                if len(arquivos) >= 300:
+                    break
+            if len(arquivos) >= 300:
+                break
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao listar arquivos: {str(e)}"}), 500
+
+    ordem = {"IT": 0, "Checklist": 1, "Outros": 2}
+    arquivos.sort(key=lambda a: (ordem.get(a["categoria"], 3), a["nome"].lower()))
+    return jsonify({"pasta": pasta, "arquivos": arquivos}), 200
+
+@app.route("/api/documentos/arquivo", methods=["GET"])
+@jwt_required()
+def servir_arquivo():
+    """Serve um arquivo individual: PDF/imagens inline (preview no navegador),
+    demais formatos como download. Restrito às raízes permitidas."""
+    caminho = (request.args.get("caminho") or "").strip()
+    if not caminho:
+        return jsonify({"erro": "Caminho não fornecido"}), 400
+    real = _validar_caminho_arquivo(caminho)
+    if not real:
+        return jsonify({"erro": "Caminho fora das pastas permitidas"}), 403
+    if not os.path.isfile(real):
+        return jsonify({"erro": "Arquivo não encontrado"}), 404
+    ext = os.path.splitext(real)[1].lower()
+    inline = (ext in _EXT_INLINE) and request.args.get("download") != "1"
+    try:
+        return send_file(
+            real,
+            as_attachment=not inline,
+            download_name=os.path.basename(real),
+            conditional=True,
+        )
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao abrir arquivo: {str(e)}"}), 500
 
 # ── API — STATUS FLOW ─────────────────────────────────────────────────────────
 @app.route("/api/documento/<int:doc_id>/status", methods=["PUT"])

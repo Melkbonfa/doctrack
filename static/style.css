@@ -578,6 +578,33 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .manual-row-name{font-size:12px;font-weight:600;color:var(--t1);}
 .section-label-line{font-size:10px;color:var(--cyan-lt);letter-spacing:1px;margin:6px 0 10px;text-transform:uppercase;}
 
+/* Linha de armazenamento (input + botão Ver arquivos) */
+.armazenamento-row{display:flex;gap:8px;align-items:stretch;}
+.armazenamento-row .form-input{flex:1;min-width:0;}
+.armazenamento-row .btn{white-space:nowrap;flex-shrink:0;}
+
+/* Lista de arquivos do equipamento */
+.arquivo-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border-soft);margin-bottom:7px;cursor:pointer;transition:border-color .15s,transform .1s;}
+.arquivo-row:hover{border-color:var(--border-hi);transform:translateY(-1px);}
+.arquivo-ext{flex-shrink:0;width:42px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:#fff;font-size:9px;font-weight:800;letter-spacing:.3px;}
+.arquivo-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.arquivo-nome{font-size:12.5px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.arquivo-meta{font-size:10.5px;color:var(--t3);}
+.arquivo-acao{flex-shrink:0;font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.3px;}
+
+/* Visualizador de documento (docx) */
+.docview-modal{width:min(940px,94vw)!important;max-width:min(940px,94vw)!important;height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden;}
+.docview-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border-mid);flex-shrink:0;}
+.docview-titlewrap{min-width:0;flex:1;}
+.docview-titlewrap .modal-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px;}
+.docview-actions{display:flex;gap:8px;flex-shrink:0;}
+.docview-body{flex:1;overflow:auto;background:#525659;padding:0;}
+.docview-body .loading-state{color:#e5e7eb;padding:60px;}
+.docview-erro{text-align:center;padding:50px 20px;color:var(--red);background:#525659;height:100%;}
+/* páginas renderizadas pelo docx-preview */
+.docview-body .docx-wrapper{background:transparent;padding:24px 12px;min-width:min-content;}
+.docview-body .docx-wrapper>section.docx{box-shadow:0 4px 18px rgba(0,0,0,.45);margin-bottom:24px;background:#fff;}
+
 /* Confirm modal */
 .confirm-modal{position:fixed;inset:0;background:rgba(15,15,40,.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:9100}
 .confirm-modal.open{display:flex}

@@ -651,6 +651,119 @@ async function abrirPasta(caminho) {
   }
 }
 
+// ═══ VISUALIZAR ARQUIVOS DO EQUIPAMENTO ═══
+function _fmtTamanho(b){
+  if(!b) return '';
+  if(b < 1024) return b+' B';
+  if(b < 1048576) return (b/1024).toFixed(0)+' KB';
+  return (b/1048576).toFixed(1)+' MB';
+}
+
+const _ICON_ARQUIVO = {
+  pdf:'#ef4444', docx:'#2563eb', doc:'#2563eb', xlsx:'#16a34a', xls:'#16a34a',
+  zip:'#a855f7', rar:'#a855f7', png:'#0891b2', jpg:'#0891b2', jpeg:'#0891b2'
+};
+
+async function abrirArquivos(caminho, titulo){
+  if(!caminho){ showToast('Este documento não tem caminho de armazenamento definido','error'); return; }
+  document.getElementById('arquivos-title').textContent = titulo || 'Documentos';
+  document.getElementById('arquivos-sub').textContent = caminho;
+  document.getElementById('arquivos-body').innerHTML = '<div class="loading-state"><div class="spinner"></div>Carregando arquivos...</div>';
+  openModal('arquivos');
+  try{
+    const res = await apiFetch('/documentos/arquivos?caminho='+encodeURIComponent(caminho));
+    if(!res){ return; }
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok){
+      document.getElementById('arquivos-body').innerHTML =
+        `<div style="text-align:center;padding:28px;color:var(--t3);font-size:13px">${esc(data.erro||'Não foi possível listar os arquivos')}</div>`;
+      return;
+    }
+    renderArquivosLista(data.arquivos || []);
+  }catch(e){
+    document.getElementById('arquivos-body').innerHTML =
+      '<div style="text-align:center;padding:28px;color:var(--red);font-size:13px">Erro de rede ao listar arquivos</div>';
+  }
+}
+
+function renderArquivosLista(arquivos){
+  const body = document.getElementById('arquivos-body');
+  if(!arquivos.length){
+    body.innerHTML = '<div style="text-align:center;padding:28px;color:var(--t3);font-size:13px">Nenhum arquivo encontrado nesta pasta.</div>';
+    return;
+  }
+  const grupos = [['IT','Instrução de Trabalho'],['Checklist','Checklists'],['Outros','Outros arquivos']];
+  let html = '';
+  for(const [cat, label] of grupos){
+    const items = arquivos.filter(a=>a.categoria===cat);
+    if(!items.length) continue;
+    html += `<div class="section-label-line">${esc(label)}</div>`;
+    html += items.map(a=>{
+      const ext = (a.ext||'').toLowerCase();
+      const cor = _ICON_ARQUIVO[ext] || 'var(--t3)';
+      const podeVisualizar = a.inline || ext==='docx';
+      const acao = podeVisualizar ? 'Visualizar' : 'Baixar';
+      const meta = [a.ext?a.ext.toUpperCase():'', _fmtTamanho(a.tamanho), a.modificado].filter(Boolean).join(' · ');
+      const c = encodeURIComponent(a.caminho);
+      const nomeEsc = (a.nome||'').replace(/'/g,"\\'");
+      return `<div class="arquivo-row" onclick="abrirArquivo('${c}', '${nomeEsc}', '${ext}', ${a.inline?'true':'false'})" title="${esc(acao)}">
+        <span class="arquivo-ext" style="background:${cor}">${esc((a.ext||'?').toUpperCase().slice(0,4))}</span>
+        <span class="arquivo-info"><span class="arquivo-nome">${esc(a.nome)}</span><span class="arquivo-meta">${esc(meta)}</span></span>
+        <span class="arquivo-acao">${esc(acao)}</span>
+      </div>`;
+    }).join('');
+  }
+  body.innerHTML = html;
+}
+
+function _downloadArquivo(caminhoEnc, nome){
+  const a = document.createElement('a');
+  a.href = API + '/documentos/arquivo?caminho=' + caminhoEnc + '&token=' + encodeURIComponent(getToken()) + '&download=1';
+  a.download = nome || ''; a.style.display = 'none';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function abrirArquivo(caminhoEnc, nome, ext, inline){
+  ext = (ext||'').toLowerCase();
+  if(ext === 'docx'){ return visualizarDocx(caminhoEnc, nome); }
+  if(inline){
+    const url = API + '/documentos/arquivo?caminho=' + caminhoEnc + '&token=' + encodeURIComponent(getToken());
+    window.open(url, '_blank');
+  }else{
+    _downloadArquivo(caminhoEnc, nome);
+    showToast('Download iniciado: '+(nome||'arquivo'),'success');
+  }
+}
+
+// Renderiza um .docx dentro do navegador (client-side, sem sair da rede)
+async function visualizarDocx(caminhoEnc, nome){
+  const body = document.getElementById('docview-body');
+  document.getElementById('docview-title').textContent = nome || 'Documento';
+  document.getElementById('docview-download').onclick = ()=>_downloadArquivo(caminhoEnc, nome);
+  if(typeof docx === 'undefined' || !docx.renderAsync){
+    showToast('Visualizador indisponível — baixando o arquivo','error');
+    _downloadArquivo(caminhoEnc, nome);
+    return;
+  }
+  body.innerHTML = '<div class="loading-state"><div class="spinner"></div>Renderizando documento...</div>';
+  openModal('docview');
+  try{
+    const res = await apiFetch('/documentos/arquivo?caminho=' + caminhoEnc);
+    if(!res || !res.ok){
+      body.innerHTML = '<div class="docview-erro">Não foi possível carregar o documento.</div>';
+      return;
+    }
+    const blob = await res.blob();
+    body.innerHTML = '';
+    await docx.renderAsync(blob, body, null, {
+      className:'docx', inWrapper:true, useBase64URL:true,
+      breakPages:true, ignoreLastRenderedPageBreak:true, experimental:true
+    });
+  }catch(e){
+    body.innerHTML = '<div class="docview-erro">Não foi possível renderizar este documento.<br><span style="color:var(--t3);font-size:12px">Use o botão “Baixar” acima para abrir no Word.</span></div>';
+  }
+}
+
 // ═══ DOCS — GRADE DE EQUIPAMENTOS ═══
 let _equipChip = 'todos';
 
@@ -842,7 +955,12 @@ function renderEquipPrePanel(){
       <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="ep-obs_treinamento" value="${esc(p.obs_treinamento)}"></div>
       <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="ep-obs_homologacao" value="${esc(p.obs_homologacao)}"></div>
     </div>
-    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label><input class="form-input" id="ep-armazenamento" value="${esc(p.armazenamento)}"></div>
+    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label>
+      <div class="armazenamento-row">
+        <input class="form-input" id="ep-armazenamento" value="${esc(p.armazenamento)}">
+        <button type="button" class="btn btn-ghost btn-sm" title="Ver IT e checklists desta pasta" onclick="abrirArquivos(document.getElementById('ep-armazenamento').value, 'Documentos — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
+      </div>
+    </div>
     <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipPre()">Salvar alterações</button></div>
   `;
 }
@@ -870,7 +988,12 @@ function renderEquipManuaisPanel(){
     <div class="section-label-line">Dados do fabricante (compartilhados)</div>
     <div class="g2">
       <div class="form-group"><label class="form-label">Fabricante</label><input class="form-input" id="em-fabricante" value="${esc(_equipCtx.fabricante)}"></div>
-      <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="em-armazenamento" value="${esc((Object.values(_equipCtx.manuais)[0]||{}).armazenamento||'')}"></div>
+      <div class="form-group"><label class="form-label">Armazenamento base</label>
+        <div class="armazenamento-row">
+          <input class="form-input" id="em-armazenamento" value="${esc((Object.values(_equipCtx.manuais)[0]||{}).armazenamento||'')}">
+          <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('em-armazenamento').value, 'Manuais — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
+        </div>
+      </div>
     </div>
     <div class="section-label-line">Documentos por tipo</div>
     ${rows}
