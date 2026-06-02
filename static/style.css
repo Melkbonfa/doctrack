@@ -539,24 +539,21 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,
 .filter-chip .chip-count{font-family:var(--font-mono);opacity:.8;margin-left:4px;}
 
 .equip-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;
 }
 .equip-card{
   background:var(--bg-card);border:1px solid var(--border-soft);border-radius:var(--r2);
-  border-top:3px solid var(--border-mid);padding:14px;cursor:pointer;
+  border-top:3px solid var(--border-mid);padding:20px 16px;cursor:pointer;min-height:104px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;
   transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
 }
-.equip-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--border-mid);}
+.equip-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md);border-color:var(--border-mid);}
 .equip-card.st-green{border-top-color:var(--green);}
 .equip-card.st-amber{border-top-color:var(--amber);}
 .equip-card.st-red{border-top-color:var(--red);}
-.equip-card-name{font-size:13px;font-weight:700;color:var(--t1);margin-bottom:2px;}
-.equip-card-meta{font-size:10px;color:var(--t3);margin-bottom:10px;}
-.equip-card-blocks{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
-.equip-block{background:var(--bg-elevated);border-radius:8px;padding:8px;text-align:center;}
-.equip-block-label{font-size:9px;color:var(--t4);margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px;}
-.equip-block-val{font-size:11px;font-weight:700;}
-.equip-block-val.muted{color:var(--t4);font-weight:400;}
+.equip-card-name{font-size:15px;font-weight:700;color:var(--t1);line-height:1.25;letter-spacing:-.2px}
+.equip-card-sku{font-family:var(--font-mono);font-size:12px;color:var(--t3);letter-spacing:.3px}
+.equip-card-sku .muted{font-family:var(--font-body);color:var(--t4);font-style:italic;letter-spacing:0}
 
 /* ── MODAL DE EQUIPAMENTO (abas) ────────────────────────────────────────── */
 .equip-modal-tabs{display:flex;border-bottom:1px solid var(--border-soft);margin:4px 0 16px;}

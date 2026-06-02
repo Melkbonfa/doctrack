@@ -451,19 +451,9 @@ function renderGrid(){
   }
   grid.innerHTML = filtered.map(g => {
     const color = equipStatusColor(g);
-    const preTxt = g.pre ? esc(g.pre.status) : '—';
-    const preMuted = g.pre ? '' : ' muted';
-    const ok = equipManuaisOk(g);
-    const manTxt = g.manuais.length ? `${ok} / 5` : '—';
-    const manMuted = g.manuais.length ? '' : ' muted';
-    const preColor = color==='red' ? 'var(--red)' : color==='green' ? 'var(--green)' : 'var(--amber)';
     return `<div class="equip-card st-${color}" data-equip="${esc(g.equipamento)}" onclick="openEquipModal('${esc(g.equipamento).replace(/'/g,"\\'")}')">
       <div class="equip-card-name">${esc(g.equipamento)}</div>
-      <div class="equip-card-meta">${esc(g.sku||'—')}${g.fabricante?' · '+esc(g.fabricante):''}</div>
-      <div class="equip-card-blocks">
-        <div class="equip-block"><div class="equip-block-label">IT / PRE</div><div class="equip-block-val${preMuted}" style="${g.pre?`color:${preColor}`:''}">${preTxt}</div></div>
-        <div class="equip-block"><div class="equip-block-label">Manuais</div><div class="equip-block-val${manMuted}">${manTxt}</div></div>
-      </div>
+      <div class="equip-card-sku">${g.sku?esc(g.sku):'<span class="muted">sem SKU</span>'}</div>
     </div>`;
   }).join('');
 }
@@ -564,10 +554,7 @@ function renderEquipManuaisPanel(){
     const statusOpts = _MAN_STATUS.map(s=>`<option value="${esc(s)}" ${d.status===s?'selected':''}>${esc(s)}</option>`).join('');
     return `<div class="manual-row">
       <div class="manual-row-head"><span class="manual-row-name">${esc(label)}</span></div>
-      <div class="g2">
-        <div class="form-group"><label class="form-label">Código</label><input class="form-input" id="em-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
-        <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="em-st-${tipo}">${statusOpts}</select></div>
-      </div>
+      <div class="form-group" style="margin-bottom:0"><label class="form-label">Status</label><select class="form-input" id="em-st-${tipo}">${statusOpts}</select></div>
     </div>`;
   }).join('');
   panel.innerHTML = `
@@ -619,7 +606,6 @@ async function saveEquipManuais(){
       const payload = {
         fabricante,
         armazenamento,
-        codigo_doc: document.getElementById('em-cod-'+tipo).value,
         status: document.getElementById('em-st-'+tipo).value,
       };
       const res = await _patchDoc(d.id, payload);
