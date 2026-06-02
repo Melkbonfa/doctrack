@@ -720,6 +720,22 @@ def api_enums():
         "tipos_doc_labels": TIPOS_DOC_LABELS
     }), 200
 
+def _filter_audit_dates(query):
+    """Aplica filtro de intervalo de datas (inicio/fim no formato YYYY-MM-DD) sobre AuditLog.timestamp."""
+    inicio = request.args.get("inicio", "").strip()
+    fim = request.args.get("fim", "").strip()
+    if inicio:
+        try:
+            query = query.filter(AuditLog.timestamp >= datetime.strptime(inicio, "%Y-%m-%d"))
+        except Exception:
+            pass
+    if fim:
+        try:
+            query = query.filter(AuditLog.timestamp < datetime.strptime(fim, "%Y-%m-%d") + timedelta(days=1))
+        except Exception:
+            pass
+    return query
+
 @app.route("/api/audit")
 @jwt_required()
 @require_role("admin", "gestor")
@@ -730,6 +746,7 @@ def api_audit():
     except: return jsonify({"erro": "limit deve ser numérico"}), 400
     query = AuditLog.query.order_by(AuditLog.timestamp.desc())
     if acao: query = query.filter(AuditLog.acao == acao)
+    query = _filter_audit_dates(query)
     result = [l.to_dict() for l in query.limit(limit).all()]
     if q: result = [l for l in result if q in norm(l.get("usuario")) or q in norm(l.get("entidade")) or q in norm(l.get("campo"))]
     return jsonify(result), 200
@@ -738,7 +755,7 @@ def api_audit():
 @jwt_required()
 @require_role("admin", "gestor")
 def export_audit():
-    logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).all()
+    logs = _filter_audit_dates(AuditLog.query.order_by(AuditLog.timestamp.desc())).all()
     
     # Caminho para o template do relatório HTML
     template_path = os.path.join(BASE_DIR, "audit_log_report.html")

@@ -151,6 +151,9 @@
           <div class="filter-bar">
             <div class="search-wrap"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input class="search-input" id="audit-search" placeholder="Buscar..." aria-label="Buscar audit log"></div>
             <select class="filter-sel" id="audit-filter-action" onchange="filterAudit()"><option value="">Todas as ações</option><option>LOGIN</option><option>CREATE</option><option>UPDATE</option><option>DELETE</option><option>STATUS_CHANGE</option><option>REIMPORT</option></select>
+            <label class="audit-date-field">De <input type="date" class="filter-sel" id="audit-date-inicio" onchange="filterAudit()" aria-label="Data inicial"></label>
+            <label class="audit-date-field">Até <input type="date" class="filter-sel" id="audit-date-fim" onchange="filterAudit()" aria-label="Data final"></label>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="limparAuditDatas()" title="Limpar datas">Limpar datas</button>
           </div>
           <div id="audit-list"></div>
         </div>
@@ -254,7 +257,10 @@
     <!-- PAINEL MANUAIS -->
     <div class="equip-tab-panel" id="equip-panel-manuais"></div>
 
-    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('equip')">Fechar</button></div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-danger btn-sm" id="btn-del-equip" type="button" onclick="deleteEquip()" style="display:none">Excluir equipamento</button>
+      <button class="btn btn-ghost" onclick="closeModal('equip')">Fechar</button>
+    </div>
   </div>
 </div>
 

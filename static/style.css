@@ -555,6 +555,11 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,
 .equip-card-sku{font-family:var(--font-mono);font-size:12px;color:var(--t3);letter-spacing:.3px}
 .equip-card-sku .muted{font-family:var(--font-body);color:var(--t4);font-style:italic;letter-spacing:0}
 
+/* Filtro de datas do Audit Log */
+.audit-date-field{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.audit-date-field input[type=date]{padding:7px 10px;color-scheme:dark}
+body.theme-light .audit-date-field input[type=date]{color-scheme:light}
+
 /* ── MODAL DE EQUIPAMENTO (abas) ────────────────────────────────────────── */
 .equip-modal-tabs{display:flex;border-bottom:1px solid var(--border-soft);margin:4px 0 16px;}
 .equip-modal-tab{

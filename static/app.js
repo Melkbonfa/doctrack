@@ -498,10 +498,33 @@ function openEquipModal(equipName){
   document.getElementById('equip-modal-title').textContent = equipName;
   document.getElementById('equip-modal-sub').textContent = (sku?('SKU '+sku):'') + (fabricante?(' · '+fabricante):'');
 
+  // Botão de excluir equipamento: somente admin/gestor
+  const delBtn = document.getElementById('btn-del-equip');
+  if(delBtn) delBtn.style.display = (currentUser.role==='admin'||currentUser.role==='gestor') ? 'inline-flex' : 'none';
+
   renderEquipPrePanel();
   renderEquipManuaisPanel();
   switchEquipTab('pre');
   openBaseModal('equip');
+}
+
+async function deleteEquip(){
+  if(!_equipCtx) return;
+  if(!(currentUser.role==='admin'||currentUser.role==='gestor')){ showToast('Sem permissão','error'); return; }
+  const nome = _equipCtx.equipamento;
+  const docs = [];
+  if(_equipCtx.pre) docs.push(_equipCtx.pre);
+  Object.values(_equipCtx.manuais).forEach(d=>docs.push(d));
+  if(!docs.length){ showToast('Nada para excluir','info'); return; }
+  const ok = await confirmModal('Excluir equipamento', `Excluir "${nome}" e todos os seus ${docs.length} documento(s) (IT/PRE e Manuais)? Esta ação pode ser revertida no banco (soft delete).`);
+  if(!ok) return;
+  try{
+    for(const d of docs){
+      const res = await apiFetch(`/documentos/${d.id}`, {method:'DELETE'});
+      if(!res || !res.ok){ const e = res ? await res.json().catch(()=>({})) : {}; showToast(e.erro||'Erro ao excluir','error'); return; }
+    }
+    showToast('Equipamento excluído','success'); closeModal('equip'); await refreshAll();
+  }catch(e){ showToast('Erro de rede','error'); }
 }
 
 function renderEquipPrePanel(){
@@ -654,9 +677,23 @@ async function submitNewEquip(){
 
 // ═══ AUDIT ═══
 async function renderAudit(){filterAudit()}
+function _auditDateParams(){
+  const di=(document.getElementById('audit-date-inicio')||{}).value||'';
+  const df=(document.getElementById('audit-date-fim')||{}).value||'';
+  const p=new URLSearchParams();
+  if(di)p.set('inicio',di);
+  if(df)p.set('fim',df);
+  return p;
+}
+function limparAuditDatas(){
+  const a=document.getElementById('audit-date-inicio'),b=document.getElementById('audit-date-fim');
+  if(a)a.value='';if(b)b.value='';
+  filterAudit();
+}
 async function filterAudit(){
   let logs=[];
-  try{const res=await apiFetch('/audit');if(res&&res.ok)logs=await res.json()}catch(e){}
+  const qs=_auditDateParams().toString();
+  try{const res=await apiFetch('/audit'+(qs?('?'+qs):''));if(res&&res.ok)logs=await res.json()}catch(e){}
   const q=(document.getElementById('audit-search').value||'').toLowerCase();
   const a=document.getElementById('audit-filter-action').value;
   if(q)logs=logs.filter(l=>(l.usuario||'').toLowerCase().includes(q)||(l.entidade||'').toLowerCase().includes(q)||(l.campo||'').toLowerCase().includes(q));
@@ -673,7 +710,9 @@ async function filterAudit(){
 }
 
 function exportAudit() {
-    window.open(API + '/export/audit?token=' + getToken(), '_blank');
+    const p=_auditDateParams();
+    p.set('token', getToken());
+    window.open(API + '/export/audit?' + p.toString(), '_blank');
 }
 
 // ═══ USERS ═══
