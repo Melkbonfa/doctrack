@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Log Report</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f8f7f4;
+    --surface: #ffffff;
+    --surface2: #f1efe8;
+    --border: rgba(0,0,0,0.1);
+    --border2: rgba(0,0,0,0.18);
+    --text: #1a1918;
+    --text2: #5f5e5a;
+    --text3: #888780;
+    --radius: 10px;
+    --radius-sm: 6px;
+
+    --login-bg: #e6f1fb; --login-txt: #0c447c; --login-border: #378add;
+    --update-bg: #eeedfe; --update-txt: #3c3489; --update-border: #7f77dd;
+    --create-bg: #eaf3de; --create-txt: #27500a; --create-border: #639922;
+    --delete-bg: #fcebeb; --delete-txt: #791f1f; --delete-border: #e24b4a;
+    --status-bg: #faeeda; --status-txt: #633806; --status-border: #ba7517;
+    --doc-bg: #fbeaf0; --doc-txt: #72243e; --doc-border: #d4537e;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1b1a; --surface: #252422; --surface2: #2c2c2a;
+      --border: rgba(255,255,255,0.1); --border2: rgba(255,255,255,0.18);
+      --text: #f1efe8; --text2: #b4b2a9; --text3: #888780;
+      --login-bg: #0c447c; --login-txt: #b5d4f4;
+      --update-bg: #3c3489; --update-txt: #cecbf6;
+      --create-bg: #27500a; --create-txt: #c0dd97;
+      --delete-bg: #791f1f; --delete-txt: #f7c1c1;
+      --status-bg: #633806; --status-txt: #fac775;
+      --doc-bg: #72243e; --doc-txt: #f4c0d1;
+    }
+  }
+
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .wrapper { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  .header { margin-bottom: 2rem; }
+  .header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+  .header p { font-size: 14px; color: var(--text2); }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 2rem; }
+  .stat-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; }
+  .stat-label { font-size: 12px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .stat-value { font-size: 28px; font-weight: 600; line-height: 1; }
+  .stat-sub { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+  .filters { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .filters label { font-size: 13px; color: var(--text2); }
+  .filters select, .filters input { font-size: 13px; padding: 6px 10px; border: 0.5px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface2); color: var(--text); cursor: pointer; }
+  .filters select:focus, .filters input:focus { outline: 2px solid var(--login-border); outline-offset: 1px; }
+
+  .log-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .log-entry { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 0.875rem 1.25rem; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; transition: border-color 0.15s; }
+  .log-entry:hover { border-color: var(--border2); }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; letter-spacing: 0.03em; border: 0.5px solid; }
+  .badge i { font-size: 12px; }
+
+  .badge-LOGIN    { background: var(--login-bg);  color: var(--login-txt);  border-color: var(--login-border);  }
+  .badge-UPDATE   { background: var(--update-bg); color: var(--update-txt); border-color: var(--update-border); }
+  .badge-CREATE   { background: var(--create-bg); color: var(--create-txt); border-color: var(--create-border); }
+  .badge-DELETE   { background: var(--delete-bg); color: var(--delete-txt); border-color: var(--delete-border); }
+  .badge-STATUS   { background: var(--status-bg); color: var(--status-txt); border-color: var(--status-border); }
+  .badge-DOCUMENT { background: var(--doc-bg);    color: var(--doc-txt);    border-color: var(--doc-border);    }
+
+  .log-meta { min-width: 160px; }
+  .log-entity { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; }
+  .log-entity small { font-size: 12px; color: var(--text2); font-weight: 400; display: block; margin-top: 1px; }
+
+  .log-change { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
+  .val-old { background: var(--delete-bg); color: var(--delete-txt); padding: 2px 8px; border-radius: 4px; font-family: monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val-new { background: var(--create-bg); color: var(--create-txt); padding: 2px 8px; border-radius: 4px; font-family: monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .arrow { color: var(--text3); }
+
+  .log-right { text-align: right; min-width: 160px; }
+  .log-time { font-size: 12px; color: var(--text3); white-space: nowrap; }
+  .log-date { font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 2px; }
+  .log-id { font-size: 11px; color: var(--text3); font-family: monospace; }
+
+  .user-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); margin-top: 6px; }
+  .user-avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--update-bg); color: var(--update-txt); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; }
+
+  .no-results { text-align: center; padding: 3rem; color: var(--text3); font-size: 14px; }
+  .count-bar { font-size: 13px; color: var(--text2); margin-bottom: 1rem; }
+
+  .section-title { font-size: 16px; font-weight: 600; margin-bottom: 1rem; }
+
+  .export-btns { margin-left: auto; display: flex; gap: 8px; }
+  .export-btn { font-size: 13px; padding: 6px 14px; border: 0.5px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .export-btn:hover { background: var(--border); }
+  .export-btn.pdf { border-color: #e24b4a; color: #a32d2d; }
+  .export-btn.pdf:hover { background: #fcebeb; }
+  @media (prefers-color-scheme: dark) { .export-btn.pdf { color: #f7c1c1; } .export-btn.pdf:hover { background: #501313; } }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <h1><i class="ti ti-shield-check" style="font-size:22px; vertical-align:-3px; margin-right:8px" aria-hidden="true"></i>Audit Log</h1>
+    <p>Registro completo de atividades do sistema — exportado em 26/05/2026</p>
+  </div>
+
+  <div class="stats-grid" id="statsGrid"></div>
+
+  <div class="filters">
+    <label>Ação</label>
+    <select id="filterAction">
+      <option value="">Todas</option>
+    </select>
+    <label>Usuário</label>
+    <select id="filterUser">
+      <option value="">Todos</option>
+    </select>
+    <label>Buscar</label>
+    <input type="text" id="searchInput" placeholder="Entidade, campo..." style="min-width:180px">
+    <label>De</label>
+    <input type="date" id="filterDateStart" aria-label="Data inicial">
+    <label>Até</label>
+    <input type="date" id="filterDateEnd" aria-label="Data final">
+    <button class="export-btn" type="button" onclick="clearDates()" title="Limpar datas"><i class="ti ti-x" aria-hidden="true"></i>Datas</button>
+    <div class="export-btns">
+      <button class="export-btn" onclick="exportCSV()"><i class="ti ti-file-type-csv" aria-hidden="true"></i>CSV</button>
+      <button class="export-btn pdf" onclick="exportPDF()"><i class="ti ti-file-type-pdf" aria-hidden="true"></i>PDF</button>
+    </div>
+  </div>
+
+  <div class="count-bar" id="countBar"></div>
+  <div class="log-list" id="logList"></div>
+</div>
+
+<script>
+const RAW = [{"ID":72,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 12:23:14"},{"ID":71,"Usuario":"admin@pde.com","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 12:18:22"},{"ID":70,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"sku","ValorAntigo":"1.000889","ValorNovo":"01.000889","Data":"26/05/2026 12:18:21"},{"ID":69,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"grupo_sync","ValorAntigo":"AMPLIGENE LITE|1.000889","ValorNovo":"AMPLIGENE LITE|01.000889","Data":"26/05/2026 12:18:21"},{"ID":68,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Spare Parts - AMPLIGENE LITE","Campo":"grupo_sync","ValorAntigo":"AMPLIGENE LITE|1.000889","ValorNovo":"AMPLIGENE LITE|01.000889","Data":"26/05/2026 12:18:21"},{"ID":67,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"QI/QO/QD - AMPLIGENE LITE","Campo":"grupo_sync","ValorAntigo":"AMPLIGENE LITE|1.000889","ValorNovo":"AMPLIGENE LITE|01.000889","Data":"26/05/2026 12:18:21"},{"ID":66,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual do Usuário - AMPLIGENE LITE","Campo":"grupo_sync","ValorAntigo":"AMPLIGENE LITE|1.000889","ValorNovo":"AMPLIGENE LITE|01.000889","Data":"26/05/2026 12:18:21"},{"ID":65,"Usuario":"admin@pde.com","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Em andamento","ValorNovo":"Concluído","Data":"26/05/2026 12:15:39"},{"ID":64,"Usuario":"admin@pde.com","Acao":"STATUS_CHANGE","Entidade":"Manual ES - Ampligene Plus","Campo":"status","ValorAntigo":"Em andamento","ValorNovo":"Concluído","Data":"26/05/2026 12:15:39"},{"ID":63,"Usuario":"admin@pde.com","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Concluído","ValorNovo":"Em andamento","Data":"26/05/2026 12:15:37"},{"ID":62,"Usuario":"admin@pde.com","Acao":"STATUS_CHANGE","Entidade":"Manual ES - Ampligene Plus","Campo":"status","ValorAntigo":"Concluído","ValorNovo":"Em andamento","Data":"26/05/2026 12:15:36"},{"ID":61,"Usuario":"admin@pde.com","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"26/05/2026 12:15:34"},{"ID":60,"Usuario":"admin@pde.com","Acao":"STATUS_CHANGE","Entidade":"Manual ES - Ampligene Plus","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"26/05/2026 12:15:34"},{"ID":59,"Usuario":"admin@pde.com","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"26/05/2026 12:14:58"},{"ID":58,"Usuario":"admin@pde.com","Acao":"STATUS_CHANGE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"26/05/2026 12:14:58"},{"ID":57,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 12:14:48"},{"ID":56,"Usuario":"admin@pde.com","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 11:51:27"},{"ID":55,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"tipo_doc","ValorAntigo":"Manual_Servico","ValorNovo":"Manual_ES","Data":"26/05/2026 11:51:27"},{"ID":54,"Usuario":"admin@pde.com","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 11:51:17"},{"ID":53,"Usuario":"admin@pde.com","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 11:51:16"},{"ID":52,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"tipo_doc","ValorAntigo":"Manual_Usuario","ValorNovo":"Manual_Servico","Data":"26/05/2026 11:51:13"},{"ID":51,"Usuario":"admin@pde.com","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 11:51:05"},{"ID":50,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"tipo_doc","ValorAntigo":"Manual_ES","ValorNovo":"Manual_Usuario","Data":"26/05/2026 11:51:04"},{"ID":49,"Usuario":"admin@pde.com","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 11:50:47"},{"ID":48,"Usuario":"admin@pde.com","Acao":"UPDATE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"tipo_doc","ValorAntigo":"Manual_Servico","ValorNovo":"Manual_ES","Data":"26/05/2026 11:50:47"},{"ID":47,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 11:50:28"},{"ID":46,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 09:25:13"},{"ID":45,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 09:13:42"},{"ID":44,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 09:03:30"},{"ID":43,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 09:00:38"},{"ID":42,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"26/05/2026 08:27:33"},{"ID":41,"Usuario":"mateus.escorica@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Treinamento Piloto","Data":"25/05/2026 16:02:08"},{"ID":40,"Usuario":"mateus.escorica@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"IT/Checklist - LMR Multimodal","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Treinamento Piloto","Data":"25/05/2026 16:02:08"},{"ID":39,"Usuario":"mateus.escorica@loccus.com.br","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 16:01:35"},{"ID":38,"Usuario":"admin@pde.com","Acao":"CREATE","Entidade":"mateus.escorica@loccus.com.br","Campo":"role","ValorAntigo":null,"ValorNovo":"tecnico","Data":"25/05/2026 16:00:39"},{"ID":37,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 15:49:48"},{"ID":36,"Usuario":"alexandre.banari@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:12"},{"ID":35,"Usuario":"alexandre.banari@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"Manual de Serviço - Amplio RX","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:12"},{"ID":34,"Usuario":"alexandre.banari@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:10"},{"ID":33,"Usuario":"alexandre.banari@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"Spare Parts - Amplio RX","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:10"},{"ID":32,"Usuario":"alexandre.banari@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:07"},{"ID":31,"Usuario":"alexandre.banari@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"QI/QO/QD - Amplio RX","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:06"},{"ID":30,"Usuario":"alexandre.banari@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:04"},{"ID":29,"Usuario":"alexandre.banari@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"Manual do Usuário - Amplio RX","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 14:20:04"},{"ID":28,"Usuario":"paulo.minhoto@loccus.com.br","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 14:18:27"},{"ID":27,"Usuario":"alexandre.banari@loccus.com.br","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 14:14:05"},{"ID":26,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 14:12:06"},{"ID":25,"Usuario":"paulo.minhoto@loccus.com.br","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 14:07:15"},{"ID":24,"Usuario":"admin@pde.com","Acao":"CREATE","Entidade":"paulo.minhoto@loccus.com.br","Campo":"role","ValorAntigo":null,"ValorNovo":"tecnico","Data":"25/05/2026 16:06:52"},{"ID":23,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 14:06:18"},{"ID":22,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 14:04:03"},{"ID":21,"Usuario":"admin@pde.com","Acao":"CREATE","Entidade":"alexandre.banari@loccus.com.br","Campo":"role","ValorAntigo":null,"ValorNovo":"gestor","Data":"25/05/2026 13:40:21"},{"ID":20,"Usuario":"admin@pde.com","Acao":"DELETE","Entidade":"diego.f@pde.com","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 13:39:35"},{"ID":19,"Usuario":"admin@pde.com","Acao":"DELETE","Entidade":"carlos.m@pde.com","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 13:39:32"},{"ID":18,"Usuario":"admin@pde.com","Acao":"DELETE","Entidade":"beatriz.s@pde.com","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 13:39:30"},{"ID":17,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 13:39:18"},{"ID":16,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 12:25:41"},{"ID":15,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 12:22:06"},{"ID":14,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"DOCUMENT_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 12:17:09"},{"ID":13,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"UPDATE","Entidade":"IT/Checklist - AMPLIGENE LITE","Campo":"sku","ValorAntigo":"1.000889","ValorNovo":"01.000889","Data":"25/05/2026 12:17:09"},{"ID":12,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:15:04"},{"ID":11,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"Spare Parts - AMPLIGENE LITE","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:15:04"},{"ID":10,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:15:02"},{"ID":9,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"Manual de Serviço - AMPLIGENE LITE","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:15:02"},{"ID":8,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:14:59"},{"ID":7,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"QI/QO/QD - AMPLIGENE LITE","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:14:59"},{"ID":6,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"DOCUMENT_STATUS_UPDATED","Entidade":"documento","Campo":null,"ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:14:56"},{"ID":5,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"STATUS_CHANGE","Entidade":"Manual do Usuário - AMPLIGENE LITE","Campo":"status","ValorAntigo":"Elaborar","ValorNovo":"Concluído","Data":"25/05/2026 12:14:56"},{"ID":4,"Usuario":"egnaldo.alves@loccus.com.br","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 12:14:32"},{"ID":3,"Usuario":"admin@pde.com","Acao":"CREATE","Entidade":"egnaldo.alves@loccus.com.br","Campo":"role","ValorAntigo":null,"ValorNovo":"tecnico","Data":"25/05/2026 12:13:39"},{"ID":2,"Usuario":"admin@pde.com","Acao":"DELETE","Entidade":"ana.l@pde.com","Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 12:12:01"},{"ID":1,"Usuario":"admin@pde.com","Acao":"LOGIN","Entidade":null,"Campo":null,"ValorAntigo":null,"ValorNovo":null,"Data":"25/05/2026 12:11:45"}];
+
+function getBadgeClass(acao) {
+  if (acao === 'LOGIN') return 'badge-LOGIN';
+  if (acao === 'UPDATE') return 'badge-UPDATE';
+  if (acao === 'CREATE') return 'badge-CREATE';
+  if (acao === 'DELETE') return 'badge-DELETE';
+  if (acao.includes('STATUS')) return 'badge-STATUS';
+  if (acao.includes('DOCUMENT')) return 'badge-DOCUMENT';
+  return 'badge-UPDATE';
+}
+
+function getBadgeIcon(acao) {
+  if (acao === 'LOGIN') return 'ti-login';
+  if (acao === 'UPDATE') return 'ti-edit';
+  if (acao === 'CREATE') return 'ti-plus';
+  if (acao === 'DELETE') return 'ti-trash';
+  if (acao.includes('STATUS')) return 'ti-arrows-exchange';
+  if (acao.includes('DOCUMENT')) return 'ti-file-text';
+  return 'ti-activity';
+}
+
+function getBadgeLabel(acao) {
+  const map = {
+    LOGIN: 'Login', UPDATE: 'Atualização', CREATE: 'Criação', DELETE: 'Exclusão',
+    STATUS_CHANGE: 'Status', DOCUMENT_UPDATED: 'Doc. atualizado', DOCUMENT_STATUS_UPDATED: 'Doc. status'
+  };
+  return map[acao] || acao;
+}
+
+function getInitials(email) {
+  const name = email.split('@')[0];
+  const parts = name.split('.');
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0,2).toUpperCase();
+}
+
+function parseDate(str) {
+  const [d, t] = str.split(' ');
+  const [day, mon, yr] = d.split('/');
+  return new Date(`${yr}-${mon}-${day}T${t}`);
+}
+
+function formatDate(str) {
+  const [d] = str.split(' ');
+  const [day, mon, yr] = d.split('/');
+  return `${day}/${mon}/${yr}`;
+}
+
+function formatTime(str) {
+  return str.split(' ')[1];
+}
+
+function buildStats(data) {
+  const total = data.length;
+  const actions = {};
+  const users = new Set();
+  data.forEach(r => {
+    actions[r.Acao] = (actions[r.Acao]||0)+1;
+    users.add(r.Usuario);
+  });
+  const deletes = actions['DELETE']||0;
+  const creates = actions['CREATE']||0;
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total de eventos</div><div class="stat-value">${total}</div><div class="stat-sub">todos os registros</div></div>
+    <div class="stat-card"><div class="stat-label">Usuários ativos</div><div class="stat-value">${users.size}</div><div class="stat-sub">contas distintas</div></div>
+    <div class="stat-card"><div class="stat-label">Atualizações</div><div class="stat-value">${(actions['UPDATE']||0)+(actions['DOCUMENT_UPDATED']||0)+(actions['STATUS_CHANGE']||0)+(actions['DOCUMENT_STATUS_UPDATED']||0)}</div><div class="stat-sub">edições e status</div></div>
+    <div class="stat-card"><div class="stat-label">Criações</div><div class="stat-value">${creates}</div><div class="stat-sub">novos registros</div></div>
+    <div class="stat-card"><div class="stat-label">Exclusões</div><div class="stat-value" style="color:#a32d2d">${deletes}</div><div class="stat-sub">registros removidos</div></div>
+    <div class="stat-card"><div class="stat-label">Logins</div><div class="stat-value">${actions['LOGIN']||0}</div><div class="stat-sub">sessões iniciadas</div></div>
+  `;
+}
+
+function buildFilters(data) {
+  const actions = [...new Set(data.map(r=>r.Acao))].sort();
+  const users = [...new Set(data.map(r=>r.Usuario))].sort();
+  const sa = document.getElementById('filterAction');
+  actions.forEach(a => { const o = document.createElement('option'); o.value=a; o.textContent=getBadgeLabel(a); sa.appendChild(o); });
+  const su = document.getElementById('filterUser');
+  users.forEach(u => { const o = document.createElement('option'); o.value=u; o.textContent=u; su.appendChild(o); });
+}
+
+function renderList(data) {
+  const list = document.getElementById('logList');
+  document.getElementById('countBar').textContent = `Exibindo ${data.length} de ${RAW.length} eventos`;
+  if (!data.length) { list.innerHTML = '<div class="no-results"><i class="ti ti-search-off" style="font-size:24px; display:block; margin-bottom:8px"></i>Nenhum evento encontrado</div>'; return; }
+  list.innerHTML = data.map(r => {
+    const hasChange = r.ValorAntigo || r.ValorNovo;
+    const campo = r.Campo ? `<small>${r.Campo}</small>` : '';
+    const changeHtml = hasChange ? `<div class="log-change">
+      ${r.ValorAntigo ? `<span class="val-old" title="${r.ValorAntigo}">${r.ValorAntigo}</span>` : ''}
+      ${r.ValorAntigo && r.ValorNovo ? '<span class="arrow">→</span>' : ''}
+      ${r.ValorNovo ? `<span class="val-new" title="${r.ValorNovo}">${r.ValorNovo}</span>` : ''}
+    </div>` : '';
+    const entidade = r.Entidade && r.Entidade !== 'documento' ? `<div class="log-entity">${r.Entidade}${campo}</div>${changeHtml}` : '';
+    return `<div class="log-entry">
+      <div class="log-meta">
+        <span class="badge ${getBadgeClass(r.Acao)}"><i class="ti ${getBadgeIcon(r.Acao)}" aria-hidden="true"></i>${getBadgeLabel(r.Acao)}</span>
+        <div class="user-chip"><span class="user-avatar">${getInitials(r.Usuario)}</span>${r.Usuario}</div>
+      </div>
+      <div>${entidade || '<span style="font-size:13px;color:var(--text3)">—</span>'}</div>
+      <div class="log-right">
+        <div class="log-date">${formatDate(r.Data)}</div>
+        <div class="log-time">${formatTime(r.Data)}</div>
+        <div class="log-id">#${r.ID}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function applyFilters() {
+  renderList(getFiltered());
+}
+
+function exportCSV() {
+  const filtered = getFiltered();
+  const header = 'ID,Usuario,Acao,Entidade,Campo,Valor Antigo,Valor Novo,Data';
+  const rows = filtered.map(r => [r.ID, r.Usuario, r.Acao, r.Entidade||'', r.Campo||'', r.ValorAntigo||'', r.ValorNovo||'', r.Data].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','));
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='audit_log.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function getFiltered() {
+  const act = document.getElementById('filterAction').value;
+  const usr = document.getElementById('filterUser').value;
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const ds = document.getElementById('filterDateStart').value;
+  const de = document.getElementById('filterDateEnd').value;
+  const startMs = ds ? new Date(ds + 'T00:00:00').getTime() : null;
+  const endMs = de ? new Date(de + 'T23:59:59').getTime() : null;
+  return RAW.filter(r => {
+    if (act && r.Acao !== act) return false;
+    if (usr && r.Usuario !== usr) return false;
+    if (startMs !== null || endMs !== null) {
+      const t = parseDate(r.Data).getTime();
+      if (startMs !== null && t < startMs) return false;
+      if (endMs !== null && t > endMs) return false;
+    }
+    if (q) {
+      const hay = [r.Entidade, r.Campo, r.ValorAntigo, r.ValorNovo, r.Usuario].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function clearDates() {
+  document.getElementById('filterDateStart').value = '';
+  document.getElementById('filterDateEnd').value = '';
+  applyFilters();
+}
+
+function exportPDF() {
+  const filtered = getFiltered();
+  if (!window.jspdf) { alert('Aguarde o carregamento do jsPDF e tente novamente.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  let y = margin;
+
+  doc.setFillColor(248, 247, 244);
+  doc.rect(0, 0, pageW, pageH, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(26, 25, 24);
+  doc.text('Audit Log', margin, y + 6);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(136, 135, 128);
+  doc.text(`Exportado em 26/05/2026 · ${filtered.length} eventos`, margin, y + 13);
+  y += 22;
+
+  const statY = y;
+  const statW = (pageW - margin*2 - 10*5) / 6;
+  const acts = {};
+  const users2 = new Set();
+  filtered.forEach(r => { acts[r.Acao]=(acts[r.Acao]||0)+1; users2.add(r.Usuario); });
+  const stats = [
+    ['Total', filtered.length],
+    ['Usuários', users2.size],
+    ['Logins', acts['LOGIN']||0],
+    ['Atualizações', (acts['UPDATE']||0)+(acts['DOCUMENT_UPDATED']||0)+(acts['STATUS_CHANGE']||0)+(acts['DOCUMENT_STATUS_UPDATED']||0)],
+    ['Criações', acts['CREATE']||0],
+    ['Exclusões', acts['DELETE']||0]
+  ];
+  stats.forEach(([label, val], i) => {
+    const sx = margin + i*(statW+10);
+    doc.setFillColor(255,255,255);
+    doc.setDrawColor(200,200,195);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(sx, statY, statW, 14, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(26,25,24);
+    doc.text(String(val), sx + statW/2, statY+8.5, {align:'center'});
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(136,135,128);
+    doc.text(label, sx + statW/2, statY+12.5, {align:'center'});
+  });
+  y = statY + 20;
+
+  const cols = [
+    { header: '#', key: 'ID', w: 10 },
+    { header: 'Usuário', key: 'Usuario', w: 52 },
+    { header: 'Ação', key: 'Acao', w: 34 },
+    { header: 'Entidade', key: 'Entidade', w: 60 },
+    { header: 'Campo', key: 'Campo', w: 24 },
+    { header: 'Valor antigo', key: 'ValorAntigo', w: 36 },
+    { header: 'Valor novo', key: 'ValorNovo', w: 36 },
+    { header: 'Data', key: 'Data', w: 30 }
+  ];
+
+  const actionColors = {
+    LOGIN: [14,68,124], UPDATE: [60,52,137], CREATE: [39,80,10],
+    DELETE: [121,31,31], STATUS_CHANGE: [99,56,6], DOCUMENT_UPDATED: [114,36,62],
+    DOCUMENT_STATUS_UPDATED: [114,36,62]
+  };
+
+  const rowH = 7;
+  const headerH = 8;
+
+  function drawHeader() {
+    doc.setFillColor(240,239,232);
+    doc.rect(margin, y, pageW-margin*2, headerH, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(95,94,90);
+    let cx = margin;
+    cols.forEach(c => {
+      doc.text(c.header, cx+2, y+5.5);
+      cx += c.w;
+    });
+    y += headerH;
+  }
+
+  function drawDivider() {
+    doc.setDrawColor(220,219,213);
+    doc.setLineWidth(0.2);
+    doc.line(margin, y, pageW-margin, y);
+  }
+
+  drawHeader();
+
+  filtered.forEach((r, idx) => {
+    if (y + rowH > pageH - margin) {
+      doc.addPage();
+      doc.setFillColor(248,247,244);
+      doc.rect(0,0,pageW,pageH,'F');
+      y = margin;
+      drawHeader();
+    }
+
+    if (idx % 2 === 0) {
+      doc.setFillColor(252,252,250);
+      doc.rect(margin, y, pageW-margin*2, rowH, 'F');
+    }
+
+    drawDivider();
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+
+    let cx = margin;
+    cols.forEach(c => {
+      let val = r[c.key];
+      if (val === null || val === undefined) val = '';
+      val = String(val);
+
+      if (c.key === 'Acao') {
+        const color = actionColors[val] || [95,94,90];
+        doc.setTextColor(...color);
+        doc.setFont('helvetica', 'bold');
+      } else if (c.key === 'ID') {
+        doc.setTextColor(136,135,128);
+        doc.setFont('helvetica', 'normal');
+      } else {
+        doc.setTextColor(26,25,24);
+        doc.setFont('helvetica', 'normal');
+      }
+
+      const maxW = c.w - 4;
+      const truncated = doc.getTextWidth(val) > maxW
+        ? val.substring(0, Math.floor(val.length * maxW / doc.getTextWidth(val)) - 1) + '…'
+        : val;
+      doc.text(truncated, cx+2, y+5);
+      cx += c.w;
+    });
+
+    y += rowH;
+  });
+
+  drawDivider();
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(170,168,162);
+    doc.text(`Página ${i} de ${totalPages}`, pageW - margin, pageH - 6, {align:'right'});
+    doc.text('Audit Log — gerado automaticamente', margin, pageH - 6);
+  }
+
+  doc.save('audit_log.pdf');
+}
+
+buildStats(RAW);
+buildFilters(RAW);
+renderList(RAW);
+document.getElementById('filterAction').addEventListener('change', applyFilters);
+document.getElementById('filterUser').addEventListener('change', applyFilters);
+document.getElementById('searchInput').addEventListener('input', applyFilters);
+document.getElementById('filterDateStart').addEventListener('change', applyFilters);
+document.getElementById('filterDateEnd').addEventListener('change', applyFilters);
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</body>
+</html>
