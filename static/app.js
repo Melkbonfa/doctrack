@@ -210,12 +210,66 @@ function openExportModal(){
   updateExportPreview();
   openBaseModal('export');
 }
-function gerarRelatorioPDF(){
+function _renderChartImage(config, wpx, hpx){
+  return new Promise(resolve=>{
+    if(typeof Chart==='undefined'){ resolve(null); return; }
+    const canvas=document.createElement('canvas');
+    canvas.width=wpx; canvas.height=hpx;
+    canvas.style.position='fixed'; canvas.style.left='-10000px'; canvas.style.top='0';
+    document.body.appendChild(canvas);
+    const cfg=JSON.parse(JSON.stringify(config));
+    cfg.options=cfg.options||{};
+    cfg.options.responsive=false; cfg.options.animation=false; cfg.options.maintainAspectRatio=false;
+    let chart;
+    try{ chart=new Chart(canvas.getContext('2d'), cfg); }catch(e){ canvas.remove(); resolve(null); return; }
+    requestAnimationFrame(()=>{
+      let url=null;
+      try{
+        const out=document.createElement('canvas'); out.width=chart.canvas.width; out.height=chart.canvas.height;
+        const octx=out.getContext('2d'); octx.fillStyle='#ffffff'; octx.fillRect(0,0,out.width,out.height);
+        octx.drawImage(chart.canvas,0,0);
+        url=out.toDataURL('image/png');
+      }catch(e){}
+      try{ chart.destroy(); }catch(e){}
+      canvas.remove();
+      resolve(url);
+    });
+  });
+}
+
+async function gerarRelatorioPDF(){
   if(!window.jspdf){ showToast('Aguarde o carregamento do gerador de PDF e tente novamente','error'); return; }
   const groups = _exportFilteredGroups();
   if(!groups.length){ showToast('Nenhum equipamento corresponde aos filtros','error'); return; }
+  showToast('Gerando relatório...','info');
   const cfg = _exportConfig();
   const baseLabel = {data_homologacao:'Homologação', data_treinamento:'Treinamento', updated_em:'Últ. atualização'}[cfg.base]||cfg.base;
+
+  let fin=0, prog=0, pend=0, preHom=0, man100=0;
+  groups.forEach(g=>{
+    const st=_groupGlobalStatus(g);
+    if(st==='Finalizado')fin++; else if(st==='Em progresso')prog++; else pend++;
+    if(g.pre && g.pre.status==='Homologado') preHom++;
+    if(g.manuais.length>0 && equipManuaisOk(g)===g.manuais.length) man100++;
+  });
+  const preStatuses=['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
+  const preCounts=preStatuses.map(s=>groups.filter(g=>g.pre&&g.pre.status===s).length);
+
+  // Renderiza gráficos (Chart.js → imagem) para o resumo executivo
+  const donutImg = await _renderChartImage({
+    type:'doughnut',
+    data:{labels:[`Finalizado (${fin})`,`Em progresso (${prog})`,`Pendente (${pend})`],
+      datasets:[{data:[fin,prog,pend], backgroundColor:['#10b981','#f59e0b','#f43f5e'], borderColor:'#ffffff', borderWidth:3}]},
+    options:{cutout:'56%', plugins:{legend:{position:'right', labels:{font:{size:22}, padding:18, boxWidth:22}}}}
+  }, 1000, 520);
+  const barImg = await _renderChartImage({
+    type:'bar',
+    data:{labels:['Elaborar','Trein. Piloto','Envio Homol.','Homologado'],
+      datasets:[{data:preCounts, backgroundColor:['#6366f1','#f59e0b','#22d3ee','#10b981'], borderRadius:10}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{font:{size:18}}, grid:{display:false}}, y:{beginAtZero:true, ticks:{precision:0, font:{size:18}}}}}
+  }, 1000, 520);
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
   const pageW = doc.internal.pageSize.getWidth();
@@ -225,8 +279,8 @@ function gerarRelatorioPDF(){
 
   doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F');
 
-  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(26,25,24);
-  doc.text('DocTrack — Relatório de Equipamentos', margin, y+6);
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(26,25,24);
+  doc.text('DocTrack — Relatório Executivo', margin, y+6);
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120,120,120);
   const hoje = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const filtros = [];
@@ -236,25 +290,35 @@ function gerarRelatorioPDF(){
   doc.text(`Gerado em ${hoje}  ·  ${filtros.join('  ·  ')}`, margin, y+13);
   y += 22;
 
-  let fin=0, prog=0, pend=0, preHom=0, man100=0;
-  groups.forEach(g=>{
-    const st=_groupGlobalStatus(g);
-    if(st==='Finalizado')fin++; else if(st==='Em progresso')prog++; else pend++;
-    if(g.pre && g.pre.status==='Homologado') preHom++;
-    if(g.manuais.length>0 && equipManuaisOk(g)===g.manuais.length) man100++;
-  });
   const stats = [['Equipamentos',groups.length],['Finalizados',fin],['Em progresso',prog],['Pendentes',pend],['IT/PRE homologados',preHom],['Manuais 100%',man100]];
+  const statColors = [[26,25,24],[16,133,89],[180,83,9],[190,18,60],[8,109,122],[124,58,237]];
   const statW = (pageW - margin*2 - 8*5)/6;
   stats.forEach(([label,val],i)=>{
     const sx = margin + i*(statW+8);
     doc.setFillColor(248,248,250); doc.setDrawColor(210,210,215); doc.setLineWidth(0.3);
-    doc.roundedRect(sx, y, statW, 16, 2,2,'FD');
-    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(26,25,24);
-    doc.text(String(val), sx+statW/2, y+8, {align:'center'});
+    doc.roundedRect(sx, y, statW, 18, 2,2,'FD');
+    doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(...statColors[i]);
+    doc.text(String(val), sx+statW/2, y+9, {align:'center'});
     doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,120,120);
-    doc.text(label, sx+statW/2, y+13, {align:'center'});
+    doc.text(label, sx+statW/2, y+14.5, {align:'center'});
   });
-  y += 24;
+  y += 26;
+
+  // Gráficos lado a lado
+  const chartW = (pageW - margin*2 - 9) / 2;
+  const chartH = 70;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(60,60,66);
+  doc.text('Distribuição por status', margin, y);
+  doc.text('IT/PRE por etapa', margin + chartW + 9, y);
+  y += 3;
+  if(donutImg) doc.addImage(donutImg, 'PNG', margin, y, chartW, chartH);
+  if(barImg)   doc.addImage(barImg, 'PNG', margin + chartW + 9, y, chartW, chartH);
+  y += chartH;
+
+  // Tabela detalhada em nova página
+  doc.addPage(); doc.setFillColor(255,255,255); doc.rect(0,0,pageW,pageH,'F'); y = margin;
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(26,25,24);
+  doc.text('Detalhamento por equipamento', margin, y+5); y += 12;
 
   const cols = [
     {h:'Equipamento', k:'equip', w:62},
