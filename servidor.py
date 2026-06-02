@@ -296,9 +296,18 @@ def _import_excel_to_db():
         print(f"  Aviso: não foi possível importar Planilha — {e}")
 
 # ── PÁGINAS ───────────────────────────────────────────────────────────────────
+def _static_version():
+    """Token de cache-busting baseado no mtime dos estáticos (muda só quando o arquivo muda)."""
+    try:
+        files = ["static/app.js", "static/style.css"]
+        latest = max(os.path.getmtime(os.path.join(BASE_DIR, f)) for f in files if os.path.exists(os.path.join(BASE_DIR, f)))
+        return str(int(latest))
+    except Exception:
+        return "1"
+
 @app.route("/")
 def index():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", asset_v=_static_version())
 
 @app.route("/socket-client.js")
 def serve_socket_client():

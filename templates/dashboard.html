@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 </head>
 <body>
@@ -258,6 +258,17 @@
   </div>
 </div>
 
+<!-- MODAL: Novo Equipamento -->
+<div class="modal-overlay" id="modal-new-equip" role="dialog" aria-modal="true" aria-labelledby="new-equip-title" aria-hidden="true">
+  <div class="modal" style="width:460px" tabindex="-1">
+    <div class="modal-title" id="new-equip-title">Novo equipamento</div>
+    <div class="modal-sub">Cria o documento IT/PRE inicial deste equipamento</div>
+    <div class="form-group"><label class="form-label" for="new-equip-nome">Nome do equipamento *</label><input class="form-input" id="new-equip-nome" placeholder="Ex.: Torno CNC VF-2"></div>
+    <div class="form-group"><label class="form-label" for="new-equip-sku">SKU (opcional)</label><input class="form-input" id="new-equip-sku" placeholder="Ex.: 01.000123"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('new-equip')">Cancelar</button><button class="btn btn-primary" onclick="submitNewEquip()">Criar equipamento</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><div class="toast-dot" id="toast-dot"></div><span id="toast-msg"></span></div>
 
 <!-- Confirm modal (substitui confirm() nativo — U8) -->
@@ -276,7 +287,7 @@
 
   
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ asset_v }}"></script>
 <script src="/socket-client.js"></script>
 <script src="/app-realtime.js"></script>
 </body>

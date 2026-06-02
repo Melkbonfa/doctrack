@@ -650,15 +650,20 @@ async function createManuais(){
 }
 
 function openNewEquip(){
-  // Novo equipamento = criar primeiro o IT/PRE com nome digitado
-  const nome = prompt('Nome do novo equipamento:');
-  if(!nome || !nome.trim()) return;
-  apiFetch('/documentos', {method:'POST', body:JSON.stringify({setor:'PRE', equipamento:nome.trim(), documento:`IT/Checklist - ${nome.trim()}`})})
-    .then(async res => {
-      if(res && res.ok){ showToast('Equipamento criado','success'); await refreshAll(); }
-      else { showToast('Erro ao criar equipamento','error'); }
-    })
-    .catch(()=>showToast('Erro de rede','error'));
+  document.getElementById('new-equip-nome').value = '';
+  document.getElementById('new-equip-sku').value = '';
+  openBaseModal('new-equip');
+}
+
+async function submitNewEquip(){
+  const nome = document.getElementById('new-equip-nome').value.trim();
+  const sku = document.getElementById('new-equip-sku').value.trim();
+  if(!nome){ showToast('Informe o nome do equipamento','error'); return; }
+  try{
+    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify({setor:'PRE', equipamento:nome, sku, documento:`IT/Checklist - ${nome}`})});
+    if(res && res.ok){ showToast('Equipamento criado','success'); closeModal('new-equip'); await refreshAll(); }
+    else { showToast('Erro ao criar equipamento','error'); }
+  }catch(e){ showToast('Erro de rede','error'); }
 }
 
 // ═══ AUDIT ═══

@@ -99,6 +99,33 @@ body.theme-light::before{opacity:.35;}
 /* Transição suave ao trocar de tema */
 body{transition:background-color .2s ease, color .2s ease;}
 
+/* ── TEMA CLARO: correções de contraste/legibilidade ───────────────────── */
+/* Topbar e card de KPI tinham fundo escuro hardcoded → herdam superfície clara */
+body.theme-light .topbar{background:rgba(255,255,255,.88)}
+body.theme-light .kpi-ring:nth-child(1){background:var(--bg-card)}
+body.theme-light .kpi-ring:nth-child(1)::before,
+body.theme-light .kpi-ring:nth-child(2)::before,
+body.theme-light .kpi-ring:nth-child(3)::before{opacity:.45}
+/* Item de navegação ativo legível na sidebar clara */
+body.theme-light .nav-item.active{color:var(--cyan-brand-dim)}
+body.theme-light .nav-section-label{color:var(--cyan-brand-dim)}
+/* Pills e badges de status: texto escuro para contraste em superfícies claras */
+body.theme-light .pill-ok,
+body.theme-light .sg-finalizado,
+body.theme-light .role-leitura,
+body.theme-light .audit-action .new{color:#047857}
+body.theme-light .pill-wip,
+body.theme-light .pill-elab,
+body.theme-light .sg-progresso,
+body.theme-light .role-tecnico{color:#0e7490}
+body.theme-light .pill-warn{color:#b45309}
+body.theme-light .pill-err,
+body.theme-light .sg-pendente,
+body.theme-light .role-admin{color:#be123c}
+body.theme-light .role-gestor{color:#6d28d9}
+/* Badge de contagem de docs no header do dashboard */
+body.theme-light #dash-pct-badge{color:var(--cyan-brand-dim)}
+
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{
