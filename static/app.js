@@ -624,8 +624,8 @@ function renderDashboard(){
   const gradBar=ctxBar.createLinearGradient(0,0,0,200);
   gradBar.addColorStop(0,'#22d3ee');gradBar.addColorStop(1,'#3b82f6');
   chartInstances.bar=new Chart(ctxBar,{
-    type:'bar',data:{labels:catLabels,datasets:[{data:catVals,backgroundColor:gradBar,borderRadius:8,borderWidth:0}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#232847',titleColor:'#f1f5f9',bodyColor:'#c7d2fe',borderColor:'rgba(167,139,250,.3)',borderWidth:1,padding:10,cornerRadius:8}},
+    type:'bar',data:{labels:catLabels,datasets:[{data:catVals,backgroundColor:gradBar,dotColors:dColors,borderRadius:8,borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.y} docs`}}},
       scales:{x:{ticks:{color:'#94a3ff',font:{size:10,family:'Inter'}},grid:{display:false},border:{display:false}},
               y:{ticks:{color:'#94a3ff',font:{size:10,family:'Inter'},stepSize:20},grid:{color:'rgba(167,139,250,.06)'},border:{display:false}}}}
   });
@@ -640,8 +640,8 @@ function renderDashboard(){
   
   if(chartInstances.status)chartInstances.status.destroy();
   chartInstances.status=new Chart(document.getElementById('chartStatus'),{
-    type:'bar',data:{labels:stLabels.map(l=>l.length>18?l.substring(0,18)+'…':l),datasets:[{data:stVals,backgroundColor:stColors,borderRadius:8,borderWidth:0}]},
-    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#232847',titleColor:'#f1f5f9',bodyColor:'#c7d2fe',borderColor:'rgba(167,139,250,.3)',borderWidth:1,padding:10,cornerRadius:8}},
+    type:'bar',data:{labels:stLabels.map(l=>l.length>18?l.substring(0,18)+'…':l),datasets:[{data:stVals,backgroundColor:stColors,dotColors:stColors,borderRadius:8,borderWidth:0}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.x} docs`}}},
       scales:{x:{ticks:{color:'#94a3ff',font:{size:10,family:'Inter'}},grid:{color:'rgba(167,139,250,.06)'},border:{display:false}},
               y:{ticks:{color:'#c7d2fe',font:{size:11,family:'Inter',weight:'500'}},grid:{display:false},border:{display:false}}}}
   });
