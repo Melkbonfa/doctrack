@@ -55,7 +55,7 @@ function trocarAba(aba){
 }
 
 async function loadProjetosAll(){
-  const data = await api("/api/projetos");
+  const data = await api("/api/projetos?com_entregaveis=1");
   _projetosAll = data.projetos;
 }
 
@@ -509,18 +509,33 @@ document.addEventListener("keydown", (e) => {
 
 
 /* ── GERAÇÃO DE RELATÓRIO PDF (Client-side) ── */
+function _parseBRDate(str) {
+  if(!str) return 0;
+  const parts = str.split(' ');
+  if(parts.length < 1) return 0;
+  const d = parts[0].split('/');
+  if(d.length !== 3) return 0;
+  return new Date(d[2], parseInt(d[1])-1, d[0]).getTime();
+}
 function _exportConfigEnt(){
   return {
-    lancamento: (document.getElementById('exp-lancamento')||{}).value||'',
+    periodo: (document.getElementById('exp-periodo')||{}).value||'',
     moscow: (document.getElementById('exp-moscow')||{}).value||'',
     status: (document.getElementById('exp-status')||{}).value||'',
   };
 }
 function _exportFilteredProjects(){
   const cfg = _exportConfigEnt();
-  const q = cfg.lancamento.trim().toLowerCase();
   return _projetosAll.filter(p => {
-    if (q && !(p.lancamento||'').toLowerCase().includes(q)) return false;
+    if (cfg.periodo) {
+      const days = parseInt(cfg.periodo);
+      const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+      const hasRecent = (p.entregaveis || []).some(e => {
+        if(e.status === 'na') return false;
+        return _parseBRDate(e.atualizado_em) >= cutoff;
+      });
+      if(!hasRecent) return false;
+    }
     if (cfg.moscow) {
       const v = normMoscow(p.moscow);
       const k = v === "Wont" ? "Wont" : (v || "Sem prioridade");
@@ -536,11 +551,12 @@ function updateExportPreviewEnt(){
   if(el) el.textContent = `${_exportFilteredProjects().length} projeto(s) serão incluídos no relatório`;
 }
 function openExportModal(){
-  const el1=document.getElementById('exp-lancamento'); if(el1) el1.value='';
+  const el1=document.getElementById('exp-periodo'); if(el1) el1.value='';
   const el2=document.getElementById('exp-moscow'); if(el2) el2.value='';
   const el3=document.getElementById('exp-status'); if(el3) el3.value='';
-  ['exp-lancamento','exp-moscow','exp-status'].forEach(id=>{
+  ['exp-periodo','exp-moscow','exp-status'].forEach(id=>{
     const e=document.getElementById(id); if(e) e.addEventListener('input', updateExportPreviewEnt);
+    if(e) e.addEventListener('change', updateExportPreviewEnt);
   });
   updateExportPreviewEnt();
   const m = document.getElementById('modal-export-ent');
@@ -682,7 +698,7 @@ async function gerarRelatorioPDF(){
 
   const hoje = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const filtros = [];
-  if(cfg.lancamento) filtros.push(`Lançamento: ${cfg.lancamento}`);
+  if(cfg.periodo) filtros.push(`Avanço em: Últimos ${cfg.periodo} dias`);
   if(cfg.moscow) filtros.push(`MoSCoW: ${cfg.moscow==="Wont"?"Won't":cfg.moscow}`);
   if(cfg.status) filtros.push(`Status: ${cfg.status}`);
   if(!filtros.length) filtros.push('Todos os projetos');

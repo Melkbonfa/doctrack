@@ -58,10 +58,11 @@ def listar_projetos():
     if busca:
         q = q.filter(Projeto.nome.ilike(f"%{busca}%"))
     projetos = q.all()
+    com_ent = request.args.get("com_entregaveis", "").strip() == "1"
     resp = request.args.get("responsavel", "").strip().lower()
     out = []
     for p in projetos:
-        d = p.to_dict()
+        d = p.to_dict(com_entregaveis=com_ent)
         if resp:
             tipos = [e.to_dict() for e in p.entregaveis
                      if resp in (e.responsaveis or "").lower() and e.status != "na"]

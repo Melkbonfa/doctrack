@@ -138,7 +138,14 @@
 
       <div class="section-label-line">Filtros de Exportação</div>
       <div class="g2">
-        <div class="form-group"><label class="form-label" for="exp-lancamento">Lançamento (contém texto)</label><input type="text" class="form-input" id="exp-lancamento" placeholder="Ex: Q1 2026, fev/26"></div>
+        <div class="form-group"><label class="form-label" for="exp-periodo">Avanço Recente (Atualização)</label>
+          <select class="form-input" id="exp-periodo">
+            <option value="">Qualquer data</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="15">Últimos 15 dias</option>
+            <option value="7">Últimos 7 dias</option>
+          </select>
+        </div>
         <div class="form-group"><label class="form-label" for="exp-moscow">Prioridade MoSCoW</label>
           <select class="form-input" id="exp-moscow">
             <option value="">Todas</option>
