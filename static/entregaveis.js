@@ -3,6 +3,7 @@ const TOKEN_KEY = "doctrack_token";
 let _projetos = [], _projAtualId = null, _popEntregavel = null;
 let _resumo = null, _projetosAll = [], _charts = {};
 let _projChip = "todos";
+let _projSort = "padrao", _formProjId = null, _projDetalheAtual = null;
 
 function token(){ return localStorage.getItem(TOKEN_KEY) || ""; }
 
@@ -329,6 +330,48 @@ function setProjChip(id){
   renderProjGrid();
 }
 
+function setProjSort(v){ _projSort = v; renderProjGrid(); }
+
+/* timestamp do lançamento (aceita ISO yyyy-mm-dd, dd/mm/aaaa ou só o ano) */
+function _lancTs(s){
+  if (!s) return -Infinity;
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]).getTime();
+  m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]).getTime();
+  m = /(\d{4})/.exec(s);
+  if (m) return new Date(+m[1], 0, 1).getTime();
+  return -Infinity;
+}
+/* lançamento ISO -> dd/mm/aaaa; texto livre é mantido como veio */
+function fmtLanc(s){
+  if (!s) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+/* qualquer formato -> ISO yyyy-mm-dd para o <input type=date> (vazio se for texto livre) */
+function _toIso(s){
+  if (!s) return "";
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return "";
+}
+
+function sortProjetos(list){
+  const a = [...list], byNome = (x,y) => x.nome.localeCompare(y.nome, "pt");
+  switch (_projSort){
+    case "nome":        a.sort(byNome); break;
+    case "avanco_desc": a.sort((x,y) => y.avanco - x.avanco || byNome(x,y)); break;
+    case "avanco_asc":  a.sort((x,y) => x.avanco - y.avanco || byNome(x,y)); break;
+    case "pend_desc":   a.sort((x,y) => (y.pendentes||0) - (x.pendentes||0) || byNome(x,y)); break;
+    case "lancamento":  a.sort((x,y) => _lancTs(y.lancamento) - _lancTs(x.lancamento) || byNome(x,y)); break;
+    default:            a.sort((x,y) => (x.prioridade||999) - (y.prioridade||999) || byNome(x,y));
+  }
+  return a;
+}
+
 function renderProjGrid(){
   const q = (document.getElementById("proj-search").value || "").trim().toLowerCase();
   let lista = _projetos.filter(p => projMatchesChip(p, _projChip));
@@ -336,6 +379,7 @@ function renderProjGrid(){
     lista = lista.filter(p =>
       [p.nome, p.sku].join(" ").toLowerCase().includes(q));
   }
+  lista = sortProjetos(lista);
   const badge = document.getElementById("proj-badge");
   if (badge) badge.textContent = lista.length + " proj.";
   const grid = document.getElementById("proj-grid");
@@ -379,10 +423,13 @@ async function salvarMoscow(valor){
 async function abrirProjModal(id){
   _projAtualId = id;
   const p = await api("/api/projetos/" + id);
+  _projDetalheAtual = p;
   document.getElementById("proj-modal-title").textContent = p.nome;
+  const editBtn = document.getElementById("proj-modal-edit");
+  if (editBtn) editBtn.style.display = canEditProj() ? "" : "none";
   const partes = [];
   if (p.sku) partes.push("SKU " + esc(p.sku));
-  if (p.lancamento) partes.push("Lançamento " + esc(p.lancamento));
+  if (p.lancamento) partes.push("Lançamento " + esc(fmtLanc(p.lancamento)));
   partes.push("Avanço " + p.avanco + "%");
   let moscowHtml;
   if (canEditProj()){
@@ -432,6 +479,85 @@ function fecharProjModal(){
   m.classList.remove("open");
   m.setAttribute("aria-hidden", "true");
   _projAtualId = null;
+  _projDetalheAtual = null;
+}
+
+/* ── Criar / Editar / Arquivar projeto ── */
+function _abrirModal(id){ const m = document.getElementById(id); m.classList.add("open"); m.setAttribute("aria-hidden", "false"); }
+function _fecharModal(id){ const m = document.getElementById(id); m.classList.remove("open"); m.setAttribute("aria-hidden", "true"); }
+
+function _preencherForm(p){
+  document.getElementById("pf-nome").value = p ? (p.nome || "") : "";
+  document.getElementById("pf-sku").value = p ? (p.sku || "") : "";
+  document.getElementById("pf-lancamento").value = p ? _toIso(p.lancamento) : "";
+  document.getElementById("pf-moscow").value = p ? (normMoscow(p.moscow) || "") : "";
+  document.getElementById("pf-desc").value = p ? (p.descricao || "") : "";
+}
+
+function abrirFormProjeto(){
+  _formProjId = null;
+  document.getElementById("pf-title").textContent = "Novo projeto";
+  _preencherForm(null);
+  document.getElementById("pf-arquivar").style.display = "none";
+  _abrirModal("modal-proj-form");
+  setTimeout(() => document.getElementById("pf-nome").focus(), 60);
+}
+
+function editarProjetoAtual(){
+  const p = _projDetalheAtual;
+  if (!p) return;
+  _formProjId = p.id;
+  document.getElementById("pf-title").textContent = "Editar projeto";
+  _preencherForm(p);
+  document.getElementById("pf-arquivar").style.display = "";
+  _abrirModal("modal-proj-form");
+}
+
+function fecharFormProjeto(){ _fecharModal("modal-proj-form"); _formProjId = null; }
+
+async function _recarregarTudo(){
+  await Promise.all([
+    loadProjetos().catch(()=>{}),
+    loadKpis().catch(()=>{}),
+    loadProjetosAll().catch(()=>{}),
+  ]);
+  renderCharts();
+}
+
+async function salvarFormProjeto(){
+  const nome = document.getElementById("pf-nome").value.trim();
+  if (!nome){ toast("Informe o nome do projeto", true); return; }
+  const payload = {
+    nome,
+    sku: document.getElementById("pf-sku").value.trim(),
+    lancamento: document.getElementById("pf-lancamento").value,   // ISO yyyy-mm-dd ou ""
+    moscow: document.getElementById("pf-moscow").value,           // "" | Must | Should | Could | Wont
+    descricao: document.getElementById("pf-desc").value.trim(),
+  };
+  try{
+    if (_formProjId){
+      await api("/api/projetos/" + _formProjId, { method: "PUT", body: JSON.stringify(payload) });
+      toast("Projeto atualizado");
+    } else {
+      await api("/api/projetos", { method: "POST", body: JSON.stringify(payload) });
+      toast("Projeto criado");
+    }
+    fecharFormProjeto();
+    fecharProjModal();
+    await _recarregarTudo();
+  }catch(err){ toast(err.message, true); }
+}
+
+async function arquivarProjetoAtual(){
+  if (!_formProjId) return;
+  if (!confirm("Arquivar este projeto? Ele deixará de aparecer nas listas (pode ser restaurado no banco).")) return;
+  try{
+    await api("/api/projetos/" + _formProjId, { method: "DELETE" });
+    toast("Projeto arquivado");
+    fecharFormProjeto();
+    fecharProjModal();
+    await _recarregarTudo();
+  }catch(err){ toast(err.message, true); }
 }
 
 /* ── Popover de edição ── */
@@ -492,15 +618,21 @@ async function exportarExcel(){
 document.getElementById("modal-projeto").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) fecharProjModal();
 });
+document.getElementById("modal-proj-form").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) fecharFormProjeto();
+});
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (document.getElementById("modal-projeto").classList.contains("open")) fecharProjModal();
+  if (document.getElementById("modal-proj-form").classList.contains("open")) fecharFormProjeto();
+  else if (document.getElementById("modal-projeto").classList.contains("open")) fecharProjModal();
   else if (document.getElementById("edit-pop").style.display !== "none") fecharPop();
 });
 
 /* ── Init ── */
 (async function init(){
   if (!token()){ window.location.href = "/"; return; }
+  const nb = document.getElementById("btn-novo-proj");
+  if (nb) nb.style.display = canEditProj() ? "" : "none";
   try{
     await Promise.all([loadKpis(), loadProjetos(), loadProjetosAll()]);
     renderCharts();
@@ -571,6 +703,8 @@ function fecharModalExport(){
 
 const _CHART_FONT = "'Inter', system-ui, sans-serif";
 function _hgrad(ctx, w, c1, c2){ const g=ctx.createLinearGradient(0,0,w,0); g.addColorStop(0,c1); g.addColorStop(1,c2); return g; }
+/* mesmo gradiente das roscas internas: cor cheia no topo -> mais escura embaixo */
+function _vgradFull(ctx, h, hex){ const g=ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,hex); g.addColorStop(1,_darken(hex,0.5)); return g; }
 function _centerTextPlugin(big, small){
   return { id:'centerText', afterDraw(chart){
     const a=chart.chartArea; if(!a) return; const ctx=chart.ctx;
@@ -624,6 +758,9 @@ async function gerarRelatorioPDF(){
   toast('Gerando relatório...');
   const cfg = _exportConfigEnt();
 
+  // garante a fonte Inter carregada antes de rasterizar os gráficos (mesma fonte da plataforma)
+  try{ await Promise.all([document.fonts.load("700 60px Inter"), document.fonts.load("600 24px Inter")]); await document.fonts.ready; }catch(e){}
+
   let conc=0, prog=0, pend=0;
   projects.forEach(p=>{
     if(p.avanco === 100) conc++;
@@ -631,7 +768,7 @@ async function gerarRelatorioPDF(){
     else pend++;
   });
   const avg = projects.length ? Math.round(projects.reduce((a,b)=>a+b.avanco,0)/projects.length) : 0;
-  
+
   const top = [...projects].sort((a,b)=>b.avanco - a.avanco).slice(0,10);
   const moscowCont = {};
   projects.forEach(p=>{
@@ -640,11 +777,14 @@ async function gerarRelatorioPDF(){
       moscowCont[k]=(moscowCont[k]||0)+1;
   });
 
-  const donutImg = await _renderChartImage((ctx)=>({
+  // Rosca de status — idêntica à do dashboard: cutout 78%, gradiente vertical, cantos arredondados + espaçamento
+  const stHex = ['#10b981','#22d3ee','#f59e0b'];
+  const donutImg = await _renderChartImage((ctx,w,h)=>({
     type:'doughnut',
     data:{labels:['Concluídos','Em progresso','Pendentes'],
-      datasets:[{data:[conc,prog,pend], backgroundColor:['#34d399','#22d3ee','#fbbf24'], borderColor:'#1a1f3a', borderWidth:5}]},
-    options:{cutout:'66%', layout:{padding:14}, plugins:{legend:{display:false}}},
+      datasets:[{data:[conc,prog,pend], backgroundColor:stHex.map(c=>_vgradFull(ctx,h,c)),
+        borderWidth:0, borderRadius:14, spacing:6}]},
+    options:{cutout:'78%', layout:{padding:14}, plugins:{legend:{display:false}}},
     plugins:[_centerTextPlugin(projects.length, 'projetos')]
   }), 760, 760);
 
@@ -653,23 +793,25 @@ async function gerarRelatorioPDF(){
   const mVals = mLabels.map(l=>moscowCont[l]);
   const mBg = mLabels.map(l=>moscowColors[l]);
 
-  const moscowImg = await _renderChartImage((ctx)=>({
+  const moscowImg = await _renderChartImage((ctx,w,h)=>({
     type:'doughnut',
     data:{labels:mLabels.map(x=>x==='Wont'?"Won't":x),
-      datasets:[{data:mVals, backgroundColor:mBg, borderColor:'#1a1f3a', borderWidth:5}]},
-    options:{cutout:'66%', layout:{padding:14}, plugins:{legend:{display:false}}},
+      datasets:[{data:mVals, backgroundColor:mBg.map(c=>_vgradFull(ctx,h,c)),
+        borderWidth:0, borderRadius:14, spacing:6}]},
+    options:{cutout:'78%', layout:{padding:14}, plugins:{legend:{display:false}}},
     plugins:[_centerTextPlugin(projects.length, 'projetos')]
   }), 760, 760);
 
+  // Barras horizontais — mesmo padrão interno: gradiente ciano→azul, cantos arredondados, eixo % e grade discreta.
+  // Canvas renderizado já na proporção da caixa larga/baixa do PDF para o texto não esticar/borrar.
   const barImg = await _renderChartImage((ctx)=>({
     type:'bar',
     data:{labels:top.map(p=>p.nome),
-      datasets:[{data:top.map(p=>p.avanco), borderRadius:8, maxBarThickness:48, backgroundColor:_hgrad(ctx,1300,'#22d3ee','#3b82f6')}]},
-    options:{indexAxis:'y', layout:{padding:{right:80, left:6, top:4, bottom:4}}, plugins:{legend:{display:false}},
-      scales:{x:{min:0, max:100, ticks:{display:false}, grid:{color:'rgba(148,163,255,.14)'}, border:{display:false}},
-              y:{ticks:{color:'#cbd5ff', font:{size:27, family:_CHART_FONT}}, grid:{display:false}, border:{display:false}}}},
-    plugins:[_barValueHPlugin]
-  }), 1320, 700);
+      datasets:[{data:top.map(p=>p.avanco), borderRadius:10, borderWidth:0, maxBarThickness:26, backgroundColor:_hgrad(ctx,1600,'#22d3ee','#3b82f6')}]},
+    options:{indexAxis:'y', layout:{padding:{right:20, left:8, top:8, bottom:8}}, plugins:{legend:{display:false}},
+      scales:{x:{min:0, max:100, ticks:{color:'#c7d2fe', font:{size:15, family:_CHART_FONT}, callback:(v)=>v+'%'}, grid:{color:'rgba(167,139,250,.12)'}, border:{display:false}},
+              y:{ticks:{color:'#f1f5f9', font:{size:17, family:_CHART_FONT, weight:'600'}}, grid:{display:false}, border:{display:false}}}}
+  }), 1600, 440);
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
@@ -678,22 +820,34 @@ async function gerarRelatorioPDF(){
   const margin = 12;
   const C = { bg:[13,16,32], card:[26,31,58], rowAlt:[20,24,46], border:[42,54,98],
     t1:[241,245,249], tmut:[148,163,255], accent:[34,211,238],
-    green:[52,211,153], amber:[251,191,36], red:[251,113,133], cyan:[34,211,238] };
+    green:[16,185,129], amber:[245,158,11], red:[239,68,68], cyan:[34,211,238] };
   
   function paintBg(){ doc.setFillColor(...C.bg); doc.rect(0,0,pageW,pageH,'F'); }
   function card(x,yy,w,h){ doc.setFillColor(...C.card); doc.setDrawColor(...C.border); doc.setLineWidth(0.3); doc.roundedRect(x,yy,w,h,2.5,2.5,'FD'); }
   function cardTitle(txt,x,yy,w){ doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...C.accent); doc.text(txt.toUpperCase(), x+w/2, yy+6.5, {align:'center'}); }
-  function legendRow(items, cx, yy){
-    doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
-    const r=1.5, dotGap=2.2, itemGap=8;
-    const widths = items.map(([c,l])=> r*2 + dotGap + doc.getTextWidth(l));
-    const total = widths.reduce((a,b)=>a+b,0) + itemGap*(items.length-1);
-    let x = cx - total/2;
+  function legendRow(items, cx, yy, maxW){
+    // auto-ajusta fonte/espaçamentos para caber dentro de maxW (não vaza o card)
+    let fs=8.5, itemGap=8, dotGap=2.2, r=1.5;
+    const measure = () => {
+      doc.setFontSize(fs);
+      const widths = items.map(([c,l])=> r*2 + dotGap + doc.getTextWidth(l));
+      return { widths, total: widths.reduce((a,b)=>a+b,0) + itemGap*(items.length-1) };
+    };
+    let m = measure();
+    if (maxW && m.total > maxW){
+      const scale = Math.max(0.55, maxW / m.total);
+      fs *= scale; itemGap = Math.max(2.5, itemGap*scale); dotGap *= scale; r *= scale;
+      m = measure();
+      if (m.total > maxW){ itemGap = 2.2; m = measure(); }   // último recurso
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(fs);
+    let x = cx - m.total/2;
     items.forEach(([col,lab],i)=>{
       doc.setFillColor(...col); doc.circle(x+r, yy-1.1, r, 'F');
       doc.setTextColor(...C.t1); doc.text(lab, x+r*2+dotGap, yy);
-      x += widths[i] + itemGap;
+      x += m.widths[i] + itemGap;
     });
+    doc.setFontSize(8.5);
   }
 
   const hoje = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -731,7 +885,7 @@ async function gerarRelatorioPDF(){
   const donImgH = rowAh - 18; 
   card(d1x, y, donW, rowAh); cardTitle('Status dos Projetos', d1x, y, donW);
   _addImgContain(doc, donutImg, d1x+6, y+9, donW-12, donImgH, 1);
-  legendRow([['Concluídos',C.green],['Em progresso',C.cyan],['Pendentes',C.amber]].map(([l,c])=>[c,l]), d1x+donW/2, y+rowAh-4);
+  legendRow([['Concluídos',C.green],['Em progresso',C.cyan],['Pendentes',C.amber]].map(([l,c])=>[c,l]), d1x+donW/2, y+rowAh-4, donW-10);
   
   card(d2x, y, donW, rowAh); cardTitle('Prioridade MoSCoW', d2x, y, donW);
   _addImgContain(doc, moscowImg, d2x+6, y+9, donW-12, donImgH, 1);
@@ -739,7 +893,7 @@ async function gerarRelatorioPDF(){
       const c = l==="Must"?C.red:l==="Should"?C.amber:l==="Could"?[59,130,246]:l==="Wont"?[100,116,139]:[148,163,184];
       return [c, l==="Wont"?"Won't":l];
   });
-  legendRow(legMoscow, d2x+donW/2, y+rowAh-4);
+  legendRow(legMoscow, d2x+donW/2, y+rowAh-4, donW-10);
 
   y += rowAh + gap;
   const rowBh = pageH - y - 11;
@@ -775,7 +929,8 @@ async function gerarRelatorioPDF(){
     cols.forEach(c=>{
       let v = String(p[c.k] || (c.k==='avanco'?'0':'—'));
       if(c.k === 'avanco') v += '%';
-      if(c.k === 'moscow') { v = normMoscow(v); if(v==="Wont") v="Won't"; }
+      if(c.k === 'moscow') { v = normMoscow(v) || '—'; if(v==="Wont") v="Won't"; }
+      if(c.k === 'lancamento') v = fmtLanc(p.lancamento) || '—';
       const maxW = c.w-4;
       if(doc.getTextWidth(v)>maxW){ v=v.substring(0, Math.max(1, Math.floor(v.length*maxW/doc.getTextWidth(v))-1))+'…'; }
       if(c.k==='nome'){ doc.setFont('helvetica','bold'); doc.setTextColor(...C.t1); }

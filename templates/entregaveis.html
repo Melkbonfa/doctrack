@@ -76,12 +76,21 @@
       <div id="aba-proj" style="display:none">
       <div class="card" style="margin-top:14px">
         <div class="equip-toolbar">
-          <div class="filter-bar" style="margin:0">
+          <div class="filter-bar" style="margin:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <div class="search-wrap">
               <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               <input class="search-input" id="proj-search" placeholder="Buscar projeto, SKU..." oninput="renderProjGrid()">
             </div>
+            <select class="filter-sel" id="proj-sort" onchange="setProjSort(this.value)" aria-label="Ordenar projetos">
+              <option value="padrao">Ordenar: Prioridade</option>
+              <option value="nome">Nome (A–Z)</option>
+              <option value="avanco_desc">Avanço (maior → menor)</option>
+              <option value="avanco_asc">Avanço (menor → maior)</option>
+              <option value="pend_desc">Mais pendências</option>
+              <option value="lancamento">Lançamento (recente)</option>
+            </select>
             <span class="filter-count" id="proj-badge" style="margin-left:auto">—</span>
+            <button class="btn btn-primary btn-sm" id="btn-novo-proj" onclick="abrirFormProjeto()" style="display:none">+ Novo projeto</button>
           </div>
           <div class="equip-chips" id="proj-chips"></div>
         </div>
@@ -124,8 +133,43 @@
       <div class="modal-sub" id="proj-modal-sub"></div>
       <div class="equip-modal-tabs" id="proj-modal-tabs" role="tablist"></div>
       <div id="proj-modal-panels"></div>
-      <div class="modal-footer" style="justify-content:flex-end">
+      <div class="modal-footer" style="justify-content:flex-end;gap:8px">
+        <button class="btn btn-edit" id="proj-modal-edit" onclick="editarProjetoAtual()" style="display:none">Editar projeto</button>
         <button class="btn btn-ghost" onclick="fecharProjModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/Editar projeto -->
+  <div class="modal-overlay" id="modal-proj-form" role="dialog" aria-modal="true" aria-labelledby="pf-title" aria-hidden="true">
+    <div class="modal" style="width:560px" tabindex="-1">
+      <div class="modal-title" id="pf-title">Novo projeto</div>
+      <div class="modal-sub">Dados do projeto · campos com * são obrigatórios</div>
+
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="pf-nome">Nome *</label><input class="form-input" id="pf-nome" placeholder="Nome do projeto"></div>
+        <div class="form-group"><label class="form-label" for="pf-sku">SKU</label><input class="form-input" id="pf-sku" placeholder="Opcional"></div>
+      </div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="pf-lancamento">Data de lançamento</label><input type="date" class="form-input" id="pf-lancamento"></div>
+        <div class="form-group"><label class="form-label" for="pf-moscow">Prioridade MoSCoW</label>
+          <select class="form-input" id="pf-moscow">
+            <option value="">—</option>
+            <option value="Must">Must</option>
+            <option value="Should">Should</option>
+            <option value="Could">Could</option>
+            <option value="Wont">Won't</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label" for="pf-desc">Descrição</label><textarea class="form-input" id="pf-desc" rows="2" placeholder="Opcional"></textarea></div>
+
+      <div class="modal-footer" style="justify-content:space-between;align-items:center">
+        <button class="btn btn-ghost btn-sm" id="pf-arquivar" onclick="arquivarProjetoAtual()" style="display:none;color:var(--red);border-color:rgba(248,113,113,.35)">Arquivar projeto</button>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button class="btn btn-ghost" onclick="fecharFormProjeto()">Cancelar</button>
+          <button class="btn btn-primary" onclick="salvarFormProjeto()">Salvar</button>
+        </div>
       </div>
     </div>
   </div>
