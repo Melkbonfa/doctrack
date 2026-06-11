@@ -27,6 +27,45 @@ function esc(str){
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// ═══ DONUT: estilo igual ao módulo de Entregáveis (gradiente vertical + tooltip externo) ═══
+function _darken(hex, f){
+  const n = parseInt(String(hex).replace('#',''), 16);
+  const r = Math.round(((n>>16)&255)*f), g = Math.round(((n>>8)&255)*f), b = Math.round((n&255)*f);
+  return `rgb(${r},${g},${b})`;
+}
+function donutGrad(ctx, hex){
+  const g = ctx.createLinearGradient(0, 0, 0, 160);
+  g.addColorStop(0, hex);
+  g.addColorStop(1, _darken(hex, 0.5));
+  return g;
+}
+function donutTooltipExternal(context){
+  const { chart, tooltip } = context;
+  let el = document.getElementById('app-donut-tip');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'app-donut-tip';
+    el.style.cssText = 'position:fixed;pointer-events:none;z-index:9999;opacity:0;transition:opacity .1s ease;background:#232847;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:7px 10px;font:500 12px/1.2 Inter,system-ui,sans-serif;color:#f1f5f9;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;align-items:center;gap:7px';
+    document.body.appendChild(el);
+  }
+  if (!tooltip || tooltip.opacity === 0){ el.style.opacity = '0'; return; }
+  const dp = tooltip.dataPoints && tooltip.dataPoints[0];
+  if (!dp){ el.style.opacity = '0'; return; }
+  const dot = (dp.dataset.dotColors && dp.dataset.dotColors[dp.dataIndex]) || '#22d3ee';
+  const body = (tooltip.body && tooltip.body[0] && tooltip.body[0].lines[0]) ||
+               (dp.label + ': ' + dp.formattedValue);
+  el.innerHTML = `<span style="width:9px;height:9px;border-radius:50%;background:${dot};flex-shrink:0"></span><span>${esc(body)}</span>`;
+  el.style.opacity = '1';
+  const rect = chart.canvas.getBoundingClientRect();
+  const tw = el.offsetWidth, th = el.offsetHeight;
+  let left = rect.left + tooltip.caretX + 14;
+  let top = rect.top + tooltip.caretY - th - 8;
+  if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+  if (top < 8) top = rect.top + tooltip.caretY + 16;
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+}
+
 function norm(s){
   if(s==null)return'';
   return String(s).trim().toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
@@ -47,7 +86,7 @@ async function doLogin(){
     if(!res.ok){btn.textContent='Entrar no DocTrack';showToast(data.erro||data.error||'Falha no login','error');return}
     setToken(data.access_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
     const u=data.usuario;currentUser={name:u.nome,email:u.email,role:u.role,initials:u.nome.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};
-    document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='block';initApp();
+    window.location.href='/hub';
   }catch(e){
     btn.textContent='Entrar no DocTrack';
     showToast('Servidor indisponível. Tente novamente.','error');
@@ -263,6 +302,15 @@ const _barValueHPlugin = { id:'barValuesH', afterDatasetsDraw(chart){
   });
 }};
 
+// Insere imagem preservando a proporção (sem achatar), centralizada na caixa.
+// imgRatio = largura/altura da imagem renderizada.
+function _addImgContain(doc, img, x, y, boxW, boxH, imgRatio){
+  if(!img) return;
+  let w = boxW, h = boxW/imgRatio;
+  if(h > boxH){ h = boxH; w = boxH*imgRatio; }
+  doc.addImage(img, 'PNG', x + (boxW-w)/2, y + (boxH-h)/2, w, h);
+}
+
 async function gerarRelatorioPDF(){
   if(!window.jspdf){ showToast('Aguarde o carregamento do gerador de PDF e tente novamente','error'); return; }
   const groups = _exportFilteredGroups();
@@ -290,16 +338,16 @@ async function gerarRelatorioPDF(){
     type:'doughnut',
     data:{labels:['Finalizado','Em progresso','Pendente'],
       datasets:[{data:[fin,prog,pend], backgroundColor:['#34d399','#fbbf24','#fb7185'], borderColor:'#1a1f3a', borderWidth:5}]},
-    options:{cutout:'66%', layout:{padding:12}, plugins:{legend:{position:'bottom', labels:LEG}}},
+    options:{cutout:'66%', layout:{padding:14}, plugins:{legend:{display:false}}},
     plugins:[_centerTextPlugin(groups.length, 'equipamentos')]
-  }), 820, 660);
+  }), 760, 760);
   const manuaisImg = await _renderChartImage((ctx)=>({
     type:'doughnut',
     data:{labels:['Concluídos','Pendentes'],
       datasets:[{data:[manOk, manPend], backgroundColor:['#22d3ee','#3a4170'], borderColor:'#1a1f3a', borderWidth:5}]},
-    options:{cutout:'66%', layout:{padding:12}, plugins:{legend:{position:'bottom', labels:LEG}}},
+    options:{cutout:'66%', layout:{padding:14}, plugins:{legend:{display:false}}},
     plugins:[_centerTextPlugin(manPct+'%', manOk+' de '+manTot)]
-  }), 820, 660);
+  }), 760, 760);
   const barImg = await _renderChartImage((ctx)=>({
     type:'bar',
     data:{labels:['Elaborar','Trein. Piloto','Envio Homol.','Homologado'],
@@ -323,6 +371,19 @@ async function gerarRelatorioPDF(){
   function paintBg(){ doc.setFillColor(...C.bg); doc.rect(0,0,pageW,pageH,'F'); }
   function card(x,yy,w,h){ doc.setFillColor(...C.card); doc.setDrawColor(...C.border); doc.setLineWidth(0.3); doc.roundedRect(x,yy,w,h,2.5,2.5,'FD'); }
   function cardTitle(txt,x,yy,w){ doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...C.accent); doc.text(txt.toUpperCase(), x+w/2, yy+6.5, {align:'center'}); }
+  // legenda nativa (vetorial, nítida): linha de itens [cor, rótulo] centralizada em cx
+  function legendRow(items, cx, yy){
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+    const r=1.5, dotGap=2.2, itemGap=8;
+    const widths = items.map(([c,l])=> r*2 + dotGap + doc.getTextWidth(l));
+    const total = widths.reduce((a,b)=>a+b,0) + itemGap*(items.length-1);
+    let x = cx - total/2;
+    items.forEach(([col,lab],i)=>{
+      doc.setFillColor(...col); doc.circle(x+r, yy-1.1, r, 'F');
+      doc.setTextColor(...C.t1); doc.text(lab, x+r*2+dotGap, yy);
+      x += widths[i] + itemGap;
+    });
+  }
 
   const hoje = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const filtros = [];
@@ -357,10 +418,13 @@ async function gerarRelatorioPDF(){
   });
   const donW = (pageW - margin*2 - colW - gap*2)/2;
   const d1x = margin+colW+gap, d2x = d1x+donW+gap;
+  const donImgH = rowAh - 9 - 9; // deixa ~9mm no rodapé para a legenda nativa
   card(d1x, y, donW, rowAh); cardTitle('Status global', d1x, y, donW);
-  if(donutImg) doc.addImage(donutImg, 'PNG', d1x+6, y+9, donW-12, rowAh-13);
+  _addImgContain(doc, donutImg, d1x+6, y+9, donW-12, donImgH, 1);
+  legendRow([['Finalizado',C.green],['Em progresso',C.amber],['Pendente',C.red]].map(([l,c])=>[c,l]), d1x+donW/2, y+rowAh-4);
   card(d2x, y, donW, rowAh); cardTitle('Manuais (conclusão)', d2x, y, donW);
-  if(manuaisImg) doc.addImage(manuaisImg, 'PNG', d2x+6, y+9, donW-12, rowAh-13);
+  _addImgContain(doc, manuaisImg, d2x+6, y+9, donW-12, donImgH, 1);
+  legendRow([['Concluídos',C.cyan],['Pendentes',[58,65,112]]].map(([l,c])=>[c,l]), d2x+donW/2, y+rowAh-4);
 
   y += rowAh + gap;
   // ── Linha B: composição (tabela) + IT/PRE por etapa (barras)
@@ -524,15 +588,20 @@ function renderDashboard(){
   });
 
   const catLabels=Object.keys(_lastKpis.por_setor),catVals=Object.values(_lastKpis.por_setor);
-  const dColors=catLabels.map(c=>CAT_COLORS[c]||'#6366f1');
+  // mesma paleta do donut de status dos entregáveis (verde, ciano, âmbar)
+  const donutPalette=['#10b981','#22d3ee','#f59e0b','#a78bfa','#06b6d4'];
+  const dColors=catLabels.map((c,i)=>donutPalette[i % donutPalette.length]);
   document.getElementById('donut-total').textContent=total;
   document.getElementById('donut-legend').innerHTML=catLabels.map((c,i)=>{
     return`<div class="legend-row" title="${esc(c)}"><span class="legend-dot" style="background:${dColors[i]}"></span><span>${esc(c)}</span><span class="legend-val">${catVals[i]}</span></div>`;
   }).join('');
   if(chartInstances.donut)chartInstances.donut.destroy();
-  chartInstances.donut=new Chart(document.getElementById('cDonut'),{
-    type:'doughnut',data:{datasets:[{data:catVals,backgroundColor:dColors,borderWidth:3,borderColor:'#1f2444',hoverOffset:8}]},
-    options:{responsive:false,cutout:'72%',plugins:{legend:{display:false},tooltip:{backgroundColor:'#232847',titleColor:'#f1f5f9',bodyColor:'#c7d2fe',borderColor:'rgba(167,139,250,.3)',borderWidth:1,padding:10,cornerRadius:8,callbacks:{label:ctx=>' '+catLabels[ctx.dataIndex]+': '+ctx.raw}}}}
+  const elDonut=document.getElementById('cDonut');
+  const donutBg=elDonut?dColors.map(c=>donutGrad(elDonut.getContext('2d'),c)):dColors;
+  chartInstances.donut=new Chart(elDonut,{
+    type:'doughnut',
+    data:{labels:catLabels,datasets:[{data:catVals,backgroundColor:donutBg,dotColors:dColors,borderWidth:0,borderRadius:8,spacing:3,hoverOffset:6}]},
+    options:{responsive:false,cutout:'78%',plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${catLabels[ctx.dataIndex]}: ${ctx.parsed} docs`}}},animation:{animateRotate:true,duration:1200}}
   });
 
   // Exemplo de pipeline simples usando os status da PRE
@@ -759,9 +828,34 @@ async function visualizarDocx(caminhoEnc, nome){
       className:'docx', inWrapper:true, useBase64URL:true,
       breakPages:true, ignoreLastRenderedPageBreak:true, experimental:true
     });
+    _ajustarDocxNaPagina(body);
   }catch(e){
     body.innerHTML = '<div class="docview-erro">Não foi possível renderizar este documento.<br><span style="color:var(--t3);font-size:12px">Use o botão “Baixar” acima para abrir no Word.</span></div>';
   }
+}
+
+// Garante que todo o conteúdo (tabelas/imagens) caiba dentro dos limites da folha A4
+function _ajustarDocxNaPagina(body){
+  const secs = body.querySelectorAll('.docx-wrapper > section.docx');
+  secs.forEach(sec=>{
+    const cs = getComputedStyle(sec);
+    const avail = sec.clientWidth - (parseFloat(cs.paddingLeft)||0) - (parseFloat(cs.paddingRight)||0);
+    // tabelas mais largas que a área útil → layout fixo para redistribuir as colunas
+    sec.querySelectorAll('table').forEach(t=>{
+      if(t.offsetWidth > avail + 1){
+        t.style.tableLayout = 'fixed';
+        t.style.width = '100%';
+      }
+    });
+    // imagens largas → limita à largura da página
+    sec.querySelectorAll('img').forEach(im=>{
+      if(im.offsetWidth > avail){ im.style.maxWidth = '100%'; im.style.height = 'auto'; }
+    });
+    // rede de segurança: se ainda sobrar algo estourando, encolhe a página inteira para caber
+    if(sec.scrollWidth > sec.clientWidth + 1){
+      sec.style.zoom = (sec.clientWidth / sec.scrollWidth).toFixed(4);
+    }
+  });
 }
 
 // ═══ DOCS — GRADE DE EQUIPAMENTOS ═══
@@ -1289,3 +1383,18 @@ function renderSkeletonTable(tbodyId,rows=5,cols=5){
 
 // Aplica o tema salvo assim que o script carrega (vale para tela de login também)
 initTheme();
+
+// ═══ BOOTSTRAP: hub de módulos ═══
+// Com token: quem não veio do hub (dt_module!=='docs') é levado ao hub;
+// quem veio do hub entra direto no app. Sem token: tela de login normal.
+(function bootstrapHub(){
+  if(!getToken())return;
+  if(sessionStorage.getItem('dt_module')!=='docs'){window.location.href='/hub';return}
+  try{
+    const u=JSON.parse(localStorage.getItem('doctrack_user')||'{}');
+    if(u&&u.nome)currentUser={name:u.nome,email:u.email,role:u.role,initials:u.nome.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};
+  }catch(e){}
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='block';
+  initApp();
+})();

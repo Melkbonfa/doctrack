@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocTrack — Apresentação Executiva</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#080b11; --bg2:#0d1320; --panel:rgba(255,255,255,.04); --panel-brd:rgba(255,255,255,.09);
+  --cy:#22d3ee; --cy2:#06b6d4; --cy3:#67e8f9; --cy-soft:rgba(34,211,238,.14);
+  --tx:#eaf2f8; --tx2:#aab8c6; --tx3:#6c7c8c;
+  --ok:#34d399; --warn:#fbbf24; --vio:#a78bfa;
+  --ff:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--ff); background:var(--bg); color:var(--tx);
+  overflow:hidden; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+
+/* ===== DECK / SLIDE FRAME ===== */
+#deck{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+.slide{
+  position:absolute;width:100%;height:100%;
+  display:none;flex-direction:column;justify-content:center;
+  padding:6.2vh 8vw;
+  background:
+    radial-gradient(1100px 620px at 82% -8%, rgba(34,211,238,.13), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(124,109,250,.10), transparent 55%),
+    linear-gradient(160deg,var(--bg) 0%, var(--bg2) 100%);
+  animation:fade .55s ease both;
+}
+.slide.active{display:flex}
+@keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* faint grid texture */
+.slide::before{
+  content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+  background-size:54px 54px;
+  -webkit-mask-image:radial-gradient(ellipse at 50% 40%,#000 35%,transparent 78%);
+          mask-image:radial-gradient(ellipse at 50% 40%,#000 35%,transparent 78%);
+}
+.slide > *{position:relative;z-index:1}
+
+/* ===== SHARED TYPE ===== */
+.kicker{
+  display:inline-flex;align-items:center;gap:9px;
+  font-size:.78rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--cy3);margin-bottom:22px;
+}
+.kicker::before{content:"";width:26px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--cy),transparent)}
+h1{font-size:clamp(2.4rem,5.4vw,4.4rem);font-weight:900;line-height:1.04;letter-spacing:-.02em}
+h2{font-size:clamp(1.9rem,3.6vw,3rem);font-weight:800;line-height:1.08;letter-spacing:-.02em;margin-bottom:8px}
+.lead{font-size:clamp(1.05rem,1.5vw,1.35rem);color:var(--tx2);line-height:1.6;max-width:60ch}
+.grad{background:linear-gradient(100deg,var(--cy3),var(--cy2) 55%,var(--vio));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--tx2)}
+strong{color:var(--tx);font-weight:700}
+.em{color:var(--cy3);font-weight:700}
+
+/* ===== BRAND MARK ===== */
+.brand{display:flex;align-items:center;gap:13px}
+.brand .logo{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#0b3b46,#0a232e);
+  display:grid;place-items:center;border:1px solid rgba(34,211,238,.35);box-shadow:0 6px 24px rgba(34,211,238,.18)}
+.brand .name{font-weight:800;font-size:1.15rem;letter-spacing:.02em}
+.brand .ver{font-size:.66rem;color:var(--tx3);letter-spacing:.16em;font-weight:600}
+
+/* ===== COVER ===== */
+.cover-meta{display:flex;gap:34px;margin-top:42px;flex-wrap:wrap}
+.cover-meta .mi{font-size:.92rem;color:var(--tx2)}
+.cover-meta .mi b{display:block;color:var(--tx);font-size:1.02rem;margin-top:3px;font-weight:700}
+.cover-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:auto}
+.pill{font-size:.74rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--cy3);
+  border:1px solid var(--cy-soft);background:var(--cy-soft);padding:8px 14px;border-radius:99px}
+
+/* ===== CARDS / GRIDS ===== */
+.grid{display:grid;gap:20px;margin-top:34px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.card{
+  background:var(--panel);border:1px solid var(--panel-brd);border-radius:18px;padding:26px 24px;
+  backdrop-filter:blur(6px);position:relative;overflow:hidden;transition:.3s;
+}
+.card::after{content:"";position:absolute;left:0;top:0;height:3px;width:100%;
+  background:linear-gradient(90deg,var(--cy),transparent);opacity:.0;transition:.3s}
+.card:hover{border-color:rgba(34,211,238,.4);transform:translateY(-3px)}
+.card:hover::after{opacity:1}
+.card .ico{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;margin-bottom:16px;
+  background:var(--cy-soft);border:1px solid rgba(34,211,238,.25);font-size:1.35rem}
+.card h3{font-size:1.16rem;font-weight:800;margin-bottom:8px;letter-spacing:-.01em}
+.card p{color:var(--tx2);font-size:.97rem;line-height:1.55}
+.card .num{font-family:var(--mono);font-size:.8rem;color:var(--cy3);font-weight:700;letter-spacing:.05em}
+
+/* ===== METRICS ===== */
+.metric .big{font-family:var(--mono);font-size:clamp(2.6rem,5vw,4rem);font-weight:700;line-height:1;
+  background:linear-gradient(120deg,var(--cy3),var(--cy2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.metric .lbl{margin-top:10px;color:var(--tx2);font-size:.98rem;line-height:1.45}
+.metric .plus{color:var(--cy3)}
+
+/* ===== TIMELINE ===== */
+.timeline{margin-top:36px;position:relative;padding-left:6px}
+.tl-row{display:grid;grid-template-columns:130px 1fr;gap:26px;padding:16px 0;border-left:2px solid rgba(34,211,238,.22);
+  padding-left:30px;position:relative}
+.tl-row::before{content:"";position:absolute;left:-8px;top:24px;width:14px;height:14px;border-radius:50%;
+  background:var(--bg);border:3px solid var(--cy)}
+.tl-row .ph{font-family:var(--mono);font-size:.85rem;color:var(--cy3);font-weight:700;padding-top:2px}
+.tl-row h4{font-size:1.12rem;font-weight:700;margin-bottom:5px}
+.tl-row p{color:var(--tx2);font-size:.96rem;line-height:1.5}
+
+/* ===== FEATURE LIST ===== */
+.flist{display:grid;grid-template-columns:1fr 1fr;gap:14px 34px;margin-top:30px}
+.flist .fi{display:flex;gap:13px;align-items:flex-start;font-size:1.02rem;color:var(--tx2);line-height:1.45}
+.flist .fi .ck{flex:0 0 auto;width:24px;height:24px;border-radius:7px;background:var(--cy-soft);
+  border:1px solid rgba(34,211,238,.3);display:grid;place-items:center;color:var(--cy3);font-size:.8rem;font-weight:800;margin-top:1px}
+.flist .fi b{color:var(--tx)}
+
+/* ===== SPOTLIGHT (technical) ===== */
+.spot{display:grid;grid-template-columns:1.05fr .95fr;gap:46px;align-items:center;margin-top:30px}
+.codeframe{background:#070a10;border:1px solid var(--panel-brd);border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.45)}
+.codeframe .bar{display:flex;align-items:center;gap:7px;padding:13px 16px;border-bottom:1px solid var(--panel-brd);background:rgba(255,255,255,.02)}
+.codeframe .dot{width:11px;height:11px;border-radius:50%}
+.codeframe .bar small{margin-left:10px;color:var(--tx3);font-family:var(--mono);font-size:.78rem}
+.codeframe pre{padding:20px 20px;font-family:var(--mono);font-size:.78rem;line-height:1.7;color:#cfe7ee;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.codeframe .cmt{color:#5b6b78}.codeframe .kw{color:#7dd3fc}.codeframe .str{color:#86efac}.codeframe .fn{color:#fbbf24}
+.langtoggle{display:inline-flex;border:1px solid rgba(34,211,238,.4);border-radius:99px;overflow:hidden;margin-top:16px;cursor:pointer;user-select:none}
+.langtoggle span{padding:9px 22px;font-weight:700;font-size:.92rem;transition:.25s}
+.langtoggle span.on{background:var(--cy);color:#06222a}
+.langtoggle span.off{color:var(--tx2)}
+.langtoggle span.off:hover{color:var(--cy3)}
+
+/* live mini-preview that the toggle switches */
+.uipreview{margin-top:18px;max-width:340px;background:#070d15;border:1px solid var(--panel-brd);border-radius:14px;padding:18px 18px;
+  box-shadow:0 16px 40px rgba(0,0,0,.4)}
+.uipreview .up-top{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.uipreview .up-dot{width:9px;height:9px;border-radius:50%;background:var(--cy)}
+.uipreview .up-app{font-size:.72rem;color:var(--tx3);font-family:var(--mono);letter-spacing:.06em}
+.uipreview .up-title{font-size:1.12rem;font-weight:800;margin-bottom:6px;transition:.2s}
+.uipreview .up-desc{font-size:.86rem;color:var(--tx2);margin-bottom:14px;transition:.2s}
+.uipreview .up-btn{display:inline-block;background:var(--cy);color:#06222a;font-weight:700;font-size:.86rem;padding:8px 18px;border-radius:8px;transition:.2s}
+.uipreview .fade{opacity:0;transform:translateY(4px)}
+
+/* video frame (boomerang) — subtle, contained */
+.vidframe{position:relative;border-radius:16px;overflow:hidden;border:1px solid rgba(168,85,247,.28);
+  background:#050211;box-shadow:0 24px 60px rgba(0,0,0,.5),0 0 0 1px rgba(168,85,247,.08);aspect-ratio:16/10}
+.vidframe video,.vidframe canvas{width:100%;height:100%;object-fit:contain;display:block}
+.vidframe .vcap{position:absolute;left:12px;bottom:12px;z-index:3;display:flex;flex-direction:column;gap:4px;pointer-events:none}
+.vidframe .vbadge{align-self:flex-start;background:rgba(168,85,247,.22);backdrop-filter:blur(8px);
+  border:1px solid rgba(168,85,247,.4);color:#e9d5ff;font-size:.66rem;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;padding:5px 11px;border-radius:99px}
+.vidframe .vsub{font-size:.7rem;color:#cbd5e9;letter-spacing:.03em}
+
+/* ===== VISION columns ===== */
+.evo{display:grid;grid-template-columns:1fr 64px 1fr;align-items:center;gap:24px;margin-top:38px}
+.evo .stage{background:var(--panel);border:1px solid var(--panel-brd);border-radius:18px;padding:30px 26px}
+.evo .stage.now{opacity:.78}
+.evo .stage.next{border-color:rgba(34,211,238,.45);box-shadow:0 0 0 1px rgba(34,211,238,.12),0 24px 60px rgba(34,211,238,.10)}
+.evo .stage .tag{font-size:.74rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+.evo .stage.now .tag{color:var(--tx3)}.evo .stage.next .tag{color:var(--cy3)}
+.evo .stage h3{font-size:1.4rem;font-weight:800;margin-bottom:14px}
+.evo .stage ul{list-style:none;display:flex;flex-direction:column;gap:9px}
+.evo .stage li{color:var(--tx2);font-size:.98rem;display:flex;gap:9px;align-items:center}
+.evo .stage li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cy);flex:0 0 auto}
+.evo .arrow{display:grid;place-items:center;color:var(--cy3);font-size:2rem}
+
+/* ===== closing ===== */
+.close-stat{display:flex;gap:54px;margin-top:40px;flex-wrap:wrap}
+.close-stat div b{display:block;font-family:var(--mono);font-size:2.6rem;font-weight:700;color:var(--cy3);line-height:1}
+.close-stat div span{color:var(--tx2);font-size:.95rem}
+
+/* ===== CHROME (nav / progress / counter) ===== */
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--cy3),var(--cy2),var(--vio));
+  z-index:50;transition:width .45s cubic-bezier(.4,0,.2,1);box-shadow:0 0 12px rgba(34,211,238,.5)}
+#chrome{position:fixed;bottom:22px;right:30px;z-index:50;display:flex;align-items:center;gap:14px;
+  font-family:var(--mono);font-size:.82rem;color:var(--tx3)}
+#chrome .nav{display:flex;gap:6px}
+#chrome button{width:34px;height:34px;border-radius:9px;border:1px solid var(--panel-brd);background:var(--panel);
+  color:var(--tx2);cursor:pointer;font-size:1rem;display:grid;place-items:center;transition:.2s}
+#chrome button:hover{border-color:var(--cy);color:var(--cy3)}
+#counter b{color:var(--tx)}
+#hint{position:fixed;bottom:24px;left:30px;z-index:50;font-size:.78rem;color:var(--tx3);font-family:var(--mono)}
+.footer-brand{position:fixed;top:22px;left:30px;z-index:40;display:flex;align-items:center;gap:9px;opacity:.55;font-size:.78rem;color:var(--tx3);font-weight:600;letter-spacing:.08em}
+.footer-brand .d{width:8px;height:8px;border-radius:2px;background:var(--cy)}
+/* ===== DASHBOARD MOCKUP (slide plataforma) ===== */
+.dashwrap{margin-top:26px;display:grid;grid-template-columns:1.15fr .85fr;gap:22px;align-items:stretch}
+.browser{border-radius:16px;overflow:hidden;border:1px solid var(--panel-brd);
+  box-shadow:0 30px 70px rgba(0,0,0,.55),0 0 0 1px rgba(34,211,238,.06);background:#070c14}
+.bbar{display:flex;align-items:center;gap:8px;padding:11px 15px;border-bottom:1px solid var(--panel-brd);background:rgba(255,255,255,.025)}
+.bbar .bdot{width:11px;height:11px;border-radius:50%}
+.bbar .burl{margin-left:12px;flex:1;font-family:var(--mono);font-size:.72rem;color:var(--tx3);
+  background:rgba(255,255,255,.04);border:1px solid var(--panel-brd);border-radius:7px;padding:5px 12px}
+.bbar .blive{display:flex;align-items:center;gap:6px;font-size:.66rem;color:var(--ok);font-weight:700;letter-spacing:.08em}
+.bbar .blive::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.dashui{display:grid;grid-template-columns:128px 1fr}
+.dside{border-right:1px solid var(--panel-brd);padding:16px 12px;display:flex;flex-direction:column;gap:5px;background:rgba(255,255,255,.012)}
+.dside .dbrand{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.dside .dbrand b{font-size:.84rem;font-weight:800}
+.dside .dnav{display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--tx2);padding:7px 9px;border-radius:8px}
+.dside .dnav.on{background:var(--cy-soft);color:var(--cy3);font-weight:700}
+.dside .dnav .di{width:13px;height:13px;border-radius:4px;background:currentColor;opacity:.7}
+.dmain{padding:16px 16px}
+.dkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.dkpi{background:var(--panel);border:1px solid var(--panel-brd);border-radius:11px;padding:11px 12px}
+.dkpi .v{font-family:var(--mono);font-size:1.35rem;font-weight:700;color:var(--cy3);line-height:1}
+.dkpi .k{font-size:.66rem;color:var(--tx2);margin-top:5px;letter-spacing:.02em}
+.dkpi.up .v{color:var(--ok)} .dkpi.warn .v{color:var(--warn)} .dkpi.vio .v{color:var(--vio)}
+.dlow{display:grid;grid-template-columns:1fr 1.25fr;gap:12px}
+.dcard{background:var(--panel);border:1px solid var(--panel-brd);border-radius:11px;padding:13px 14px}
+.dcard .dct{font-size:.7rem;color:var(--tx2);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:11px}
+.donutbox{display:flex;align-items:center;gap:14px}
+.donut2{width:92px;height:92px;border-radius:50%;flex:0 0 auto;position:relative;
+  background:conic-gradient(var(--cy) 0 45%,var(--vio) 45% 70%,var(--warn) 70% 88%,#3b82f6 88% 100%);
+  transform:scale(.4);opacity:0;transition:transform .7s cubic-bezier(.34,1.56,.64,1),opacity .5s}
+.slide.active .donut2{transform:scale(1);opacity:1}
+.donut2::after{content:"";position:absolute;inset:13px;border-radius:50%;background:#0a111c}
+.donut2 .dctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;z-index:1}
+.donut2 .dctr b{font-family:var(--mono);font-size:1.05rem;color:var(--tx);line-height:1}
+.donut2 .dctr span{font-size:.55rem;color:var(--tx3)}
+.dleg{display:flex;flex-direction:column;gap:6px;font-size:.68rem;color:var(--tx2)}
+.dleg div{display:flex;align-items:center;gap:7px}
+.dleg i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.dbars{display:flex;flex-direction:column;gap:11px}
+.dbar .dbt{display:flex;justify-content:space-between;font-size:.68rem;color:var(--tx2);margin-bottom:5px}
+.dbar .dbt b{color:var(--tx)}
+.dbtrack{height:8px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden}
+.dbfill{height:100%;border-radius:99px;width:0;
+  background:linear-gradient(90deg,var(--cy2),var(--cy3));transition:width 1.1s cubic-bezier(.4,0,.2,1) .15s}
+.slide.active .dbfill{width:var(--w)}
+.dchips{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+.dchip{display:inline-flex;align-items:center;gap:7px;font-size:.82rem;color:var(--tx2);
+  background:var(--panel);border:1px solid var(--panel-brd);border-radius:99px;padding:7px 14px;transition:.25s}
+.dchip:hover{border-color:rgba(34,211,238,.45);color:var(--tx);transform:translateY(-2px)}
+.dchip b{color:var(--cy3);font-size:.78rem}
+
+/* ===== CAPA CENTRALIZADA ===== */
+.slide.cover{text-align:center;align-items:center;justify-content:center}
+.slide.cover .cover-top{position:absolute;top:6.2vh;left:8vw;right:8vw;width:auto;margin:0}
+.slide.cover h1{margin:0 auto}
+.slide.cover .lead{margin-left:auto;margin-right:auto;max-width:62ch}
+.slide.cover .cover-meta{justify-content:center}
+.slide.cover .cover-meta .mi{text-align:center}
+
+/* ===== JORNADA — STEPPER VISUAL ===== */
+.journey{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;margin-top:54px;position:relative}
+.journey::before{content:"";position:absolute;top:38px;left:11%;right:11%;height:2px;z-index:0;
+  background:linear-gradient(90deg,var(--cy3),var(--cy2) 40%,#3b82f6 70%,var(--vio));opacity:.45}
+.jstep{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center}
+.jnode{width:76px;height:76px;border-radius:22px;display:grid;place-items:center;font-size:1.9rem;
+  background:linear-gradient(135deg,#0c3a45,#0a212c);border:1px solid rgba(34,211,238,.4);
+  box-shadow:0 14px 34px rgba(34,211,238,.16);margin-bottom:20px;position:relative;transition:.3s}
+.jstep:hover .jnode{transform:translateY(-4px);box-shadow:0 18px 44px rgba(34,211,238,.3)}
+.jnode .jbadge{position:absolute;top:-9px;right:-9px;width:26px;height:26px;border-radius:50%;
+  background:var(--cy);color:#06222a;font-size:.74rem;font-weight:800;display:grid;place-items:center;
+  font-family:var(--mono);box-shadow:0 4px 12px rgba(34,211,238,.4)}
+.jph{font-family:var(--mono);font-size:.7rem;color:var(--cy3);letter-spacing:.14em;text-transform:uppercase;margin-bottom:7px}
+.jstep h4{font-size:1.12rem;font-weight:800;margin-bottom:9px}
+.jstep p{font-size:.9rem;color:var(--tx2);line-height:1.5;max-width:25ch}
+/* entrada sutil e SEGURA: começa visível; anima só o deslocamento (nunca esconde) */
+@keyframes jrise{from{transform:translateY(16px)}to{transform:none}}
+.slide.active .jstep{animation:jrise .5s ease both}
+.slide.active .jstep:nth-child(1){animation-delay:.04s}
+.slide.active .jstep:nth-child(2){animation-delay:.14s}
+.slide.active .jstep:nth-child(3){animation-delay:.24s}
+.slide.active .jstep:nth-child(4){animation-delay:.34s}
+
+@media(max-width:760px){
+  .g3,.g4,.g2,.flist,.spot,.evo,.dashwrap,.dashui,.journey{grid-template-columns:1fr}
+  .journey::before{display:none}
+  .evo .arrow{transform:rotate(90deg)}
+  .slide{padding:7vh 7vw}
+}
+
+/* ===== PRINT / PDF EXPORT ===== */
+@media print{
+  @page{size:1280px 720px;margin:0}
+  html,body{height:auto;overflow:visible;background:var(--bg);
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #deck{position:static;display:block}
+  .slide{position:relative;display:flex !important;width:1280px;height:720px;
+    page-break-after:always;break-after:page;animation:none !important;overflow:hidden}
+  .slide:last-child{page-break-after:auto;break-after:auto}
+  #progress,#chrome,#hint{display:none !important}
+  .footer-brand{position:absolute}
+  .card,.codeframe,.evo .stage{break-inside:avoid}
+  /* garante gráficos preenchidos no PDF (não dependem de .active) */
+  .dbfill{width:var(--w) !important;transition:none !important}
+  .donut2{transform:none !important;opacity:1 !important}
+}
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="deck">
+
+  <!-- 1 · CAPA -->
+  <section class="slide active cover">
+    <div class="cover-top">
+      <div class="brand">
+        <div class="logo">
+          <svg width="22" height="22" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".75"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".55"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".45"/></svg>
+        </div>
+        <div><div class="name">DocTrack</div><div class="ver">P&amp;D EQUIPAMENTOS · v4.0 ENTERPRISE</div></div>
+      </div>
+      <span class="pill">Balanço de 1 ano</span>
+    </div>
+
+    <h1>Da padronização de documentos<br>à <span class="grad">gestão de projetos de engenharia</span></h1>
+    <p class="lead" style="margin-top:24px">Um ano de evolução: como organizei o fluxo documental do P&amp;D, criei mais de 115 documentos técnicos e construí uma plataforma para enxergar cada projeto em um só lugar.</p>
+
+    <div class="cover-meta">
+      <div class="mi">Apresentado por<b>Melk Oliveira</b></div>
+      <div class="mi">Área<b>Engenharia · P&amp;D Equipamentos</b></div>
+    </div>
+  </section>
+
+  <!-- 2 · A JORNADA -->
+  <section class="slide">
+    <span class="kicker">O ponto de partida</span>
+    <h2>Entender o ambiente antes de mudá-lo</h2>
+    <p class="lead">Comecei mergulhando no fluxo de documentos da engenharia. O Guilherme já havia iniciado a padronização; meu papel foi <strong>otimizar para eliminar retrabalho</strong> e dar escala à criação de documentos.</p>
+
+    <div class="journey">
+      <div class="jstep">
+        <div class="jnode">🔍<span class="jbadge">1</span></div>
+        <div class="jph">Fase 1</div>
+        <h4>Diagnóstico</h4>
+        <p>Mapeei o ambiente e o fluxo de documentos para achar as perdas de tempo.</p>
+      </div>
+      <div class="jstep">
+        <div class="jnode">⚙️<span class="jbadge">2</span></div>
+        <div class="jph">Fase 2</div>
+        <h4>Otimização</h4>
+        <p>Refinei a padronização, eliminando etapas redundantes e retrabalho.</p>
+      </div>
+      <div class="jstep">
+        <div class="jnode">📈<span class="jbadge">3</span></div>
+        <div class="jph">Fase 3</div>
+        <h4>Produção em escala</h4>
+        <p>Fluxo de IT estruturado e criação consistente de documentos.</p>
+      </div>
+      <div class="jstep">
+        <div class="jnode">🚀<span class="jbadge">4</span></div>
+        <div class="jph">Fase 4</div>
+        <h4>Plataforma</h4>
+        <p>Controle documental que virou o DocTrack — rumo à gestão de projetos.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · O PROBLEMA -->
+  <section class="slide">
+    <span class="kicker">O problema</span>
+    <h2>Documentação dispersa custa tempo e padrão</h2>
+    <p class="lead">Sem um padrão consolidado e um lugar único de consulta, a engenharia perdia eficiência e rastreabilidade.</p>
+    <div class="grid g3">
+      <div class="card"><div class="ico">🔁</div><h3>Retrabalho</h3><p>Documentos refeitos por falta de modelo claro e de uma fonte única de verdade.</p></div>
+      <div class="card"><div class="ico">🧭</div><h3>Falta de padrão</h3><p>Cada documento seguia um estilo próprio, dificultando leitura, revisão e auditoria.</p></div>
+      <div class="card"><div class="ico">🔎</div><h3>Sem visão única</h3><p>ITs, checklists e manuais espalhados — nenhuma visão consolidada do projeto.</p></div>
+    </div>
+  </section>
+
+  <!-- 4 · TRÊS PILARES -->
+  <section class="slide">
+    <span class="kicker">O que eu construí</span>
+    <h2>Três frentes de impacto</h2>
+    <div class="grid g3">
+      <div class="card">
+        <div class="num">01</div><div class="ico">📐</div>
+        <h3>Fluxo de IT</h3>
+        <p>Um processo padronizado de elaboração de Instruções de Trabalho — do rascunho à versão final revisada.</p>
+      </div>
+      <div class="card">
+        <div class="num">02</div><div class="ico">📊</div>
+        <h3>Controle documental</h3>
+        <p>De uma planilha de controle ao <strong>DocTrack</strong>: rastreabilidade, status e auditoria de cada documento.</p>
+      </div>
+      <div class="card">
+        <div class="num">03</div><div class="ico">⚙️</div>
+        <h3>Contribuição técnica</h3>
+        <p>Atuação em eletroeletrônica, programação e correlatos — incluindo melhorias em produtos.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · NÚMEROS -->
+  <section class="slide">
+    <span class="kicker">Resultados em números</span>
+    <h2>Entregas concretas no período</h2>
+    <div class="grid g4">
+      <div class="card metric"><div class="big">115<span class="plus">+</span></div><div class="lbl">Documentos técnicos elaborados</div></div>
+      <div class="card metric"><div class="big">5</div><div class="lbl">Tipos: ITs, checklists, guias rápidos, instruções específicas e relatórios técnicos</div></div>
+      <div class="card metric"><div class="big">1</div><div class="lbl">Fluxo de elaboração de IT padronizado</div></div>
+      <div class="card metric"><div class="big">1</div><div class="lbl">Plataforma de gestão (DocTrack) criada do zero</div></div>
+    </div>
+    <p class="lead" style="margin-top:30px">Mais de <span class="em">115 documentos</span> que viraram patrimônio de conhecimento da empresa — padronizados, versionados e rastreáveis.</p>
+  </section>
+
+  <!-- 6 · A PLATAFORMA -->
+  <section class="slide">
+    <span class="kicker">A plataforma · DocTrack v4</span>
+    <h2>O DocTrack na prática</h2>
+
+    <div class="browser">
+      <div class="bbar">
+        <span class="bdot" style="background:#ff5f57"></span><span class="bdot" style="background:#febc2e"></span><span class="bdot" style="background:#28c840"></span>
+        <span class="burl">doctrack · Dashboard Executivo</span>
+        <span class="blive">AO VIVO</span>
+      </div>
+      <div class="dashui">
+        <div class="dside">
+          <div class="dbrand">
+            <svg width="16" height="16" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".75"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".55"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".45"/></svg>
+            <b>DocTrack</b>
+          </div>
+          <div class="dnav on"><span class="di"></span>Dashboard</div>
+          <div class="dnav"><span class="di"></span>Documentos</div>
+          <div class="dnav"><span class="di"></span>Audit log</div>
+          <div class="dnav"><span class="di"></span>Usuários</div>
+        </div>
+        <div class="dmain">
+          <div class="dkpis">
+            <div class="dkpi"><div class="v">115</div><div class="k">Documentos</div></div>
+            <div class="dkpi up"><div class="v">68%</div><div class="k">Conclusão global</div></div>
+            <div class="dkpi warn"><div class="v">24</div><div class="k">Em revisão</div></div>
+            <div class="dkpi vio"><div class="v">5</div><div class="k">Tipos de doc</div></div>
+          </div>
+          <div class="dlow">
+            <div class="dcard">
+              <div class="dct">Por categoria</div>
+              <div class="donutbox">
+                <div class="donut2"><div class="dctr"><b>115</b><span>docs</span></div></div>
+                <div class="dleg">
+                  <div><i style="background:var(--cy)"></i>ITs · 45%</div>
+                  <div><i style="background:var(--vio)"></i>Checklists · 25%</div>
+                  <div><i style="background:var(--warn)"></i>Relatórios · 18%</div>
+                  <div><i style="background:#3b82f6"></i>Manuais · 12%</div>
+                </div>
+              </div>
+            </div>
+            <div class="dcard">
+              <div class="dct">Pipeline de etapas</div>
+              <div class="dbars">
+                <div class="dbar"><div class="dbt"><span>Elaboração</span><b>92%</b></div><div class="dbtrack"><div class="dbfill" style="--w:92%"></div></div></div>
+                <div class="dbar"><div class="dbt"><span>Revisão</span><b>64%</b></div><div class="dbtrack"><div class="dbfill" style="--w:64%"></div></div></div>
+                <div class="dbar"><div class="dbt"><span>Aprovação</span><b>38%</b></div><div class="dbtrack"><div class="dbfill" style="--w:38%"></div></div></div>
+                <div class="dbar"><div class="dbt"><span>Publicação</span><b>21%</b></div><div class="dbtrack"><div class="dbfill" style="--w:21%"></div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dchips">
+      <span class="dchip"><b>✓</b> Rastreabilidade total</span>
+      <span class="dchip"><b>✓</b> Audit log</span>
+      <span class="dchip"><b>✓</b> ITs &amp; checklists no navegador</span>
+      <span class="dchip"><b>✓</b> Exportação em PDF</span>
+      <span class="dchip"><b>✓</b> Atualização em tempo real</span>
+    </div>
+  </section>
+
+  <!-- 7 · CONTRIBUIÇÃO TÉCNICA -->
+  <section class="slide">
+    <span class="kicker">Contribuição técnica</span>
+    <h2>Além dos documentos: melhorias no produto</h2>
+    <div class="spot">
+      <div>
+        <p class="lead">Atuo em toda a área de <strong>eletroeletrônica, programação e correlatos</strong>. Um exemplo: implementei a <span class="em">opção de idioma no Ampligene Lite</span> — um botão que alterna a interface entre <strong>português e inglês</strong>, ampliando o alcance do produto.</p>
+
+        <div class="langtoggle" id="langtoggle" role="button" tabindex="0" aria-label="Alternar idioma">
+          <span class="on" data-lang="pt">PT</span><span class="off" data-lang="en">EN</span>
+        </div>
+
+        <div class="uipreview" id="uipreview">
+          <div class="up-top"><span class="up-dot"></span><span class="up-app">ampligene lite</span></div>
+          <div class="up-title" data-pt="Análise de amostra" data-en="Sample analysis">Análise de amostra</div>
+          <div class="up-desc" data-pt="Selecione o protocolo e inicie a leitura." data-en="Select the protocol and start the reading.">Selecione o protocolo e inicie a leitura.</div>
+          <span class="up-btn" data-pt="Iniciar" data-en="Start">Iniciar</span>
+        </div>
+        <p class="sub" style="margin-top:14px;font-size:.86rem">Clique em <b style="color:var(--cy3)">PT&nbsp;/&nbsp;EN</b> para ver a troca de idioma — a mesma do produto.</p>
+      </div>
+
+      <div class="vidframe">
+        <video id="ampVideo" muted playsinline preload="auto">
+          <source src="video%20vista%20explodida.mp4" type="video/mp4">
+        </video>
+        <div class="vcap">
+          <span class="vbadge">Ampligene Lite</span>
+          <span class="vsub">Vista explodida · arquitetura modular</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · A VISÃO -->
+  <section class="slide">
+    <span class="kicker">A visão</span>
+    <h2>De controle de documentos a <span class="grad">gestão de projetos</span></h2>
+    <p class="lead">A plataforma foi pensada para evoluir: o próximo nível é enxergar <strong>tudo de um projeto em um só lugar</strong>.</p>
+    <div class="evo">
+      <div class="stage now">
+        <div class="tag">Hoje</div>
+        <h3>Controle documental</h3>
+        <ul>
+          <li>ITs e checklists rastreados</li>
+          <li>Status e versões</li>
+          <li>Dashboard e relatórios</li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage next">
+        <div class="tag">Próximo nível</div>
+        <h3>Gestão de projetos</h3>
+        <ul>
+          <li>ITs + checklists + manuais</li>
+          <li>Documentos de fabricantes</li>
+          <li>Visão 360° de cada projeto</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8B · IA — ACELERAÇÃO -->
+  <section class="slide">
+    <span class="kicker">Inteligência Artificial</span>
+    <h2>IA: acelerar o que antes <span class="grad">levava horas</span></h2>
+    <p class="lead">A plataforma já foi construída com apoio de IA — em semanas, não anos. O próximo passo é colocar essa mesma inteligência <strong>a serviço do dia a dia da engenharia</strong>, transformando os documentos em conhecimento que responde.</p>
+    <div class="grid g3">
+      <div class="card"><div class="ico">💬</div><h3>Pergunte ao documento</h3><p>Busca por significado: a resposta dentro de uma IT ou manual em segundos, sem folhear dezenas de páginas.</p></div>
+      <div class="card"><div class="ico">📝</div><h3>Resumo automático</h3><p>Um documento técnico novo resumido em poucas linhas — entendimento imediato do que importa.</p></div>
+      <div class="card"><div class="ico">⚙️</div><h3>Elaboração assistida</h3><p>Rascunho de IT e checklist gerado a partir de modelo, pronto para o engenheiro revisar e validar.</p></div>
+      <div class="card"><div class="ico">🏷️</div><h3>Organização automática</h3><p>A IA lê o cabeçalho e classifica equipamento, setor e revisão — fim do cadastro manual.</p></div>
+      <div class="card"><div class="ico">🔔</div><h3>Alerta de pendência</h3><p>Detecção automática do que está faltando ou desatualizado, antes de virar problema.</p></div>
+      <div class="card"><div class="ico">📊</div><h3>Relatório que se escreve</h3><p>A IA redige o texto executivo do status — comunicação para a gestão sem trabalho manual.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 · VALOR ALÉM DA ENGENHARIA -->
+  <section class="slide">
+    <span class="kicker">Valor para a empresa</span>
+    <h2>Útil muito além da engenharia</h2>
+    <p class="lead">O mesmo motor de padronização, rastreabilidade e visão consolidada pode servir outras áreas da empresa.</p>
+    <div class="grid g3">
+      <div class="card"><div class="ico">🏭</div><h3>Produção &amp; Qualidade</h3><p>Checklists e ITs sempre na versão certa, com histórico auditável.</p></div>
+      <div class="card"><div class="ico">📚</div><h3>Conhecimento retido</h3><p>O saber técnico deixa de ficar em arquivos pessoais e vira ativo da empresa.</p></div>
+      <div class="card"><div class="ico">🛡️</div><h3>Governança</h3><p>Rastreabilidade e auditoria — base para certificações e processos confiáveis.</p></div>
+    </div>
+  </section>
+
+  <!-- 10 · ENCERRAMENTO -->
+  <section class="slide">
+    <span class="kicker">Em síntese</span>
+    <h1>Um ano que virou <span class="grad">base para o futuro</span></h1>
+    <p class="lead" style="margin-top:22px">Organizei o fluxo documental, criei conhecimento técnico em escala e construí a plataforma que pode unificar a gestão de projetos da empresa.</p>
+    <div class="close-stat">
+      <div><b>115+</b><span>documentos técnicos</span></div>
+      <div><b>1</b><span>plataforma criada</span></div>
+      <div><b>360°</b><span>a próxima visão de projeto</span></div>
+    </div>
+    <p class="lead" style="margin-top:40px;color:var(--tx)"><strong>Obrigado.</strong> Aberto a perguntas e sugestões.</p>
+  </section>
+
+</div>
+
+<div id="hint">← → ou espaço · F tela cheia</div>
+<div id="chrome">
+  <span id="counter"><b>1</b> / 11</span>
+  <div class="nav">
+    <button id="prev" aria-label="Anterior">‹</button>
+    <button id="next" aria-label="Próximo">›</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const slides=[...document.querySelectorAll('.slide')];
+  const total=slides.length;
+  let i=0;
+  const prog=document.getElementById('progress');
+  const counter=document.querySelector('#counter b');
+  function show(n){
+    i=Math.max(0,Math.min(total-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    // re-trigger animation
+    const a=slides[i]; a.style.animation='none'; void a.offsetWidth; a.style.animation='';
+    prog.style.width=((i)/(total-1)*100)+'%';
+    counter.textContent=i+1;
+    location.hash=i+1;
+  }
+  function next(){show(i+1)} function prev(){show(i-1)}
+  document.getElementById('next').onclick=next;
+  document.getElementById('prev').onclick=prev;
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next()}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev()}
+    else if(e.key==='Home'){show(0)} else if(e.key==='End'){show(total-1)}
+    else if(e.key.toLowerCase()==='f'){
+      if(!document.fullscreenElement)document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen();
+      else document.exitFullscreen&&document.exitFullscreen();
+    }
+  });
+  // click right/left third of screen to navigate
+  document.getElementById('deck').addEventListener('click',e=>{
+    if(e.target.closest('button')||e.target.closest('a')||
+       e.target.closest('#langtoggle')||e.target.closest('.uipreview')||e.target.closest('.vidframe'))return;
+    const x=e.clientX/window.innerWidth;
+    if(x>0.62)next(); else if(x<0.20)prev();
+  });
+  // swipe
+  let sx=0;
+  addEventListener('touchstart',e=>sx=e.touches[0].clientX,{passive:true});
+  addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx;if(Math.abs(dx)>50){dx<0?next():prev()}},{passive:true});
+  const fromHash=parseInt(location.hash.replace('#',''))||1;
+  show(fromHash-1);
+})();
+
+/* ===== INTERATIVIDADE ===== */
+(function(){
+  /* --- Toggle de idioma PT/EN (demonstra a feature ao vivo) --- */
+  const tg=document.getElementById('langtoggle');
+  const up=document.getElementById('uipreview');
+  if(tg&&up){
+    const fields=up.querySelectorAll('[data-pt]');
+    function setLang(lang){
+      tg.querySelectorAll('span').forEach(s=>{
+        const on=s.dataset.lang===lang;
+        s.classList.toggle('on',on);s.classList.toggle('off',!on);
+      });
+      fields.forEach(f=>{
+        f.classList.add('fade');
+        setTimeout(()=>{ f.textContent=f.dataset[lang]; f.classList.remove('fade'); },140);
+      });
+    }
+    tg.addEventListener('click',e=>{
+      const s=e.target.closest('span'); if(!s)return; setLang(s.dataset.lang);
+    });
+    tg.addEventListener('keydown',e=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();
+        setLang(tg.querySelector('.on').dataset.lang==='pt'?'en':'pt');}
+    });
+  }
+
+  /* --- Contadores animados (disparam quando o slide fica ativo) --- */
+  function animateCount(el){
+    const raw=el.dataset.val||el.textContent.trim();
+    el.dataset.val=raw;
+    const m=raw.match(/^(\d+)(.*)$/); if(!m){return;}
+    const target=parseInt(m[1],10), suffix=m[2]||'';
+    const dur=900, t0=performance.now();
+    function tick(now){
+      const p=Math.min(1,(now-t0)/dur);
+      const eased=1-Math.pow(1-p,3);
+      el.textContent=Math.round(target*eased)+suffix;
+      if(p<1)requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  function runCounters(slide){
+    slide.querySelectorAll('.metric .big, .close-stat b, .dkpi .v, .donut2 .dctr b').forEach(animateCount);
+  }
+
+  /* --- Boomerang do vídeo Ampligene (canvas-caching, suave) --- */
+  const ampVideo=document.getElementById('ampVideo');
+  const videoSlide=ampVideo?ampVideo.closest('.slide'):null;
+  if(ampVideo&&videoSlide){
+    const cv=document.createElement('canvas');
+    Object.assign(cv.style,{position:'absolute',top:'0',left:'0',width:'100%',height:'100%',
+      objectFit:'contain',display:'none',pointerEvents:'none',zIndex:'2'});
+    ampVideo.parentNode.insertBefore(cv,ampVideo.nextSibling);
+    const ctx=cv.getContext('2d');
+    const cache=[]; let fwd=true,caching=true,reverse=false,ri=0,last=0;
+    const FI=1000/30;
+    function loop(now){
+      if(!videoSlide.classList.contains('active')){ if(!ampVideo.paused)ampVideo.pause(); return requestAnimationFrame(loop); }
+      if(fwd){
+        if(ampVideo.paused)ampVideo.play().catch(()=>{});
+        if(caching&&ampVideo.currentTime>0&&ampVideo.currentTime<ampVideo.duration-0.2){
+          if(now-last>=FI){
+            const o=document.createElement('canvas');
+            o.width=ampVideo.videoWidth?ampVideo.videoWidth/2:640;
+            o.height=ampVideo.videoHeight?ampVideo.videoHeight/2:360;
+            o.getContext('2d').drawImage(ampVideo,0,0,o.width,o.height);
+            cache.push(o); last=now;
+          }
+        }
+        if(ampVideo.duration>0&&ampVideo.currentTime>=ampVideo.duration-0.15){
+          fwd=false;ampVideo.pause();caching=false;reverse=true;ri=cache.length-1;
+          cv.width=ampVideo.videoWidth||1280;cv.height=ampVideo.videoHeight||720;
+          cv.style.display='block';ampVideo.style.opacity='0';last=now;
+        }
+      } else if(reverse){
+        if(now-last>=FI){
+          if(ri>=0){ ctx.clearRect(0,0,cv.width,cv.height); ctx.drawImage(cache[ri],0,0,cv.width,cv.height); ri--; }
+          else{ reverse=false;fwd=true;ampVideo.currentTime=0;ampVideo.style.opacity='1';cv.style.display='none';ampVideo.play().catch(()=>{}); }
+          last=now;
+        }
+      }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  /* --- Re-dispara animações de entrada (anim CSS não roda vindo de display:none) --- */
+  function replayAnims(sl){
+    sl.querySelectorAll('.jstep').forEach(el=>{ el.style.animation='none'; void el.offsetWidth; el.style.animation=''; });
+  }
+  function playSlide(sl){ runCounters(sl); replayAnims(sl); }
+
+  /* --- Observa qual slide está ativo para disparar contadores/animações --- */
+  document.querySelectorAll('.slide').forEach(sl=>{
+    new MutationObserver(muts=>{
+      muts.forEach(m=>{ if(m.attributeName==='class'&&sl.classList.contains('active')) playSlide(sl); });
+    }).observe(sl,{attributes:true});
+  });
+  const first=document.querySelector('.slide.active'); if(first)playSlide(first);
+})();
+</script>
+</body>
+</html>

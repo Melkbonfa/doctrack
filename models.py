@@ -259,3 +259,126 @@ class RevokedToken(db.Model):
     id         = db.Column(db.Integer, primary_key=True)
     jti        = db.Column(db.String(64), unique=True, nullable=False, index=True)
     revoked_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+
+# ── ENTREGÁVEIS DE PROJETO ───────────────────────────────────────────────────
+
+CATEGORIAS_ENTREGAVEL = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"]
+STATUS_ENTREGAVEL = ["na", "pendente", "em_progresso", "concluido"]
+MOSCOW = ["Must", "Should", "Could", "Wont"]
+
+
+def converter_celula(valor):
+    """Converte valor de célula da planilha para (status, percentual).
+
+    1 → concluido/100 · 0 → pendente/0 · 0<x<1 → em_progresso/round(x*100)
+    NA/vazio/lixo de fórmula → na/None
+    """
+    if valor is None:
+        return ("na", None)
+    if isinstance(valor, str):
+        v = valor.strip().lower()
+        if v in ("", "na", "n/a") or v.startswith("#"):
+            return ("na", None)
+        try:
+            valor = float(v.replace(",", "."))
+        except ValueError:
+            return ("na", None)
+    try:
+        x = float(valor)
+    except (TypeError, ValueError):
+        return ("na", None)
+    if x >= 1:
+        return ("concluido", 100)
+    if x <= 0:
+        return ("pendente", 0)
+    return ("em_progresso", round(x * 100))
+
+
+class Projeto(db.Model):
+    __tablename__ = "projetos"
+
+    id          = db.Column(db.Integer, primary_key=True)
+    nome        = db.Column(db.String(200), nullable=False)
+    descricao   = db.Column(db.String(400), default="")
+    sku         = db.Column(db.String(50), default="")
+    moscow      = db.Column(db.String(10), default="")
+    prioridade  = db.Column(db.Integer, default=0)
+    consumivel  = db.Column(db.Boolean, default=False)
+    lancamento  = db.Column(db.String(40), default="")   # data ou ano em texto livre
+    ano         = db.Column(db.Integer, default=2026, index=True)
+    ativo       = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    criado_em   = db.Column(db.DateTime, default=datetime.now)
+
+    entregaveis = db.relationship("Entregavel", back_populates="projeto",
+                                  cascade="all, delete-orphan")
+
+    @property
+    def avanco(self):
+        """Avanço 0-100: média dos entregáveis aplicáveis (status != na)."""
+        valores = []
+        for e in self.entregaveis:
+            if e.status == "na":
+                continue
+            if e.status == "concluido":
+                valores.append(100)
+            elif e.status == "em_progresso":
+                valores.append(e.percentual or 0)
+            else:
+                valores.append(0)
+        return round(sum(valores) / len(valores)) if valores else 0
+
+    @property
+    def pendentes(self):
+        return sum(1 for e in self.entregaveis if e.status == "pendente")
+
+    def to_dict(self, com_entregaveis=False):
+        d = {
+            "id":         self.id,
+            "nome":       (self.nome or "").strip(),
+            "descricao":  self.descricao or "",
+            "sku":        self.sku or "",
+            "moscow":     self.moscow or "",
+            "prioridade": self.prioridade or 0,
+            "consumivel": bool(self.consumivel),
+            "lancamento": self.lancamento or "",
+            "ano":        self.ano,
+            "ativo":      bool(self.ativo),
+            "avanco":     self.avanco,
+            "pendentes":  self.pendentes,
+            "total_entregaveis": sum(1 for e in self.entregaveis if e.status != "na"),
+        }
+        if com_entregaveis:
+            d["entregaveis"] = [e.to_dict() for e in self.entregaveis]
+        return d
+
+
+class Entregavel(db.Model):
+    __tablename__ = "entregaveis"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    projeto_id     = db.Column(db.Integer, db.ForeignKey("projetos.id"),
+                               nullable=False, index=True)
+    tipo           = db.Column(db.String(120), nullable=False)
+    categoria      = db.Column(db.String(40), default="Produto")
+    status         = db.Column(db.String(20), default="pendente", index=True)
+    percentual     = db.Column(db.Integer, nullable=True)
+    responsaveis   = db.Column(db.String(200), default="")
+    atualizado_por = db.Column(db.String(120), default="")
+    atualizado_em  = db.Column(db.DateTime, default=datetime.now,
+                               onupdate=datetime.now)
+
+    projeto = db.relationship("Projeto", back_populates="entregaveis")
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "projeto_id":     self.projeto_id,
+            "tipo":           (self.tipo or "").strip(),
+            "categoria":      self.categoria or "",
+            "status":         self.status or "pendente",
+            "percentual":     self.percentual,
+            "responsaveis":   self.responsaveis or "",
+            "atualizado_por": self.atualizado_por or "",
+            "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
+        }

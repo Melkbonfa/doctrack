@@ -65,6 +65,9 @@ bcrypt.init_app(app)
 jwt = JWTManager(app)
 app.register_blueprint(auth_bp)
 
+from entregaveis import entregaveis_bp, init_realtime as entregaveis_init_realtime
+app.register_blueprint(entregaveis_bp)
+
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
 socketio = SocketIO(
     app,
@@ -75,6 +78,8 @@ socketio = SocketIO(
     logger=False,
     engineio_logger=False,
 )
+
+entregaveis_init_realtime(socketio, publish_event, AuditLog, EventType)
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -315,6 +320,14 @@ def _static_version():
 @app.route("/")
 def index():
     return render_template("dashboard.html", asset_v=_static_version())
+
+@app.route("/entregaveis")
+def entregaveis_page():
+    return render_template("entregaveis.html", asset_v=_static_version())
+
+@app.route("/hub")
+def hub_page():
+    return render_template("hub.html", asset_v=_static_version())
 
 @app.route("/socket-client.js")
 def serve_socket_client():

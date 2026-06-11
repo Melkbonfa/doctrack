@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entregáveis — DocTrack</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+  <link rel="stylesheet" href="/static/entregaveis.css?v={{ asset_v }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+</head>
+<body>
+  <div class="app-shell" style="display:block">
+    <main class="main" style="margin:0;max-width:1280px;padding:24px;margin-inline:auto">
+
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <h1 style="margin:0">Entregáveis por Projeto</h1>
+          <p class="muted" style="margin:4px 0 0">Engenharia · 2026</p>
+        </div>
+        <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+          <a class="btn-modulos" href="/hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>Módulos</a>
+          <button class="btn btn-primary btn-sm" id="btn-export" onclick="exportarExcel()">Exportar Excel</button>
+        </div>
+      </div>
+
+      <div class="ent-tabs" role="tablist">
+        <button class="ent-tab active" id="tab-btn-dash" role="tab" aria-selected="true" onclick="trocarAba('dash')">Dashboard</button>
+        <button class="ent-tab" id="tab-btn-proj" role="tab" aria-selected="false" onclick="trocarAba('proj')">Projetos</button>
+      </div>
+
+      <!-- ══ Aba Dashboard ══ -->
+      <div id="aba-dash">
+        <div class="kpi-grid" id="ent-rings" style="margin-top:18px">
+          <div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando…</div>
+        </div>
+        <div class="metric-row" id="ent-metrics"></div>
+
+        <div class="ent-charts">
+          <div class="card">
+            <div class="card-title">Status dos entregáveis</div>
+            <div class="donut-wrap">
+              <div class="donut-canvas-wrap">
+                <canvas id="chart-status" width="160" height="160" role="img" aria-label="Gráfico de rosca: status dos entregáveis"></canvas>
+                <div class="donut-center" id="donut-status-center"></div>
+              </div>
+              <div class="legend-list" id="legend-status"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title" id="title-avanco">Avanço por projeto</div>
+            <div class="ent-chart-wrap" style="position:relative;height:240px">
+              <canvas id="chart-avanco" role="img" aria-label="Gráfico de barras horizontais: avanço por projeto"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Carga por responsável</div>
+            <div class="ent-chart-wrap" style="position:relative;height:240px">
+              <canvas id="chart-carga" role="img" aria-label="Gráfico de barras: carga por responsável"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Prioridade MoSCoW</div>
+            <div class="donut-wrap">
+              <div class="donut-canvas-wrap">
+                <canvas id="chart-moscow" width="160" height="160" role="img" aria-label="Gráfico de rosca: prioridade MoSCoW"></canvas>
+                <div class="donut-center" id="donut-moscow-center"></div>
+              </div>
+              <div class="legend-list" id="legend-moscow"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Aba Projetos ══ -->
+      <div id="aba-proj" style="display:none">
+      <div class="card" style="margin-top:14px">
+        <div class="equip-toolbar">
+          <div class="filter-bar" style="margin:0">
+            <div class="search-wrap">
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input class="search-input" id="proj-search" placeholder="Buscar projeto, SKU..." oninput="renderProjGrid()">
+            </div>
+            <span class="filter-count" id="proj-badge" style="margin-left:auto">—</span>
+          </div>
+          <div class="equip-chips" id="proj-chips"></div>
+        </div>
+        <div class="equip-grid" id="proj-grid"></div>
+      </div>
+      </div><!-- /aba-proj -->
+
+    </main>
+  </div>
+
+  <!-- Popover de edição -->
+  <div id="edit-pop" class="ent-pop" style="display:none">
+    <div class="ent-pop-card">
+      <h3 id="pop-titulo" style="margin:0 0 10px"></h3>
+      <label class="muted">Status</label>
+      <select class="input" id="pop-status" onchange="popStatusChange()">
+        <option value="na">N/A</option>
+        <option value="pendente">Pendente</option>
+        <option value="em_progresso">Em progresso</option>
+        <option value="concluido">Concluído</option>
+      </select>
+      <div id="pop-pct-wrap" style="margin-top:8px">
+        <label class="muted">Percentual: <b id="pop-pct-val">0%</b></label>
+        <input type="range" id="pop-pct" min="0" max="100" step="5" style="width:100%"
+               oninput="document.getElementById('pop-pct-val').textContent=this.value+'%'">
+      </div>
+      <label class="muted" style="margin-top:8px;display:block">Responsáveis</label>
+      <input class="input" id="pop-resp" placeholder="Ex.: Guilherme/Melk" style="width:100%">
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn btn-ghost btn-sm" onclick="fecharPop()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="salvarPop()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE PROJETO (abas por categoria) -->
+  <div class="modal-overlay" id="modal-projeto" role="dialog" aria-modal="true" aria-labelledby="proj-modal-title" aria-hidden="true">
+    <div class="modal" style="width:720px" tabindex="-1">
+      <div class="modal-title" id="proj-modal-title"></div>
+      <div class="modal-sub" id="proj-modal-sub"></div>
+      <div class="equip-modal-tabs" id="proj-modal-tabs" role="tablist"></div>
+      <div id="proj-modal-panels"></div>
+      <div class="modal-footer" style="justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="fecharProjModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+  <script src="/static/entregaveis.js?v={{ asset_v }}"></script>
+</body>
+</html>
