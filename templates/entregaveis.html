@@ -19,7 +19,8 @@
         </div>
         <div class="page-actions" style="display:flex;gap:10px;align-items:center">
           <a class="btn-modulos" href="/hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>Módulos</a>
-          <button class="btn btn-primary btn-sm" id="btn-export" onclick="exportarExcel()">Exportar Excel</button>
+          <button class="btn btn-primary btn-sm" id="btn-export-pdf" onclick="openExportModal()">Exportar PDF</button>
+          <button class="btn btn-ghost btn-sm" id="btn-export" onclick="exportarExcel()">Excel</button>
         </div>
       </div>
 
@@ -129,7 +130,44 @@
     </div>
   </div>
 
+  <!-- MODAL: Exportar Relatório -->
+  <div class="modal-overlay" id="modal-export-ent" role="dialog" aria-modal="true" aria-labelledby="export-title" aria-hidden="true">
+    <div class="modal" style="width:520px" tabindex="-1">
+      <div class="modal-title" id="export-title">Exportar relatório (PDF)</div>
+      <div class="modal-sub">Resumo de KPIs + lista de projetos, conforme os filtros abaixo</div>
+
+      <div class="section-label-line">Filtros de Exportação</div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="exp-lancamento">Lançamento (contém texto)</label><input type="text" class="form-input" id="exp-lancamento" placeholder="Ex: Q1 2026, fev/26"></div>
+        <div class="form-group"><label class="form-label" for="exp-moscow">Prioridade MoSCoW</label>
+          <select class="form-input" id="exp-moscow">
+            <option value="">Todas</option>
+            <option value="Must">Must</option>
+            <option value="Should">Should</option>
+            <option value="Could">Could</option>
+            <option value="Wont">Won't</option>
+            <option value="Sem prioridade">Sem prioridade</option>
+          </select>
+        </div>
+      </div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="exp-status">Status Global do Projeto</label>
+          <select class="form-input" id="exp-status">
+            <option value="">Todos</option>
+            <option value="Finalizado">Concluídos (100%)</option>
+            <option value="Pendente">Pendentes (&lt; 100%)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-sub" id="exp-preview" style="margin:8px 0 0">—</div>
+
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharModalExport()">Cancelar</button><button class="btn btn-primary" onclick="gerarRelatorioPDF()">Gerar PDF</button></div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" style="display:none"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="/static/entregaveis.js?v={{ asset_v }}"></script>
 </body>
 </html>
