@@ -234,9 +234,11 @@ def upsert_mensal(pid):
     if not _RE_COMPET.match(comp):
         return jsonify({"erro": "competência inválida (use AAAA-MM)"}), 400
 
-    custo = _parse_orcamento(data.get("custo_acumulado"))
+    # Aceita 'custo_mes' (incremental, novo) ou 'custo_acumulado' (compat. antiga).
+    bruto = data.get("custo_mes", data.get("custo_acumulado"))
+    custo = _parse_orcamento(bruto)
     if custo is None:
-        return jsonify({"erro": "custo_acumulado inválido"}), 400
+        return jsonify({"erro": "custo do mês inválido"}), 400
 
     email = get_jwt_identity()
     reg = ProjetoMensal.query.filter_by(projeto_id=p.id, competencia=comp).first()
@@ -247,9 +249,11 @@ def upsert_mensal(pid):
         acao = "MENSAL_CREATED"
     reg.pct_previsto = p.previsto_em(comp) or 0      # informativo
     reg.pct_realizado = p.realizado_em(_parse_iso(comp + "-28") or datetime.now().date())  # informativo
-    reg.custo_acumulado = custo
+    reg.custo_mes = custo
     reg.atualizado_por = email
     reg.atualizado_em = datetime.now()
+    db.session.flush()           # garante que reg participe do recálculo
+    p.recompute_acumulados()     # atualiza o custo acumulado (AC) de toda a série
     db.session.commit()
 
     log_action(email, "UPDATE", entidade=f"{p.nome} · {comp}",
@@ -267,6 +271,8 @@ def remover_mensal(pid, competencia):
     if reg is None:
         return jsonify({"erro": "lançamento não encontrado"}), 404
     db.session.delete(reg)
+    db.session.flush()
+    p.recompute_acumulados()     # reajusta o acumulado dos meses restantes
     db.session.commit()
     email = get_jwt_identity()
     log_action(email, "DELETE", entidade=f"{p.nome} · {competencia}",

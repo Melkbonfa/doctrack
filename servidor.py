@@ -1056,6 +1056,9 @@ def _sync_schema():
             ("data_inicio",    "VARCHAR(10) DEFAULT ''"),
             ("data_conclusao", "VARCHAR(10) DEFAULT ''"),
         ],
+        "projeto_mensal": [
+            ("custo_mes", "FLOAT DEFAULT 0"),
+        ],
     }
     adicionadas = set()
     for tabela, colunas in novas_colunas.items():
@@ -1074,6 +1077,25 @@ def _sync_schema():
     # atualização, para que projetos antigos já exibam alguma Curva-S. Só roda
     # quando a coluna acaba de ser criada (espelha a migration 005). O CAST torna
     # o substr compatível com Postgres (timestamp) e SQLite (texto).
+    # Converte dados antigos do modelo "acumulado" para o novo "incremental":
+    # ao criar custo_mes, deriva o custo de cada mês a partir do delta do
+    # custo_acumulado por projeto (ordenado por competência).
+    if "projeto_mensal.custo_mes" in adicionadas:
+        rows = db.session.execute(text(
+            "SELECT projeto_id, competencia, custo_acumulado FROM projeto_mensal "
+            "ORDER BY projeto_id, competencia")).fetchall()
+        anterior = {}
+        for projeto_id, competencia, acum in rows:
+            acum = acum or 0.0
+            mes = round(acum - anterior.get(projeto_id, 0.0), 2)
+            anterior[projeto_id] = acum
+            db.session.execute(
+                text("UPDATE projeto_mensal SET custo_mes = :v "
+                     "WHERE projeto_id = :p AND competencia = :c"),
+                {"v": mes, "p": projeto_id, "c": competencia})
+        db.session.commit()
+        print(f"[INFO] Schema: custo_mes derivado de {len(rows)} lançamento(s) existentes")
+
     if "entregaveis.data_conclusao" in adicionadas:
         res = db.session.execute(text("""
             UPDATE entregaveis

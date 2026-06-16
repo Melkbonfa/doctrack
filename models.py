@@ -435,10 +435,21 @@ class Projeto(db.Model):
                    if (_parse_iso(e.data_conclusao) and _parse_iso(e.data_conclusao) <= ref))
         return round(done / len(aplic) * 100)
 
+    def recompute_acumulados(self):
+        """Recalcula custo_acumulado de cada mês como a soma corrida dos custos
+        mensais (custo_mes), em ordem de competência. Chamar após inserir/editar/
+        remover um lançamento para manter o acumulado (AC) sempre coerente."""
+        total = 0.0
+        for m in sorted(self.mensais, key=lambda x: x.competencia or ""):
+            total += (m.custo_mes or 0.0)
+            m.custo_acumulado = round(total, 2)
+
     @property
     def _custo_atual(self):
-        """Custo acumulado mais recente (AC), do último lançamento mensal de custo."""
-        return self.mensais[-1].custo_acumulado if self.mensais else None
+        """Custo total gasto (AC) = soma de todos os custos mensais lançados."""
+        if not self.mensais:
+            return None
+        return round(sum(m.custo_mes or 0.0 for m in self.mensais), 2)
 
     def pmo_metrics(self):
         """Métricas EVM ao vivo.
@@ -503,17 +514,24 @@ class Projeto(db.Model):
             fim = max(fim, max(datas_concl))
         if fim < ini:
             fim = ini
-        custos = {m.competencia: m.custo_acumulado for m in self.mensais}
+        custos_mes = {m.competencia: m.custo_mes for m in self.mensais}
         out = []
-        y, mo, count = ini.year, ini.month, 0
+        y, mo, count, acum = ini.year, ini.month, 0, 0.0
+        tem_custo = False
         while (y < fim.year or (y == fim.year and mo <= fim.month)) and count < 48:
             comp = f"{y:04d}-{mo:02d}"
             ref = datetime(y, mo, calendar.monthrange(y, mo)[1]).date()
+            cm = custos_mes.get(comp)
+            if cm is not None:
+                acum += cm
+                tem_custo = True
             out.append({
                 "competencia":     comp,
                 "pct_previsto":    self.previsto_em(comp),
                 "pct_realizado":   self.realizado_em(ref),
-                "custo_acumulado": custos.get(comp),
+                "custo_mes":       cm,
+                # acumulado corre desde o primeiro lançamento; antes disso fica None
+                "custo_acumulado": round(acum, 2) if tem_custo else None,
             })
             mo += 1
             if mo > 12:
@@ -621,7 +639,8 @@ class ProjetoMensal(db.Model):
     competencia     = db.Column(db.String(7), nullable=False)   # 'YYYY-MM'
     pct_previsto    = db.Column(db.Integer, default=0)          # % planejado acumulado
     pct_realizado   = db.Column(db.Integer, default=0)          # % executado acumulado
-    custo_acumulado = db.Column(db.Float, default=0.0)          # R$ gasto acumulado (AC)
+    custo_mes       = db.Column(db.Float, default=0.0)          # R$ gasto NO mês (incremental)
+    custo_acumulado = db.Column(db.Float, default=0.0)          # R$ gasto acumulado (AC) — derivado
     atualizado_por  = db.Column(db.String(120), default="")
     atualizado_em   = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -634,6 +653,7 @@ class ProjetoMensal(db.Model):
             "competencia":     self.competencia,
             "pct_previsto":    self.pct_previsto or 0,
             "pct_realizado":   self.pct_realizado or 0,
+            "custo_mes":       self.custo_mes or 0.0,
             "custo_acumulado": self.custo_acumulado or 0.0,
             "atualizado_por":  self.atualizado_por or "",
             "atualizado_em":   self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",

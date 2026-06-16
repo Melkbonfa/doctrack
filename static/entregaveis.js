@@ -871,10 +871,11 @@ function renderPmoSection(p){
         <td>${_fmtComp(r.competencia)}</td>
         <td class="num">${r.pct_previsto == null ? "—" : r.pct_previsto + "%"}</td>
         <td class="num">${r.pct_realizado == null ? "—" : r.pct_realizado + "%"}</td>
+        <td class="num">${r.custo_mes == null ? "—" : _money(r.custo_mes)}</td>
         <td class="num">${r.custo_acumulado == null ? "—" : _money(r.custo_acumulado)}</td>
       </tr>`;
     }).join("");
-    tabela = `<table class="evm-table"><thead><tr><th>Mês</th><th class="num">Previsto</th><th class="num">Realizado</th><th class="num">Custo acum.</th></tr></thead><tbody>${linhas}</tbody></table>`;
+    tabela = `<table class="evm-table"><thead><tr><th>Mês</th><th class="num">Previsto</th><th class="num">Realizado</th><th class="num">Custo do mês</th><th class="num">Custo acum.</th></tr></thead><tbody>${linhas}</tbody></table>`;
   } else {
     tabela = `<div class="evm-empty">Nenhum lançamento mensal ainda${podeEditar ? " — comece em <b>+ Lançar mês</b>." : "."}</div>`;
   }
@@ -994,6 +995,16 @@ function _fecharModal(id){ const m = document.getElementById(id); m.classList.re
 function _fmtMoeda(v){
   const n = Number(v) || 0;
   return n ? n.toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "";
+}
+
+/* "15.000,50" | "15000.50" | "15000" → Number (formato pt-BR ou simples). */
+function _parseMoeda(s){
+  if (s == null) return 0;
+  let t = String(s).trim().replace(/[R$\s]/g, "");
+  if (!t) return 0;
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");  // pt-BR
+  const n = parseFloat(t);
+  return isNaN(n) ? 0 : n;
 }
 
 function _preencherForm(p){
@@ -1119,11 +1130,30 @@ function abrirModalMensal(r){
   const semCusto = serie.filter(s => s.custo_acumulado == null);
   document.getElementById("mf-competencia").value =
     r ? r.competencia : (semCusto.length ? semCusto[semCusto.length-1].competencia : _proximaCompetencia(serie));
-  document.getElementById("mf-custo").value = (r && r.custo_acumulado != null) ? _fmtMoeda(r.custo_acumulado) : "";
-  document.getElementById("mf-excluir").style.display = (r && r.custo_acumulado != null) ? "" : "none";
+  const temReg = r && (r.custo_mes != null);
+  document.getElementById("mf-custo").value = temReg ? _fmtMoeda(r.custo_mes) : "";
+  document.getElementById("mf-excluir").style.display = temReg ? "" : "none";
   _atualizaPrevInfo();
+  _atualizaAcumInfo();
   _abrirModal("modal-mensal");
   setTimeout(() => document.getElementById("mf-custo").focus(), 60);
+}
+
+/* Mostra ao vivo o custo acumulado resultante (até o mês escolhido) ao digitar. */
+function _atualizaAcumInfo(){
+  const el = document.getElementById("mf-acum-info");
+  if (!el || !_projDetalheAtual) return;
+  const comp = document.getElementById("mf-competencia").value;
+  const valor = _parseMoeda(document.getElementById("mf-custo").value);
+  const serie = _projDetalheAtual.serie_mensal || [];
+  // soma os meses anteriores (mantém o lançado) + o valor digitado neste mês
+  let acum = 0;
+  for (const s of serie){
+    if (s.competencia > comp) break;
+    acum += (s.competencia === comp ? (valor || 0) : (s.custo_mes || 0));
+  }
+  if (!valor && !acum){ el.innerHTML = ""; return; }
+  el.innerHTML = `Acumulado até ${_fmtComp(comp)}: <b>${_money(acum)}</b> <span class="muted">(automático)</span>`;
 }
 
 function fecharModalMensal(){ _fecharModal("modal-mensal"); _mensalEditComp = null; }
@@ -1134,7 +1164,7 @@ async function salvarMensal(){
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(comp)){ toast("Informe a competência (mês)", true); return; }
   const payload = {
     competencia: comp,
-    custo_acumulado: document.getElementById("mf-custo").value,   // backend aceita "80.000,00"
+    custo_mes: document.getElementById("mf-custo").value,   // incremental; backend aceita "15.000,00"
     // previsto (datas) e realizado (tarefas) são automáticos no backend
   };
   try{
