@@ -108,8 +108,8 @@ def projeto_seed(app):
 
 # ── GET /api/projetos ────────────────────────────────────────────────────────
 
-def test_listar_projetos(client, leitura_token, auth_headers, projeto_seed):
-    res = client.get("/api/projetos", headers=auth_headers(leitura_token))
+def test_listar_projetos(client, gestor_token, auth_headers, projeto_seed):
+    res = client.get("/api/projetos", headers=auth_headers(gestor_token))
     assert res.status_code == 200
     projetos = res.get_json()["projetos"]
     assert len(projetos) == 1
@@ -124,8 +124,19 @@ def test_listar_projetos_sem_token(client, projeto_seed):
     assert res.status_code == 401
 
 
-def test_detalhe_projeto_agrupado(client, leitura_token, auth_headers, projeto_seed):
-    res = client.get(f"/api/projetos/{projeto_seed}", headers=auth_headers(leitura_token))
+# Módulo restrito a gestor ou acima: tecnico e leitura recebem 403
+def test_listar_projetos_tecnico_negado(client, tecnico_token, auth_headers, projeto_seed):
+    res = client.get("/api/projetos", headers=auth_headers(tecnico_token))
+    assert res.status_code == 403
+
+
+def test_listar_projetos_leitura_negado(client, leitura_token, auth_headers, projeto_seed):
+    res = client.get("/api/projetos", headers=auth_headers(leitura_token))
+    assert res.status_code == 403
+
+
+def test_detalhe_projeto_agrupado(client, gestor_token, auth_headers, projeto_seed):
+    res = client.get(f"/api/projetos/{projeto_seed}", headers=auth_headers(gestor_token))
     assert res.status_code == 200
     body = res.get_json()
     assert body["nome"] == "Amplio Teste"
@@ -141,50 +152,57 @@ def _primeiro_entregavel_id(client, token, auth_headers, projeto_id):
     return res.get_json()["categorias"][0]["entregaveis"][0]["id"]
 
 
-def test_tecnico_atualiza_entregavel(client, tecnico_token, auth_headers, projeto_seed):
-    eid = _primeiro_entregavel_id(client, tecnico_token, auth_headers, projeto_seed)
-    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(tecnico_token),
+def test_gestor_atualiza_entregavel(client, gestor_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                      json={"status": "em_progresso", "percentual": 40})
     assert res.status_code == 200
     body = res.get_json()
     assert body["entregavel"]["status"] == "em_progresso"
     assert body["entregavel"]["percentual"] == 40
-    assert body["entregavel"]["atualizado_por"] == "tecnico@test.com"
+    assert body["entregavel"]["atualizado_por"] == "gestor@test.com"
     assert "avanco_projeto" in body
 
 
-def test_leitura_nao_edita(client, leitura_token, auth_headers, projeto_seed):
-    eid = _primeiro_entregavel_id(client, leitura_token, auth_headers, projeto_seed)
+def test_tecnico_nao_edita(client, gestor_token, tecnico_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(tecnico_token),
+                     json={"status": "concluido"})
+    assert res.status_code == 403
+
+
+def test_leitura_nao_edita(client, gestor_token, leitura_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
     res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(leitura_token),
                      json={"status": "concluido"})
     assert res.status_code == 403
 
 
-def test_percentual_invalido(client, tecnico_token, auth_headers, projeto_seed):
-    eid = _primeiro_entregavel_id(client, tecnico_token, auth_headers, projeto_seed)
-    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(tecnico_token),
+def test_percentual_invalido(client, gestor_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                      json={"status": "em_progresso", "percentual": 150})
     assert res.status_code == 400
 
 
-def test_status_invalido(client, tecnico_token, auth_headers, projeto_seed):
-    eid = _primeiro_entregavel_id(client, tecnico_token, auth_headers, projeto_seed)
-    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(tecnico_token),
+def test_status_invalido(client, gestor_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                      json={"status": "fazendo"})
     assert res.status_code == 400
 
 
-def test_concluido_forca_percentual_100(client, tecnico_token, auth_headers, projeto_seed):
-    eid = _primeiro_entregavel_id(client, tecnico_token, auth_headers, projeto_seed)
-    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(tecnico_token),
+def test_concluido_forca_percentual_100(client, gestor_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                      json={"status": "concluido", "percentual": 37})
     assert res.status_code == 200
     assert res.get_json()["entregavel"]["percentual"] == 100
 
 
-def test_edicao_gera_audit_log(client, tecnico_token, admin_token, auth_headers, projeto_seed):
-    eid = _primeiro_entregavel_id(client, tecnico_token, auth_headers, projeto_seed)
-    client.put(f"/api/entregaveis/{eid}", headers=auth_headers(tecnico_token),
+def test_edicao_gera_audit_log(client, gestor_token, admin_token, auth_headers, projeto_seed):
+    eid = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                json={"status": "pendente"})
     res = client.get("/api/audit?limit=10", headers=auth_headers(admin_token))
     assert res.status_code == 200
@@ -218,8 +236,8 @@ def test_arquivar_projeto(client, admin_token, auth_headers, projeto_seed):
 
 # ── Resumo e export ──────────────────────────────────────────────────────────
 
-def test_resumo(client, leitura_token, auth_headers, projeto_seed):
-    res = client.get("/api/entregaveis/resumo", headers=auth_headers(leitura_token))
+def test_resumo(client, gestor_token, auth_headers, projeto_seed):
+    res = client.get("/api/entregaveis/resumo", headers=auth_headers(gestor_token))
     assert res.status_code == 200
     body = res.get_json()
     assert body["projetos"] == 1
@@ -228,12 +246,22 @@ def test_resumo(client, leitura_token, auth_headers, projeto_seed):
     assert "Guilherme/Melk" in body["por_responsavel"]
 
 
-def test_export_excel(client, leitura_token, auth_headers, projeto_seed):
-    res = client.get("/api/entregaveis/export", headers=auth_headers(leitura_token))
+def test_resumo_leitura_negado(client, leitura_token, auth_headers, projeto_seed):
+    res = client.get("/api/entregaveis/resumo", headers=auth_headers(leitura_token))
+    assert res.status_code == 403
+
+
+def test_export_excel(client, gestor_token, auth_headers, projeto_seed):
+    res = client.get("/api/entregaveis/export", headers=auth_headers(gestor_token))
     assert res.status_code == 200
     assert res.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     # arquivo xlsx começa com assinatura PK (zip)
     assert res.data[:2] == b"PK"
+
+
+def test_export_tecnico_negado(client, tecnico_token, auth_headers, projeto_seed):
+    res = client.get("/api/entregaveis/export", headers=auth_headers(tecnico_token))
+    assert res.status_code == 403
 
 
 # ── Página ───────────────────────────────────────────────────────────────────

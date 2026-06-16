@@ -18,6 +18,7 @@
           <p class="muted" style="margin:4px 0 0">Engenharia · 2026</p>
         </div>
         <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+          <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
           <a class="btn-modulos" href="/hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>Módulos</a>
           <button class="btn btn-primary btn-sm" id="btn-export-pdf" onclick="openExportModal()">Exportar PDF</button>
           <button class="btn btn-ghost btn-sm" id="btn-export" onclick="exportarExcel()">Excel</button>
@@ -26,11 +27,22 @@
 
       <div class="ent-tabs" role="tablist">
         <button class="ent-tab active" id="tab-btn-dash" role="tab" aria-selected="true" onclick="trocarAba('dash')">Dashboard</button>
+        <button class="ent-tab" id="tab-btn-pmo" role="tab" aria-selected="false" onclick="trocarAba('pmo')">PMO</button>
         <button class="ent-tab" id="tab-btn-proj" role="tab" aria-selected="false" onclick="trocarAba('proj')">Projetos</button>
       </div>
 
       <!-- ══ Aba Dashboard ══ -->
       <div id="aba-dash">
+        <div class="dash-projsel">
+          <span class="dash-projsel-lbl">Projeto</span>
+          <select class="filter-sel" id="dash-proj-sel" onchange="setDashProj(this.value)" aria-label="Filtrar por projeto">
+            <option value="">Todos os projetos</option>
+          </select>
+          <button class="btn btn-primary btn-sm" id="btn-export-proj" onclick="exportarProjetoPDF()" style="display:none;margin-left:auto">Exportar PDF do projeto</button>
+        </div>
+
+        <!-- Visão de portfólio (Todos) -->
+        <div id="dash-portfolio">
         <div class="kpi-grid" id="ent-rings" style="margin-top:18px">
           <div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando…</div>
         </div>
@@ -70,6 +82,39 @@
             </div>
           </div>
         </div>
+        </div><!-- /dash-portfolio -->
+
+        <!-- Ficha completa de um projeto -->
+        <div id="dash-ficha" style="display:none"></div>
+      </div>
+
+      <!-- ══ Aba PMO (prazo + custo) ══ -->
+      <div id="aba-pmo" style="display:none">
+        <div class="pmo-portfolio" id="pmo-portfolio">
+          <div class="section-label-line" style="margin-top:18px">Saúde do Portfólio · Prazo &amp; Custo</div>
+          <div class="pmo-health" id="pmo-health"></div>
+          <div class="ent-charts pmo-grid2">
+            <div class="card">
+              <div class="card-title">Quadrante Prazo × Custo (SPI × CPI)</div>
+              <div class="ent-chart-wrap" style="position:relative;height:340px">
+                <canvas id="chart-quadrante" role="img" aria-label="Dispersão: índice de prazo (SPI) por índice de custo (CPI)"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">Projetos em risco</div>
+              <div class="pmo-risk-list" id="pmo-risk-list"></div>
+            </div>
+          </div>
+
+          <!-- ══ Financeiro (R$) ══ -->
+          <div class="section-label-line" style="margin-top:22px">Financeiro · Orçado × Realizado</div>
+          <div class="evm-cards" id="fin-cards"></div>
+          <div class="card" style="margin-top:14px">
+            <div class="card-title">Ranking de estouro de orçamento (projeção)</div>
+            <div class="fin-ranking" id="fin-ranking"></div>
+          </div>
+        </div>
+        <div class="pmo-empty" id="pmo-empty" style="display:none"></div>
       </div>
 
       <!-- ══ Aba Projetos ══ -->
@@ -117,6 +162,12 @@
         <input type="range" id="pop-pct" min="0" max="100" step="5" style="width:100%"
                oninput="document.getElementById('pop-pct-val').textContent=this.value+'%'">
       </div>
+      <div id="pop-datas" style="display:none;margin-top:8px">
+        <div class="g2">
+          <div><label class="muted" style="display:block">Início</label><input type="date" class="input" id="pop-inicio" style="width:100%"></div>
+          <div><label class="muted" style="display:block">Conclusão</label><input type="date" class="input" id="pop-conclusao" style="width:100%"></div>
+        </div>
+      </div>
       <label class="muted" style="margin-top:8px;display:block">Responsáveis</label>
       <input class="input" id="pop-resp" placeholder="Ex.: Guilherme/Melk" style="width:100%">
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
@@ -131,6 +182,7 @@
     <div class="modal" style="width:720px" tabindex="-1">
       <div class="modal-title" id="proj-modal-title"></div>
       <div class="modal-sub" id="proj-modal-sub"></div>
+      <div id="proj-pmo" class="proj-pmo"></div>
       <div class="equip-modal-tabs" id="proj-modal-tabs" role="tablist"></div>
       <div id="proj-modal-panels"></div>
       <div class="modal-footer" style="justify-content:flex-end;gap:8px">
@@ -164,11 +216,42 @@
       </div>
       <div class="form-group"><label class="form-label" for="pf-desc">Descrição</label><textarea class="form-input" id="pf-desc" rows="2" placeholder="Opcional"></textarea></div>
 
+      <div class="section-label-line">Cronograma &amp; Orçamento (PMO)</div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="pf-inicio-prev">Início previsto</label><input type="date" class="form-input" id="pf-inicio-prev"></div>
+        <div class="form-group"><label class="form-label" for="pf-fim-prev">Término previsto</label><input type="date" class="form-input" id="pf-fim-prev"></div>
+      </div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="pf-inicio-real">Início real</label><input type="date" class="form-input" id="pf-inicio-real"></div>
+        <div class="form-group"><label class="form-label" for="pf-fim-real">Término real</label><input type="date" class="form-input" id="pf-fim-real"></div>
+      </div>
+      <div class="form-group"><label class="form-label" for="pf-orcamento">Orçamento (R$) <span class="muted" style="font-weight:400">— base para o desempenho de custo</span></label><input class="form-input" id="pf-orcamento" inputmode="decimal" placeholder="Ex.: 150000,00"></div>
+
       <div class="modal-footer" style="justify-content:space-between;align-items:center">
         <button class="btn btn-ghost btn-sm" id="pf-arquivar" onclick="arquivarProjetoAtual()" style="display:none;color:var(--red);border-color:rgba(248,113,113,.35)">Arquivar projeto</button>
         <div style="display:flex;gap:8px;margin-left:auto">
           <button class="btn btn-ghost" onclick="fecharFormProjeto()">Cancelar</button>
           <button class="btn btn-primary" onclick="salvarFormProjeto()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Lançamento mensal (PMO) -->
+  <div class="modal-overlay" id="modal-mensal" role="dialog" aria-modal="true" aria-labelledby="mf-title" aria-hidden="true">
+    <div class="modal" style="width:460px" tabindex="-1">
+      <div class="modal-title" id="mf-title">Lançar custo do mês</div>
+      <div class="modal-sub" id="mf-sub">Previsto (datas) e realizado (tarefas) são automáticos. Informe só o custo acumulado até o mês.</div>
+
+      <div class="form-group"><label class="form-label" for="mf-competencia">Competência (mês)</label><input type="month" class="form-input" id="mf-competencia" onchange="_atualizaPrevInfo()"></div>
+      <div class="mf-prev-info" id="mf-prev-info"></div>
+      <div class="form-group"><label class="form-label" for="mf-custo">Custo acumulado (R$)</label><input class="form-input" id="mf-custo" inputmode="decimal" placeholder="Ex.: 80000,00"></div>
+
+      <div class="modal-footer" style="justify-content:space-between;align-items:center">
+        <button class="btn btn-ghost btn-sm" id="mf-excluir" onclick="excluirMensal()" style="display:none;color:var(--red);border-color:rgba(248,113,113,.35)">Excluir mês</button>
+        <div style="display:flex;gap:8px;margin-left:auto">
+          <button class="btn btn-ghost" onclick="fecharModalMensal()">Cancelar</button>
+          <button class="btn btn-primary" onclick="salvarMensal()">Salvar</button>
         </div>
       </div>
     </div>

@@ -11,8 +11,13 @@ backups/
 # Instaladores / binarios grandes
 *.exe
 
+# Artefatos de build do PyInstaller
+build/
+dist/
+
 # Database local
 doctrack.db
+doctrack.db.bak-*
 
 # Python
 __pycache__/

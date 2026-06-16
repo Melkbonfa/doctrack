@@ -17,11 +17,34 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import get_jwt_identity
 
-from models import (db, Projeto, Entregavel, CATEGORIAS_ENTREGAVEL,
-                    STATUS_ENTREGAVEL, MOSCOW)
+from models import (db, Projeto, Entregavel, ProjetoMensal, CATEGORIAS_ENTREGAVEL,
+                    STATUS_ENTREGAVEL, MOSCOW, _parse_iso)
 from auth import require_role, log_action, get_client_ip
 
 entregaveis_bp = Blueprint("entregaveis", __name__)
+
+# Campos de cronograma do projeto (datas ISO em texto livre)
+DATAS_PROJETO = ("data_inicio_prev", "data_inicio_real", "data_fim_prev", "data_fim_real")
+
+import re
+_RE_COMPET = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")   # 'YYYY-MM'
+
+
+def _parse_orcamento(v):
+    """Aceita número ou string ('1.234,56' / '1234.56'); retorna float >= 0 ou None se inválido."""
+    if v is None or v == "":
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v) if v >= 0 else None
+    s = str(v).strip().replace("R$", "").replace(" ", "")
+    # 1.234,56 -> 1234.56 ; 1234.56 -> 1234.56
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        f = float(s)
+    except ValueError:
+        return None
+    return f if f >= 0 else None
 
 # preenchido por servidor.py para emitir tempo real sem import circular
 _rt = {"socketio": None, "publish_event": None, "AuditLog": None, "EventType": None}
@@ -45,7 +68,7 @@ def _emit(event_type, payload, email):
 # ── PROJETOS ─────────────────────────────────────────────────────────────────
 
 @entregaveis_bp.route("/api/projetos", methods=["GET"])
-@require_role("admin", "gestor", "tecnico", "leitura")
+@require_role("admin", "gestor")
 def listar_projetos():
     q = Projeto.query.filter_by(ativo=True)
     ano = request.args.get("ano", type=int)
@@ -84,6 +107,9 @@ def criar_projeto():
     moscow = (data.get("moscow") or "").strip()
     if moscow and moscow not in MOSCOW:
         return jsonify({"erro": f"moscow inválido. Use: {', '.join(MOSCOW)}"}), 400
+    orc = _parse_orcamento(data.get("orcamento"))
+    if orc is None:
+        return jsonify({"erro": "orçamento inválido"}), 400
     p = Projeto(
         nome=nome,
         descricao=(data.get("descricao") or "").strip(),
@@ -93,6 +119,8 @@ def criar_projeto():
         consumivel=bool(data.get("consumivel")),
         lancamento=(data.get("lancamento") or "").strip(),
         ano=int(data.get("ano") or datetime.now().year),
+        orcamento=orc,
+        **{c: (data.get(c) or "").strip() for c in DATAS_PROJETO},
     )
     db.session.add(p)
     db.session.commit()
@@ -103,7 +131,7 @@ def criar_projeto():
 
 
 @entregaveis_bp.route("/api/projetos/<int:pid>", methods=["GET"])
-@require_role("admin", "gestor", "tecnico", "leitura")
+@require_role("admin", "gestor")
 def detalhe_projeto(pid):
     p = Projeto.query.get_or_404(pid)
     grupos = {c: [] for c in CATEGORIAS_ENTREGAVEL}
@@ -115,7 +143,7 @@ def detalhe_projeto(pid):
     categorias = [{"categoria": c, "entregaveis": grupos[c]}
                   for c in CATEGORIAS_ENTREGAVEL if grupos[c]]
     categorias += [{"categoria": c, "entregaveis": v} for c, v in extras.items()]
-    d = p.to_dict()
+    d = p.to_dict(com_pmo=True)
     d["categorias"] = categorias
     return jsonify(d)
 
@@ -126,7 +154,7 @@ def editar_projeto(pid):
     p = Projeto.query.get_or_404(pid)
     data = request.get_json(silent=True) or {}
     email = get_jwt_identity()
-    for campo in ("nome", "descricao", "sku", "moscow", "lancamento"):
+    for campo in ("nome", "descricao", "sku", "moscow", "lancamento", *DATAS_PROJETO):
         if campo in data:
             novo = (data.get(campo) or "").strip()
             antigo = getattr(p, campo) or ""
@@ -138,6 +166,14 @@ def editar_projeto(pid):
                 setattr(p, campo, novo)
                 log_action(email, "UPDATE", entidade=f"Projeto:{p.nome}",
                            campo=campo, antigo=antigo, novo=novo, ip=get_client_ip())
+    if "orcamento" in data:
+        orc = _parse_orcamento(data.get("orcamento"))
+        if orc is None:
+            return jsonify({"erro": "orçamento inválido"}), 400
+        if orc != (p.orcamento or 0.0):
+            log_action(email, "UPDATE", entidade=f"Projeto:{p.nome}",
+                       campo="orcamento", antigo=p.orcamento, novo=orc, ip=get_client_ip())
+            p.orcamento = orc
     if "prioridade" in data:
         p.prioridade = int(data.get("prioridade") or 0)
     if "consumivel" in data:
@@ -159,15 +195,104 @@ def arquivar_projeto(pid):
     return jsonify({"ok": True})
 
 
+# ── ACOMPANHAMENTO MENSAL (PMO / EVM) ────────────────────────────────────────
+
+def _validar_pct(v, campo):
+    """int 0-100 ou erro (str)."""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None, f"{campo} deve ser número"
+    if not (0 <= n <= 100):
+        return None, f"{campo} deve estar entre 0 e 100"
+    return n, None
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/mensal", methods=["GET"])
+@require_role("admin", "gestor")
+def listar_mensal(pid):
+    p = Projeto.query.get_or_404(pid)
+    return jsonify({
+        "projeto_id": p.id,
+        "orcamento": p.orcamento or 0.0,
+        "serie": p.serie_mensal(),
+        "pmo": p.pmo_metrics(),
+    })
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/mensal", methods=["PUT"])
+@require_role("admin", "gestor")
+def upsert_mensal(pid):
+    """Cria ou atualiza o CUSTO acumulado de uma competência (YYYY-MM).
+
+    O realizado (avanço) é automático, vindo da conclusão das tarefas — não se informa aqui.
+    O previsto é calculado pelas datas. Este lançamento serve só ao custo (para o CPI).
+    """
+    p = Projeto.query.get_or_404(pid)
+    data = request.get_json(silent=True) or {}
+    comp = (data.get("competencia") or "").strip()
+    if not _RE_COMPET.match(comp):
+        return jsonify({"erro": "competência inválida (use AAAA-MM)"}), 400
+
+    custo = _parse_orcamento(data.get("custo_acumulado"))
+    if custo is None:
+        return jsonify({"erro": "custo_acumulado inválido"}), 400
+
+    email = get_jwt_identity()
+    reg = ProjetoMensal.query.filter_by(projeto_id=p.id, competencia=comp).first()
+    acao = "MENSAL_UPDATED"
+    if reg is None:
+        reg = ProjetoMensal(projeto_id=p.id, competencia=comp)
+        db.session.add(reg)
+        acao = "MENSAL_CREATED"
+    reg.pct_previsto = p.previsto_em(comp) or 0      # informativo
+    reg.pct_realizado = p.realizado_em(_parse_iso(comp + "-28") or datetime.now().date())  # informativo
+    reg.custo_acumulado = custo
+    reg.atualizado_por = email
+    reg.atualizado_em = datetime.now()
+    db.session.commit()
+
+    log_action(email, "UPDATE", entidade=f"{p.nome} · {comp}",
+               campo="custo_mensal", novo=f"R$ {custo:.2f}", ip=get_client_ip())
+    _emit(acao, {"projeto_id": p.id, "mensal": reg.to_dict(),
+                 "pmo": p.pmo_metrics()}, email)
+    return jsonify({"mensal": reg.to_dict(), "pmo": p.pmo_metrics()})
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/mensal/<competencia>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def remover_mensal(pid, competencia):
+    p = Projeto.query.get_or_404(pid)
+    reg = ProjetoMensal.query.filter_by(projeto_id=p.id, competencia=competencia).first()
+    if reg is None:
+        return jsonify({"erro": "lançamento não encontrado"}), 404
+    db.session.delete(reg)
+    db.session.commit()
+    email = get_jwt_identity()
+    log_action(email, "DELETE", entidade=f"{p.nome} · {competencia}",
+               campo="acompanhamento_mensal", ip=get_client_ip())
+    _emit("MENSAL_DELETED", {"projeto_id": p.id, "competencia": competencia,
+                             "pmo": p.pmo_metrics()}, email)
+    return jsonify({"ok": True, "pmo": p.pmo_metrics()})
+
+
 # ── ENTREGÁVEIS ──────────────────────────────────────────────────────────────
 
 @entregaveis_bp.route("/api/entregaveis/<int:eid>", methods=["PUT"])
-@require_role("admin", "gestor", "tecnico")
+@require_role("admin", "gestor")
 def atualizar_entregavel(eid):
     e = Entregavel.query.get_or_404(eid)
     data = request.get_json(silent=True) or {}
     email = get_jwt_identity()
     mudancas = []
+
+    hoje_iso = datetime.now().strftime("%Y-%m-%d")
+    # datas explícitas primeiro (aceita ISO yyyy-mm-dd ou ""), para que os
+    # autopreenchimentos abaixo respeitem o que o usuário informou.
+    if "data_inicio" in data:
+        e.data_inicio = (data.get("data_inicio") or "").strip()
+    if "data_conclusao" in data:
+        e.data_conclusao = (data.get("data_conclusao") or "").strip()
 
     if "status" in data:
         novo = (data.get("status") or "").strip()
@@ -178,8 +303,15 @@ def atualizar_entregavel(eid):
             e.status = novo
         if novo == "concluido":
             e.percentual = 100
+            if not (e.data_conclusao or "").strip():       # conclusão = hoje (se não veio explícita)
+                e.data_conclusao = hoje_iso
+            if not (e.data_inicio or "").strip():          # início = conclusão (se não veio)
+                e.data_inicio = e.data_conclusao
         elif novo in ("pendente", "na"):
             e.percentual = 0 if novo == "pendente" else None
+            e.data_conclusao = ""                           # deixou de estar concluído
+        elif novo == "em_progresso" and not (e.data_inicio or "").strip():
+            e.data_inicio = hoje_iso
 
     if "percentual" in data and e.status == "em_progresso":
         try:
@@ -233,7 +365,7 @@ def adicionar_entregavel(pid):
 # ── RESUMO ───────────────────────────────────────────────────────────────────
 
 @entregaveis_bp.route("/api/entregaveis/resumo", methods=["GET"])
-@require_role("admin", "gestor", "tecnico", "leitura")
+@require_role("admin", "gestor")
 def resumo():
     projetos = Projeto.query.filter_by(ativo=True).all()
     pend = conc = prog = 0
@@ -262,7 +394,7 @@ def resumo():
 # ── EXPORT EXCEL ─────────────────────────────────────────────────────────────
 
 @entregaveis_bp.route("/api/entregaveis/export", methods=["GET"])
-@require_role("admin", "gestor", "tecnico", "leitura")
+@require_role("admin", "gestor")
 def exportar_excel():
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment

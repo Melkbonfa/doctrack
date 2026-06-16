@@ -112,9 +112,23 @@
         </div>
       </div>
     </div>
-    <div class="foot"><span id="foot-email"></span><a id="logout">Sair</a></div>
+    <div class="foot"><span id="foot-email"></span><a id="theme-toggle" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a><a id="logout">Sair</a></div>
   </div>
 <script>
+// ═══ TEMA CLARO/ESCURO (mesma chave de Documentos/Entregáveis) ═══
+function applyTheme(theme){
+  var isLight = theme === 'light';
+  document.body.classList.toggle('theme-light', isLight);
+  var btn = document.getElementById('theme-toggle');
+  if(btn) btn.textContent = isLight ? '☀️ Tema' : '🌙 Tema';
+}
+function toggleTheme(){
+  var next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
+  localStorage.setItem('doctrack_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
+
 (function(){
   var token = localStorage.getItem('doctrack_token') || '';
   if(!token){ window.location.href = '/'; return; }
@@ -123,6 +137,13 @@
   try { user = JSON.parse(localStorage.getItem('doctrack_user') || '{}') || {}; } catch(e){}
   if(user.nome) document.getElementById('hello').textContent = 'Bem-vindo, ' + user.nome;
   if(user.email) document.getElementById('foot-email').textContent = user.email;
+
+  // Entregáveis: somente gestor ou acima (gestor/admin). Para os demais, oculta o card.
+  var podeEntregaveis = (user.role === 'admin' || user.role === 'gestor');
+  if(!podeEntregaveis){
+    var ce = document.getElementById('card-ent');
+    if(ce && ce.parentNode) ce.parentNode.removeChild(ce);
+  }
 
   function sair(){
     localStorage.removeItem('doctrack_token');
@@ -143,7 +164,7 @@
     });
   }
   liga('card-docs', 'docs', '/');
-  liga('card-ent', 'ent', '/entregaveis');
+  if(podeEntregaveis) liga('card-ent', 'ent', '/entregaveis');
 })();
 </script>
 </body>

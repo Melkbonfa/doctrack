@@ -21,16 +21,33 @@
   <div class="login-card">
     <div class="login-logo">
       <div class="login-logo-icon">
-        <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>
       </div>
-      <div><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS · v4.0 ENTERPRISE</div></div>
+      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS · v4.0 ENTERPRISE</div></div>
     </div>
     <div class="login-title">Entrar no sistema</div>
     <div class="login-subtitle">Gestão Documental Industrial — Consolidado</div>
-    <div class="form-group"><label class="form-label" for="login-email">E-mail</label><input class="form-input" id="login-email" type="email" placeholder="seu@email.com" autocomplete="email"></div>
-    <div class="form-group"><label class="form-label" for="login-pass">Senha</label><input class="form-input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password"></div>
-    <button class="btn-login" onclick="doLogin()"><span id="login-btn-text">Entrar no DocTrack</span></button>
 
+    <form id="login-form" autocomplete="on" onsubmit="event.preventDefault();doLogin()">
+      <div class="form-group">
+        <label class="form-label" for="login-email">E-mail</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="m3 7 9 6 9-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <input class="form-input" id="login-email" type="email" placeholder="seu@email.com" autocomplete="email" required autofocus>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-pass">Senha</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" required>
+          <button type="button" class="login-eye" id="login-eye" aria-label="Mostrar senha" onclick="toggleLoginPass()">
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+        </div>
+      </div>
+      <button type="submit" class="btn-login"><span id="login-btn-text">Entrar no DocTrack</span></button>
+    </form>
   </div>
 </div>
 

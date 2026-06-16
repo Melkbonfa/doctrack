@@ -92,6 +92,15 @@ async function doLogin(){
     showToast('Servidor indisponível. Tente novamente.','error');
   }
 }
+function toggleLoginPass(){
+  const inp=document.getElementById('login-pass'),eye=document.getElementById('login-eye');
+  if(!inp||!eye)return;
+  const mostrar=inp.type==='password';
+  inp.type=mostrar?'text':'password';
+  eye.classList.toggle('on',mostrar);
+  eye.setAttribute('aria-label',mostrar?'Ocultar senha':'Mostrar senha');
+  inp.focus();
+}
 async function doLogout(){
   try{await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
   clearToken();

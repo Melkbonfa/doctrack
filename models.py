@@ -268,6 +268,50 @@ STATUS_ENTREGAVEL = ["na", "pendente", "em_progresso", "concluido"]
 MOSCOW = ["Must", "Should", "Could", "Wont"]
 
 
+# ── PMO / EVM ────────────────────────────────────────────────────────────────
+# Faixas de semáforo para índices de desempenho (SPI/CPI).
+# >= 0.95 ok · 0.85–0.95 atenção · < 0.85 crítico
+PMO_OK, PMO_ATENCAO = 0.95, 0.85
+
+
+def _parse_iso(s):
+    """'2026-06-15' / '2026-06' / '15/06/2026' / '2026' → date | None."""
+    if not s:
+        return None
+    s = str(s).strip()
+    import re
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        try:
+            return datetime(int(m[1]), int(m[2]), int(m[3])).date()
+        except ValueError:
+            return None
+    m = re.match(r"^(\d{4})-(\d{2})$", s)            # competência ano-mês
+    if m:
+        return datetime(int(m[1]), int(m[2]), 1).date()
+    m = re.match(r"^(\d{2})/(\d{2})/(\d{4})", s)
+    if m:
+        try:
+            return datetime(int(m[3]), int(m[2]), int(m[1])).date()
+        except ValueError:
+            return None
+    m = re.match(r"^(\d{4})$", s)
+    if m:
+        return datetime(int(m[1]), 1, 1).date()
+    return None
+
+
+def _classificar_indice(idx):
+    """SPI/CPI → 'ok' | 'atencao' | 'critico' | 'sem_dados'."""
+    if idx is None:
+        return "sem_dados"
+    if idx >= PMO_OK:
+        return "ok"
+    if idx >= PMO_ATENCAO:
+        return "atencao"
+    return "critico"
+
+
 def converter_celula(valor):
     """Converte valor de célula da planilha para (status, percentual).
 
@@ -310,8 +354,18 @@ class Projeto(db.Model):
     ativo       = db.Column(db.Boolean, default=True, nullable=False, index=True)
     criado_em   = db.Column(db.DateTime, default=datetime.now)
 
+    # ── PMO: cronograma (datas ISO em texto) + orçamento (BAC) ──
+    data_inicio_prev = db.Column(db.String(40), default="")
+    data_inicio_real = db.Column(db.String(40), default="")
+    data_fim_prev    = db.Column(db.String(40), default="")
+    data_fim_real    = db.Column(db.String(40), default="")
+    orcamento        = db.Column(db.Float, default=0.0)   # BAC – Budget At Completion
+
     entregaveis = db.relationship("Entregavel", back_populates="projeto",
                                   cascade="all, delete-orphan")
+    mensais = db.relationship("ProjetoMensal", back_populates="projeto",
+                              cascade="all, delete-orphan",
+                              order_by="ProjetoMensal.competencia")
 
     @property
     def avanco(self):
@@ -332,7 +386,152 @@ class Projeto(db.Model):
     def pendentes(self):
         return sum(1 for e in self.entregaveis if e.status == "pendente")
 
-    def to_dict(self, com_entregaveis=False):
+    # ── PMO / EVM ────────────────────────────────────────────────────────────
+    @property
+    def pct_prazo_decorrido(self):
+        """% do cronograma já decorrido (início real ou previsto → fim previsto)."""
+        ini = _parse_iso(self.data_inicio_real) or _parse_iso(self.data_inicio_prev)
+        fim = _parse_iso(self.data_fim_prev)
+        if not ini or not fim or fim <= ini:
+            return None
+        hoje = datetime.now().date()
+        if hoje <= ini:
+            return 0
+        if hoje >= fim:
+            return 100
+        return round((hoje - ini).days / (fim - ini).days * 100)
+
+    def previsto_em(self, competencia):
+        """Baseline linear: % que DEVERIA estar pronto ao fim da competência (AAAA-MM),
+        em função das datas planejadas (início → fim previsto). None sem datas válidas."""
+        import re, calendar
+        m = re.match(r"^(\d{4})-(\d{2})$", competencia or "")
+        if not m:
+            return None
+        ini = _parse_iso(self.data_inicio_prev) or _parse_iso(self.data_inicio_real)
+        fim = _parse_iso(self.data_fim_prev)
+        if not ini or not fim or fim <= ini:
+            return None
+        y, mo = int(m.group(1)), int(m.group(2))
+        ref = datetime(y, mo, calendar.monthrange(y, mo)[1]).date()   # último dia do mês
+        if ref <= ini:
+            return 0
+        if ref >= fim:
+            return 100
+        return round((ref - ini).days / (fim - ini).days * 100)
+
+    def _aplicaveis(self):
+        return [e for e in self.entregaveis if e.status != "na"]
+
+    def realizado_em(self, ref):
+        """% realizado até a data `ref`, pela CONCLUSÃO das tarefas (count-based).
+        No ponto presente/futuro usa o avanço vivo (que inclui parciais em andamento)."""
+        aplic = self._aplicaveis()
+        if not aplic:
+            return 0
+        if ref >= datetime.now().date():
+            return self.avanco
+        done = sum(1 for e in aplic
+                   if (_parse_iso(e.data_conclusao) and _parse_iso(e.data_conclusao) <= ref))
+        return round(done / len(aplic) * 100)
+
+    @property
+    def _custo_atual(self):
+        """Custo acumulado mais recente (AC), do último lançamento mensal de custo."""
+        return self.mensais[-1].custo_acumulado if self.mensais else None
+
+    def pmo_metrics(self):
+        """Métricas EVM ao vivo.
+
+        Previsto = baseline linear pelas datas, na data de hoje (PV).
+        Realizado = avanço dos entregáveis, ao vivo (EV) — caminha com as tarefas concluídas.
+        SPI = EV/PV (prazo) · CPI = EV/AC (custo, AC = último custo lançado) · EAC = BAC/CPI.
+        """
+        bac = self.orcamento or 0.0
+        aplic = self._aplicaveis()
+        pct_prev = self.pct_prazo_decorrido                 # baseline em 'hoje'
+        pct_real = self.avanco if aplic else None           # avanço vivo dos entregáveis
+        ac = self._custo_atual
+
+        pv = bac * pct_prev / 100 if (bac and pct_prev is not None) else None
+        ev = bac * pct_real / 100 if (bac and pct_real is not None) else None
+
+        spi = (pct_real / pct_prev) if (pct_prev not in (None, 0) and pct_real is not None) else None
+        cpi = (ev / ac) if (ev is not None and ac) else None
+        eac = (bac / cpi) if (cpi and bac) else None
+
+        hoje = datetime.now().date()
+        return {
+            "competencia":     f"{hoje.year:04d}-{hoje.month:02d}",
+            "bac":             round(bac, 2),
+            "pv":              round(pv, 2) if pv is not None else None,
+            "ev":              round(ev, 2) if ev is not None else None,
+            "ac":              round(ac, 2) if ac is not None else None,
+            "pct_previsto":    pct_prev,
+            "pct_realizado":   pct_real,
+            "sv":              round(ev - pv, 2) if (ev is not None and pv is not None) else None,
+            "cv":              round(ev - ac, 2) if (ev is not None and ac is not None) else None,
+            "spi":             round(spi, 3) if spi is not None else None,
+            "cpi":             round(cpi, 3) if cpi is not None else None,
+            "eac":             round(eac, 2) if eac is not None else None,
+            "status_prazo":    _classificar_indice(spi),
+            "status_custo":    _classificar_indice(cpi),
+            "pct_prazo_decorrido": pct_prev,
+            "tem_dados":       bool((pct_prev is not None and pct_real is not None) or ac),
+        }
+
+    def serie_mensal(self):
+        """Curva-S automática: para cada mês do início até hoje, previsto (baseline) e
+        realizado (reconstruído pelas conclusões das tarefas). Custo vem dos lançamentos."""
+        import calendar
+        ini = _parse_iso(self.data_inicio_real) or _parse_iso(self.data_inicio_prev)
+        datas_tarefas = [d for e in self.entregaveis
+                         for d in (_parse_iso(e.data_inicio), _parse_iso(e.data_conclusao)) if d]
+        if not ini and datas_tarefas:
+            ini = min(datas_tarefas)
+        if not ini:
+            return []
+        hoje = datetime.now().date()
+        if ini > hoje:
+            ini = hoje
+        custos = {m.competencia: m.custo_acumulado for m in self.mensais}
+        out = []
+        y, mo, count = ini.year, ini.month, 0
+        while (y < hoje.year or (y == hoje.year and mo <= hoje.month)) and count < 48:
+            comp = f"{y:04d}-{mo:02d}"
+            ref = datetime(y, mo, calendar.monthrange(y, mo)[1]).date()
+            out.append({
+                "competencia":     comp,
+                "pct_previsto":    self.previsto_em(comp),
+                "pct_realizado":   self.realizado_em(ref),
+                "custo_acumulado": custos.get(comp),
+            })
+            mo += 1
+            if mo > 12:
+                mo = 1; y += 1
+            count += 1
+        return out
+
+    def resumo_periodo(self, ini_comp, fim_comp):
+        """Tarefas iniciadas/concluídas dentro de um intervalo de competências (AAAA-MM)."""
+        ini = _parse_iso(ini_comp + "-01") if ini_comp else None
+        fim_d = _parse_iso(fim_comp + "-01") if fim_comp else None
+        if fim_d:
+            import calendar
+            fim_d = datetime(fim_d.year, fim_d.month,
+                             calendar.monthrange(fim_d.year, fim_d.month)[1]).date()
+        def dentro(d):
+            return d and (not ini or d >= ini) and (not fim_d or d <= fim_d)
+        iniciadas, concluidas = [], []
+        for e in self.entregaveis:
+            di, dc = _parse_iso(e.data_inicio), _parse_iso(e.data_conclusao)
+            if dentro(di):
+                iniciadas.append(e.to_dict())
+            if dentro(dc):
+                concluidas.append(e.to_dict())
+        return {"iniciadas": iniciadas, "concluidas": concluidas}
+
+    def to_dict(self, com_entregaveis=False, com_pmo=False):
         d = {
             "id":         self.id,
             "nome":       (self.nome or "").strip(),
@@ -347,9 +546,17 @@ class Projeto(db.Model):
             "avanco":     self.avanco,
             "pendentes":  self.pendentes,
             "total_entregaveis": sum(1 for e in self.entregaveis if e.status != "na"),
+            "data_inicio_prev": self.data_inicio_prev or "",
+            "data_inicio_real": self.data_inicio_real or "",
+            "data_fim_prev":    self.data_fim_prev or "",
+            "data_fim_real":    self.data_fim_real or "",
+            "orcamento":        self.orcamento or 0.0,
+            "pmo":              self.pmo_metrics(),
         }
         if com_entregaveis:
             d["entregaveis"] = [e.to_dict() for e in self.entregaveis]
+        if com_pmo:
+            d["serie_mensal"] = self.serie_mensal()
         return d
 
 
@@ -364,6 +571,8 @@ class Entregavel(db.Model):
     status         = db.Column(db.String(20), default="pendente", index=True)
     percentual     = db.Column(db.Integer, nullable=True)
     responsaveis   = db.Column(db.String(200), default="")
+    data_inicio    = db.Column(db.String(40), default="")   # ISO — quando a tarefa começou
+    data_conclusao = db.Column(db.String(40), default="")   # ISO — quando foi concluída
     atualizado_por = db.Column(db.String(120), default="")
     atualizado_em  = db.Column(db.DateTime, default=datetime.now,
                                onupdate=datetime.now)
@@ -379,6 +588,44 @@ class Entregavel(db.Model):
             "status":         self.status or "pendente",
             "percentual":     self.percentual,
             "responsaveis":   self.responsaveis or "",
+            "data_inicio":    self.data_inicio or "",
+            "data_conclusao": self.data_conclusao or "",
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
+        }
+
+
+class ProjetoMensal(db.Model):
+    """Acompanhamento mensal (PMO): previsto × realizado × custo por competência.
+
+    `competencia` é 'YYYY-MM'. Valores são acumulados até o mês (curva-S).
+    Um registro por (projeto, competência).
+    """
+    __tablename__ = "projeto_mensal"
+    __table_args__ = (
+        db.UniqueConstraint("projeto_id", "competencia", name="uq_projeto_competencia"),
+    )
+
+    id              = db.Column(db.Integer, primary_key=True)
+    projeto_id      = db.Column(db.Integer, db.ForeignKey("projetos.id"),
+                                nullable=False, index=True)
+    competencia     = db.Column(db.String(7), nullable=False)   # 'YYYY-MM'
+    pct_previsto    = db.Column(db.Integer, default=0)          # % planejado acumulado
+    pct_realizado   = db.Column(db.Integer, default=0)          # % executado acumulado
+    custo_acumulado = db.Column(db.Float, default=0.0)          # R$ gasto acumulado (AC)
+    atualizado_por  = db.Column(db.String(120), default="")
+    atualizado_em   = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    projeto = db.relationship("Projeto", back_populates="mensais")
+
+    def to_dict(self):
+        return {
+            "id":              self.id,
+            "projeto_id":      self.projeto_id,
+            "competencia":     self.competencia,
+            "pct_previsto":    self.pct_previsto or 0,
+            "pct_realizado":   self.pct_realizado or 0,
+            "custo_acumulado": self.custo_acumulado or 0.0,
+            "atualizado_por":  self.atualizado_por or "",
+            "atualizado_em":   self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
         }

@@ -1,5 +1,24 @@
 /* ═══ MÓDULO ENTREGÁVEIS — tema unificado com o dashboard (style.css) ═══ */
 
+/* ── TEMA CLARO: contraste de textos coloridos sobre superfícies claras ── */
+body.theme-light .moscow-badge.mq-must,
+body.theme-light .pmo-chip.pmo-critico,
+body.theme-light .pmo-pill.pmo-critico,
+body.theme-light .fin-rank-over{color:#be123c}
+body.theme-light .moscow-badge.mq-should,
+body.theme-light .pmo-chip.pmo-atencao,
+body.theme-light .pmo-pill.pmo-atencao{color:#b45309}
+body.theme-light .pmo-chip.pmo-ok,
+body.theme-light .pmo-pill.pmo-ok{color:#047857}
+body.theme-light .moscow-badge.mq-could{color:#1d4ed8}
+body.theme-light .evm-mensal-title,
+body.theme-light .ficha-cat-title{color:#0e7490}
+body.theme-light .mf-prev-info b{color:#0e7490}
+/* cards de gráfico (fundo escuro fixo) viram superfície clara no tema claro */
+body.theme-light .ent-charts .card{background:var(--bg-card);box-shadow:var(--shadow-sm)}
+body.theme-light .ent-charts .card::before{display:none}
+/* tooltips externos dos gráficos mantêm o fundo escuro — ok sobre tema claro */
+
 /* ── Linhas de entregável (lista dentro do modal de projeto) ── */
 .ent-row{display:flex;justify-content:space-between;align-items:center;gap:10px;
   padding:9px 10px;border-bottom:1px solid var(--border-dim);border-radius:var(--r);cursor:pointer;
@@ -72,3 +91,109 @@ select.input{cursor:pointer}
 .proj-moscow-edit{display:inline-flex;align-items:center;gap:6px;color:var(--t3)}
 .proj-moscow-edit select{background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--r);color:var(--t1);font-size:12px;font-family:var(--font-body);padding:3px 8px;cursor:pointer;outline:none}
 .proj-moscow-edit select:focus{border-color:var(--border-hi);box-shadow:var(--focus-ring)}
+
+/* ── Selos PMO (prazo / custo) ── */
+.pmo-chips{display:flex;justify-content:center;gap:6px;flex-wrap:wrap;width:100%;margin-top:2px}
+.pmo-chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:7px;white-space:nowrap;line-height:1}
+.pmo-chip b{font-weight:800;letter-spacing:.2px}
+.pmo-chip .pmo-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.pmo-ok{color:#6ee7b7;background:rgba(16,185,129,.13);border:1px solid rgba(16,185,129,.3)}
+.pmo-ok .pmo-dot{background:#10b981}
+.pmo-atencao{color:#fcd34d;background:rgba(245,158,11,.13);border:1px solid rgba(245,158,11,.32)}
+.pmo-atencao .pmo-dot{background:#f59e0b}
+.pmo-critico{color:#fda4af;background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.32)}
+.pmo-critico .pmo-dot{background:#ef4444}
+.pmo-neutro{color:var(--t3);background:rgba(148,163,255,.08);border:1px solid var(--border-soft)}
+.pmo-neutro .pmo-dot{background:var(--t4)}
+
+/* ── Bloco PMO dentro do modal de detalhe ── */
+.proj-pmo{margin:12px 0 4px;min-width:0}
+.evm-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (max-width:620px){.evm-cards{grid-template-columns:repeat(2,1fr)}}
+.evm-card{background:var(--bg-void);border:1px solid var(--border-soft);border-left-width:3px;
+  border-radius:var(--r);padding:10px 11px;min-height:62px}
+.evm-card.pmo-ok{border-left-color:#10b981}
+.evm-card.pmo-atencao{border-left-color:#f59e0b}
+.evm-card.pmo-critico{border-left-color:#ef4444}
+.evm-card.pmo-neutro{border-left-color:var(--border-mid)}
+.evm-val{font-size:17px;font-weight:800;color:var(--t1);letter-spacing:-.3px;line-height:1.1}
+.evm-lbl{font-size:10.5px;color:var(--t3);margin-top:3px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.evm-hint{font-size:10.5px;color:var(--t4);margin-top:2px}
+.evm-curve-wrap{position:relative;height:200px;width:100%;margin:14px 0 6px}
+.evm-curve-wrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.evm-mensal-head{display:flex;align-items:center;justify-content:space-between;margin:12px 0 6px}
+.evm-mensal-title{font-size:12px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+.evm-table{width:100%;min-width:0;border-collapse:collapse;font-size:12.5px}
+.evm-table th{text-align:left;color:var(--t3);font-weight:600;font-size:11px;text-transform:uppercase;
+  letter-spacing:.4px;padding:6px 8px;border-bottom:1px solid var(--border-soft)}
+.evm-table td{padding:7px 8px;border-bottom:1px solid var(--border-dim);color:var(--t1)}
+.evm-table tbody tr:hover{background:var(--bg-hover)}
+.evm-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.evm-empty{font-size:12.5px;color:var(--t4);padding:10px;text-align:center;
+  background:var(--bg-void);border:1px dashed var(--border-soft);border-radius:var(--r)}
+.mf-prev-info{font-size:12.5px;color:var(--t2);background:rgba(34,211,238,.07);
+  border:1px solid rgba(34,211,238,.2);border-radius:var(--r);padding:8px 11px;margin-bottom:12px}
+.mf-prev-info b{color:var(--cyan)}
+.mf-prev-warn{color:var(--amber)}
+.mf-prev-warn b{color:var(--amber)}
+
+/* ── Filtro de projeto + ficha no Dashboard ── */
+.dash-projsel{display:flex;align-items:center;gap:10px;margin-top:18px;flex-wrap:wrap}
+.dash-projsel-lbl{font-size:12px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+#dash-ficha{display:flex;flex-direction:column;gap:16px;margin-top:18px}
+.ficha-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding-bottom:14px;border-bottom:1px solid var(--border-soft)}
+.ficha-title{font-size:21px;font-weight:700;color:var(--t1);letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+.ficha-sub{font-size:13px;color:var(--t3);margin-top:5px}
+.ficha-kpis{grid-template-columns:repeat(5,1fr)}
+@media (max-width:1000px){.ficha-kpis{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:620px){.ficha-kpis{grid-template-columns:repeat(2,1fr)}}
+.ficha-charts{grid-template-columns:1.5fr 1fr}
+@media (max-width:900px){.ficha-charts{grid-template-columns:1fr}}
+.ficha-cat{margin-bottom:14px}
+.ficha-cat:last-child{margin-bottom:0}
+.ficha-cat-title{font-size:12px;font-weight:700;color:var(--cyan);text-transform:uppercase;
+  letter-spacing:.5px;margin:4px 0 6px}
+
+/* ── Visão por período ── */
+.periodo-ctrl{display:inline-flex;align-items:center;gap:7px}
+.periodo-ctrl input[type=month]{background:var(--bg-void);border:1px solid var(--border-soft);
+  border-radius:var(--r);color:var(--t1);font:inherit;font-size:12px;padding:4px 8px}
+.periodo-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+@media (max-width:560px){.periodo-cols{grid-template-columns:1fr}}
+.periodo-col{background:var(--bg-void);border:1px solid var(--border-soft);border-radius:var(--r);padding:10px}
+.periodo-col-head{font-size:12px;color:var(--t2);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border-dim)}
+.periodo-col-head b{font-size:16px;color:var(--t1);margin-right:4px}
+.per-item{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;color:var(--t1)}
+.per-item .per-data{color:var(--t3);flex-shrink:0;font-variant-numeric:tabular-nums}
+.per-vazio{color:var(--t4);font-size:12.5px;padding:4px 0}
+
+/* ── Dashboard PMO: saúde do portfólio + quadrante ── */
+.pmo-health{display:flex;flex-direction:column;gap:8px;margin:12px 0 6px}
+.pmo-health-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pmo-health-cap{font-size:12px;font-weight:700;color:var(--t2);min-width:52px;text-transform:uppercase;letter-spacing:.5px}
+.pmo-pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:8px}
+.pmo-pill b{font-weight:800;font-size:13px}
+.pmo-pill.pmo-ok{color:#6ee7b7;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.28)}
+.pmo-pill.pmo-atencao{color:#fcd34d;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.28)}
+.pmo-pill.pmo-critico{color:#fda4af;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.28)}
+.pmo-health-tot{margin-left:auto;font-size:11.5px;color:var(--t4)}
+.pmo-grid2{grid-template-columns:1.4fr 1fr}
+@media (max-width:900px){.pmo-grid2{grid-template-columns:1fr}}
+.pmo-risk-list{display:flex;flex-direction:column;gap:7px;margin-top:6px;max-height:300px;overflow-y:auto}
+.pmo-risk-item{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 11px;border:1px solid var(--border-soft);border-radius:var(--r);cursor:pointer;
+  background:var(--bg-void);transition:border-color .15s,background .15s}
+.pmo-risk-item:hover{border-color:var(--border-hi);background:var(--bg-hover)}
+.pmo-risk-name{font-size:13px;font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pmo-risk-chips{display:flex;gap:5px;flex-shrink:0}
+
+/* ── Ranking financeiro ── */
+.fin-ranking{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+.fin-rank-item{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 11px;border:1px solid var(--border-soft);border-radius:var(--r);cursor:pointer;
+  background:var(--bg-void);transition:border-color .15s,background .15s}
+.fin-rank-item:hover{border-color:var(--border-hi);background:var(--bg-hover)}
+.fin-rank-name{font-size:13px;font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fin-rank-meta{display:flex;align-items:center;gap:9px;flex-shrink:0}
+.fin-rank-over{font-size:13px;font-weight:800;color:#fda4af;font-variant-numeric:tabular-nums}

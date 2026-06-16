@@ -11,13 +11,24 @@ from flask_jwt_extended import (
     JWTManager, jwt_required, get_jwt_identity, get_jwt, decode_token
 )
 from flask_socketio import SocketIO, emit, join_room, leave_room
-import pandas as pd
 from dotenv import load_dotenv
 
-load_dotenv()
+# ── CAMINHOS (compatível com PyInstaller / executável "congelado") ─────────────
+# ASSET_DIR: assets somente-leitura (templates, static, js/html da raiz, files/)
+# RUN_DIR  : pasta gravável ao lado do .exe (banco doctrack.db, .env, planilha)
+if getattr(sys, "frozen", False):
+    ASSET_DIR = sys._MEIPASS
+    RUN_DIR   = os.path.dirname(sys.executable)
+else:
+    ASSET_DIR = os.path.dirname(os.path.abspath(__file__))
+    RUN_DIR   = ASSET_DIR
+
+load_dotenv(os.path.join(RUN_DIR, ".env"))
 
 # ── APP SETUP ─────────────────────────────────────────────────────────────────
-app = Flask(__name__)
+app = Flask(__name__,
+            template_folder=os.path.join(ASSET_DIR, "templates"),
+            static_folder=os.path.join(ASSET_DIR, "static"))
 
 _jwt_secret = os.environ.get("JWT_SECRET")
 if not _jwt_secret:
@@ -28,9 +39,9 @@ _cors_origins = [
 ]
 CORS(app, origins=_cors_origins, supports_credentials=True)
 
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-EXCEL_PATH = os.path.join(BASE_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
-DB_PATH    = os.path.join(BASE_DIR, "doctrack.db")
+BASE_DIR   = ASSET_DIR                                   # assets de leitura (js/html da raiz, files/)
+EXCEL_PATH = os.path.join(RUN_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
+DB_PATH    = os.path.join(RUN_DIR, "doctrack.db")
 
 # Raízes permitidas para visualizar/baixar arquivos dos equipamentos.
 # Configurável via DOCTRACK_FILE_ROOTS (separado por ';'). Default: a pasta de Engenharia na rede.
@@ -192,6 +203,7 @@ def init_db(reset=False):
 
 def _import_excel_to_db():
     try:
+        import pandas as pd   # lazy: só necessário ao semear via Excel (não vai no .exe)
         wb = pd.ExcelFile(EXCEL_PATH)
         docs_to_add = []
         
