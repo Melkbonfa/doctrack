@@ -1034,9 +1034,45 @@ def on_ping(data):
     emit("pong_app", {"t": datetime.now().isoformat()})
 
 # ── INIT PARA GUNICORN (produção) ─────────────────────────────────────────────
+def _sync_schema():
+    """Adiciona colunas novas a tabelas já existentes (cross-dialect, idempotente).
+
+    db.create_all() cria tabelas faltantes, mas não altera tabelas existentes.
+    Em produção (Postgres) as colunas de PMO/EVM precisam ser adicionadas aqui,
+    já que as migrations 004/005 são apenas para SQLite local.
+    """
+    from sqlalchemy import inspect as _sa_inspect, text
+    insp = _sa_inspect(db.engine)
+    existentes = set(insp.get_table_names())
+    novas_colunas = {
+        "projetos": [
+            ("data_inicio_prev", "VARCHAR(10) DEFAULT ''"),
+            ("data_inicio_real", "VARCHAR(10) DEFAULT ''"),
+            ("data_fim_prev",    "VARCHAR(10) DEFAULT ''"),
+            ("data_fim_real",    "VARCHAR(10) DEFAULT ''"),
+            ("orcamento",        "FLOAT DEFAULT 0"),
+        ],
+        "entregaveis": [
+            ("data_inicio",    "VARCHAR(10) DEFAULT ''"),
+            ("data_conclusao", "VARCHAR(10) DEFAULT ''"),
+        ],
+    }
+    for tabela, colunas in novas_colunas.items():
+        if tabela not in existentes:
+            continue  # tabela nova: já criada por create_all() com o schema completo
+        cols_atuais = {c["name"] for c in insp.get_columns(tabela)}
+        for nome, ddl in colunas:
+            if nome not in cols_atuais:
+                db.session.execute(
+                    text(f'ALTER TABLE {tabela} ADD COLUMN {nome} {ddl}'))
+                print(f"[INFO] Schema: coluna {tabela}.{nome} adicionada")
+    db.session.commit()
+
+
 with app.app_context():
     try:
         db.create_all()
+        _sync_schema()
         # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
         from sqlalchemy import text
         db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
