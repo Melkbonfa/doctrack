@@ -494,10 +494,19 @@ class Projeto(db.Model):
         hoje = datetime.now().date()
         if ini > hoje:
             ini = hoje
+        # Término da curva: fim do cronograma (real ou previsto). Se ainda não
+        # houver fim definido, acompanha até hoje. Estende até hoje caso o projeto
+        # já tenha passado do prazo mas ainda registre andamento.
+        fim = _parse_iso(self.data_fim_real) or _parse_iso(self.data_fim_prev) or hoje
+        datas_concl = [d for e in self.entregaveis if (d := _parse_iso(e.data_conclusao))]
+        if datas_concl:
+            fim = max(fim, max(datas_concl))
+        if fim < ini:
+            fim = ini
         custos = {m.competencia: m.custo_acumulado for m in self.mensais}
         out = []
         y, mo, count = ini.year, ini.month, 0
-        while (y < hoje.year or (y == hoje.year and mo <= hoje.month)) and count < 48:
+        while (y < fim.year or (y == fim.year and mo <= fim.month)) and count < 48:
             comp = f"{y:04d}-{mo:02d}"
             ref = datetime(y, mo, calendar.monthrange(y, mo)[1]).date()
             out.append({
