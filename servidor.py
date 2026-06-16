@@ -1057,6 +1057,7 @@ def _sync_schema():
             ("data_conclusao", "VARCHAR(10) DEFAULT ''"),
         ],
     }
+    adicionadas = set()
     for tabela, colunas in novas_colunas.items():
         if tabela not in existentes:
             continue  # tabela nova: já criada por create_all() com o schema completo
@@ -1065,8 +1066,24 @@ def _sync_schema():
             if nome not in cols_atuais:
                 db.session.execute(
                     text(f'ALTER TABLE {tabela} ADD COLUMN {nome} {ddl}'))
+                adicionadas.add(f"{tabela}.{nome}")
                 print(f"[INFO] Schema: coluna {tabela}.{nome} adicionada")
     db.session.commit()
+
+    # Retroalimenta a conclusão dos entregáveis já concluídos com a última
+    # atualização, para que projetos antigos já exibam alguma Curva-S. Só roda
+    # quando a coluna acaba de ser criada (espelha a migration 005). O CAST torna
+    # o substr compatível com Postgres (timestamp) e SQLite (texto).
+    if "entregaveis.data_conclusao" in adicionadas:
+        res = db.session.execute(text("""
+            UPDATE entregaveis
+               SET data_conclusao = substr(CAST(atualizado_em AS VARCHAR), 1, 10)
+             WHERE status = 'concluido'
+               AND (data_conclusao IS NULL OR data_conclusao = '')
+               AND atualizado_em IS NOT NULL
+        """))
+        db.session.commit()
+        print(f"[INFO] Schema: {res.rowcount} entregável(is) com conclusão retroalimentada")
 
 
 with app.app_context():
