@@ -122,6 +122,13 @@
             <button id="btn-export-kpis" class="btn btn-ghost btn-sm" onclick="openExportModal()" style="display:none">Exportar relatório</button>
           </div>
         </div>
+        <div class="dash-equipsel">
+          <span class="dash-equipsel-lbl">Equipamento</span>
+          <select class="filter-sel" id="dash-equip-sel" onchange="setDashEquip(this.value)" aria-label="Filtrar dashboard por equipamento">
+            <option value="">Todos os equipamentos</option>
+          </select>
+          <span class="filter-count" id="dash-equip-info" style="margin-left:auto"></span>
+        </div>
         <div class="kpi-grid" id="kpi-grid"><div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando KPIs...</div></div>
         <div class="metric-row" id="metric-row"></div>
         <div class="g2">

@@ -7,7 +7,12 @@ Rotas:
   PUT    /api/projetos/<id>           — editar metadados (admin/gestor)
   DELETE /api/projetos/<id>           — arquivar (admin/gestor)
   PUT    /api/entregaveis/<id>        — atualizar status/percentual/responsáveis (tecnico+)
+  DELETE /api/entregaveis/<id>        — excluir entregável (admin/gestor)
   POST   /api/projetos/<id>/entregaveis — adicionar entregável (admin/gestor)
+  GET    /api/modelos                 — modelos de entregáveis por tipo (OEM/Revenda)
+  POST   /api/modelos                 — adicionar item de modelo (admin/gestor)
+  PUT    /api/modelos/<id>            — editar item de modelo (admin/gestor)
+  DELETE /api/modelos/<id>            — excluir item de modelo (admin/gestor)
   GET    /api/entregaveis/resumo      — KPIs e visão por responsável
   GET    /api/entregaveis/export      — Excel limpo
 """
@@ -17,8 +22,9 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import get_jwt_identity
 
-from models import (db, Projeto, Entregavel, ProjetoMensal, CATEGORIAS_ENTREGAVEL,
-                    STATUS_ENTREGAVEL, MOSCOW, _parse_iso)
+from models import (db, Projeto, Entregavel, ProjetoMensal, ModeloEntregavel,
+                    CATEGORIAS_ENTREGAVEL, STATUS_ENTREGAVEL, MOSCOW,
+                    TIPOS_PROJETO, _parse_iso)
 from auth import require_role, log_action, get_client_ip
 
 entregaveis_bp = Blueprint("entregaveis", __name__)
@@ -70,7 +76,9 @@ def _emit(event_type, payload, email):
 @entregaveis_bp.route("/api/projetos", methods=["GET"])
 @require_role("admin", "gestor")
 def listar_projetos():
-    q = Projeto.query.filter_by(ativo=True)
+    # arquivados=1 lista os projetos arquivados (ativo=False); padrão = ativos.
+    arquivados = request.args.get("arquivados", "").strip() == "1"
+    q = Projeto.query.filter_by(ativo=not arquivados)
     ano = request.args.get("ano", type=int)
     if ano:
         q = q.filter_by(ano=ano)
@@ -107,12 +115,16 @@ def criar_projeto():
     moscow = (data.get("moscow") or "").strip()
     if moscow and moscow not in MOSCOW:
         return jsonify({"erro": f"moscow inválido. Use: {', '.join(MOSCOW)}"}), 400
+    tipo = (data.get("tipo") or "").strip()
+    if tipo and tipo not in TIPOS_PROJETO:
+        return jsonify({"erro": f"tipo inválido. Use: {', '.join(TIPOS_PROJETO)}"}), 400
     orc = _parse_orcamento(data.get("orcamento"))
     if orc is None:
         return jsonify({"erro": "orçamento inválido"}), 400
     p = Projeto(
         nome=nome,
         descricao=(data.get("descricao") or "").strip(),
+        tipo=tipo,
         sku=(data.get("sku") or "").strip(),
         moscow=moscow,
         prioridade=int(data.get("prioridade") or 0),
@@ -123,8 +135,32 @@ def criar_projeto():
         **{c: (data.get(c) or "").strip() for c in DATAS_PROJETO},
     )
     db.session.add(p)
-    db.session.commit()
+    db.session.flush()   # garante p.id para anexar os entregáveis
+
+    # Entregáveis iniciais: a lista enviada (já editada no modal) tem prioridade;
+    # se ausente e houver tipo, copia do modelo daquele tipo. A cópia é independente.
     email = get_jwt_identity()
+    itens = data.get("entregaveis")
+    if not isinstance(itens, list):
+        itens = None
+    if itens is None and tipo:
+        itens = [{"tipo": m.tipo, "categoria": m.categoria,
+                  "responsaveis": m.responsavel_padrao}
+                 for m in (ModeloEntregavel.query
+                           .filter_by(tipo_projeto=tipo)
+                           .order_by(ModeloEntregavel.ordem, ModeloEntregavel.id).all())]
+    for it in (itens or []):
+        nome_ent = (it.get("tipo") or "").strip()
+        if not nome_ent:
+            continue
+        db.session.add(Entregavel(
+            projeto_id=p.id, tipo=nome_ent,
+            categoria=(it.get("categoria") or "Produto").strip(),
+            status=(it.get("status") or "pendente"),
+            responsaveis=(it.get("responsaveis") or "").strip(),
+            atualizado_por=email))
+
+    db.session.commit()
     log_action(email, "CREATE", entidade=f"Projeto:{p.nome}", ip=get_client_ip())
     _emit("PROJETO_CREATED", {"projeto": p.to_dict()}, email)
     return jsonify({"projeto": p.to_dict()}), 201
@@ -154,12 +190,14 @@ def editar_projeto(pid):
     p = Projeto.query.get_or_404(pid)
     data = request.get_json(silent=True) or {}
     email = get_jwt_identity()
-    for campo in ("nome", "descricao", "sku", "moscow", "lancamento", *DATAS_PROJETO):
+    for campo in ("nome", "descricao", "tipo", "sku", "moscow", "lancamento", *DATAS_PROJETO):
         if campo in data:
             novo = (data.get(campo) or "").strip()
             antigo = getattr(p, campo) or ""
             if campo == "moscow" and novo and novo not in MOSCOW:
                 return jsonify({"erro": "moscow inválido"}), 400
+            if campo == "tipo" and novo and novo not in TIPOS_PROJETO:
+                return jsonify({"erro": f"tipo inválido. Use: {', '.join(TIPOS_PROJETO)}"}), 400
             if campo == "nome" and not novo:
                 return jsonify({"erro": "nome não pode ficar vazio"}), 400
             if novo != antigo:
@@ -193,6 +231,19 @@ def arquivar_projeto(pid):
     log_action(email, "DELETE", entidade=f"Projeto:{p.nome}", ip=get_client_ip())
     _emit("PROJETO_UPDATED", {"projeto": p.to_dict()}, email)
     return jsonify({"ok": True})
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/restaurar", methods=["POST"])
+@require_role("admin", "gestor")
+def restaurar_projeto(pid):
+    p = Projeto.query.get_or_404(pid)
+    p.ativo = True
+    db.session.commit()
+    email = get_jwt_identity()
+    log_action(email, "UPDATE", entidade=f"Projeto:{p.nome}", campo="ativo",
+               antigo="False", novo="True", ip=get_client_ip())
+    _emit("PROJETO_UPDATED", {"projeto": p.to_dict()}, email)
+    return jsonify({"projeto": p.to_dict()})
 
 
 # ── ACOMPANHAMENTO MENSAL (PMO / EVM) ────────────────────────────────────────
@@ -359,13 +410,112 @@ def adicionar_entregavel(pid):
     if not tipo:
         return jsonify({"erro": "tipo é obrigatório"}), 400
     categoria = (data.get("categoria") or "Produto").strip()
+    email = get_jwt_identity()
     e = Entregavel(projeto_id=p.id, tipo=tipo, categoria=categoria,
                    status=(data.get("status") or "pendente"),
                    responsaveis=(data.get("responsaveis") or "").strip(),
-                   atualizado_por=get_jwt_identity())
+                   atualizado_por=email)
     db.session.add(e)
     db.session.commit()
-    return jsonify({"entregavel": e.to_dict()}), 201
+    log_action(email, "ENTREGAVEL_CREATED", entidade=f"{p.nome} · {tipo}", ip=get_client_ip())
+    _emit("ENTREGAVEL_UPDATED",
+          {"entregavel": e.to_dict(), "projeto_id": p.id, "avanco_projeto": p.avanco}, email)
+    return jsonify({"entregavel": e.to_dict(), "avanco_projeto": p.avanco}), 201
+
+
+@entregaveis_bp.route("/api/entregaveis/<int:eid>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def excluir_entregavel(eid):
+    e = Entregavel.query.get_or_404(eid)
+    pid, nome, tipo, projeto = e.projeto_id, e.projeto.nome, e.tipo, e.projeto
+    db.session.delete(e)
+    db.session.commit()
+    email = get_jwt_identity()
+    log_action(email, "ENTREGAVEL_DELETED", entidade=f"{nome} · {tipo}", ip=get_client_ip())
+    _emit("ENTREGAVEL_DELETED",
+          {"entregavel_id": eid, "projeto_id": pid, "avanco_projeto": projeto.avanco}, email)
+    return jsonify({"ok": True, "avanco_projeto": projeto.avanco})
+
+
+# ── MODELOS DE ENTREGÁVEIS (templates por tipo de projeto) ───────────────────
+
+@entregaveis_bp.route("/api/modelos", methods=["GET"])
+@require_role("admin", "gestor")
+def listar_modelos():
+    """Itens de modelo agrupados por tipo de projeto (OEM/Revenda)."""
+    tipo = (request.args.get("tipo") or "").strip()
+    q = ModeloEntregavel.query
+    if tipo:
+        if tipo not in TIPOS_PROJETO:
+            return jsonify({"erro": "tipo inválido"}), 400
+        q = q.filter_by(tipo_projeto=tipo)
+    itens = q.order_by(ModeloEntregavel.tipo_projeto,
+                       ModeloEntregavel.ordem, ModeloEntregavel.id).all()
+    out = {t: [] for t in TIPOS_PROJETO}
+    for m in itens:
+        out.setdefault(m.tipo_projeto, []).append(m.to_dict())
+    return jsonify({"tipos": TIPOS_PROJETO, "modelos": out})
+
+
+@entregaveis_bp.route("/api/modelos", methods=["POST"])
+@require_role("admin", "gestor")
+def adicionar_modelo():
+    data = request.get_json(silent=True) or {}
+    tipo_projeto = (data.get("tipo_projeto") or "").strip()
+    if tipo_projeto not in TIPOS_PROJETO:
+        return jsonify({"erro": f"tipo_projeto inválido. Use: {', '.join(TIPOS_PROJETO)}"}), 400
+    tipo = (data.get("tipo") or "").strip()
+    if not tipo:
+        return jsonify({"erro": "tipo (nome do entregável) é obrigatório"}), 400
+    ult = (ModeloEntregavel.query.filter_by(tipo_projeto=tipo_projeto)
+           .order_by(ModeloEntregavel.ordem.desc()).first())
+    m = ModeloEntregavel(
+        tipo_projeto=tipo_projeto,
+        categoria=(data.get("categoria") or "Produto").strip(),
+        tipo=tipo,
+        responsavel_padrao=(data.get("responsavel_padrao") or "").strip(),
+        ordem=((ult.ordem + 1) if ult else 0))
+    db.session.add(m)
+    db.session.commit()
+    log_action(get_jwt_identity(), "MODELO_CREATED",
+               entidade=f"Modelo {tipo_projeto} · {tipo}", ip=get_client_ip())
+    return jsonify({"modelo": m.to_dict()}), 201
+
+
+@entregaveis_bp.route("/api/modelos/<int:mid>", methods=["PUT"])
+@require_role("admin", "gestor")
+def editar_modelo(mid):
+    m = ModeloEntregavel.query.get_or_404(mid)
+    data = request.get_json(silent=True) or {}
+    if "tipo" in data:
+        novo = (data.get("tipo") or "").strip()
+        if not novo:
+            return jsonify({"erro": "tipo não pode ficar vazio"}), 400
+        m.tipo = novo
+    if "categoria" in data:
+        m.categoria = (data.get("categoria") or "Produto").strip()
+    if "responsavel_padrao" in data:
+        m.responsavel_padrao = (data.get("responsavel_padrao") or "").strip()
+    if "ordem" in data:
+        try:
+            m.ordem = int(data.get("ordem"))
+        except (TypeError, ValueError):
+            return jsonify({"erro": "ordem deve ser número"}), 400
+    db.session.commit()
+    log_action(get_jwt_identity(), "MODELO_UPDATED",
+               entidade=f"Modelo {m.tipo_projeto} · {m.tipo}", ip=get_client_ip())
+    return jsonify({"modelo": m.to_dict()})
+
+
+@entregaveis_bp.route("/api/modelos/<int:mid>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def excluir_modelo(mid):
+    m = ModeloEntregavel.query.get_or_404(mid)
+    info = f"Modelo {m.tipo_projeto} · {m.tipo}"
+    db.session.delete(m)
+    db.session.commit()
+    log_action(get_jwt_identity(), "MODELO_DELETED", entidade=info, ip=get_client_ip())
+    return jsonify({"ok": True})
 
 
 # ── RESUMO ───────────────────────────────────────────────────────────────────

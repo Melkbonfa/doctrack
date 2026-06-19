@@ -266,6 +266,7 @@ class RevokedToken(db.Model):
 CATEGORIAS_ENTREGAVEL = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"]
 STATUS_ENTREGAVEL = ["na", "pendente", "em_progresso", "concluido"]
 MOSCOW = ["Must", "Should", "Could", "Wont"]
+TIPOS_PROJETO = ["OEM", "Revenda"]   # tipo do projeto → define o modelo de entregáveis
 
 
 # ── PMO / EVM ────────────────────────────────────────────────────────────────
@@ -345,6 +346,7 @@ class Projeto(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     nome        = db.Column(db.String(200), nullable=False)
     descricao   = db.Column(db.String(400), default="")
+    tipo        = db.Column(db.String(20), default="")    # "OEM" | "Revenda" | "" (projetos antigos)
     sku         = db.Column(db.String(50), default="")
     moscow      = db.Column(db.String(10), default="")
     prioridade  = db.Column(db.Integer, default=0)
@@ -563,6 +565,7 @@ class Projeto(db.Model):
             "id":         self.id,
             "nome":       (self.nome or "").strip(),
             "descricao":  self.descricao or "",
+            "tipo":       self.tipo or "",
             "sku":        self.sku or "",
             "moscow":     self.moscow or "",
             "prioridade": self.prioridade or 0,
@@ -619,6 +622,33 @@ class Entregavel(db.Model):
             "data_conclusao": self.data_conclusao or "",
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
+        }
+
+
+class ModeloEntregavel(db.Model):
+    """Item de modelo (template) de entregável por tipo de projeto (OEM/Revenda).
+
+    Ao criar um projeto de um tipo, estes itens são COPIADOS para o projeto como
+    entregáveis editáveis. Editar/excluir aqui só afeta projetos criados depois —
+    nunca os já existentes (que possuem cópias independentes).
+    """
+    __tablename__ = "modelos_entregavel"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    tipo_projeto  = db.Column(db.String(20), nullable=False, index=True)   # "OEM" | "Revenda"
+    categoria     = db.Column(db.String(40), default="Produto")
+    tipo          = db.Column(db.String(120), nullable=False)              # nome do entregável
+    responsavel_padrao = db.Column(db.String(200), default="")
+    ordem         = db.Column(db.Integer, default=0)
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "tipo_projeto":       self.tipo_projeto,
+            "categoria":          self.categoria or "Produto",
+            "tipo":               (self.tipo or "").strip(),
+            "responsavel_padrao": self.responsavel_padrao or "",
+            "ordem":              self.ordem or 0,
         }
 
 

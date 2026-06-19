@@ -333,7 +333,8 @@ def _static_version():
 def index():
     return render_template("dashboard.html", asset_v=_static_version())
 
-@app.route("/entregaveis")
+@app.route("/projetos")
+@app.route("/entregaveis")   # alias antigo, mantido para não quebrar links salvos
 def entregaveis_page():
     return render_template("entregaveis.html", asset_v=_static_version())
 
@@ -1051,6 +1052,7 @@ def _sync_schema():
             ("data_fim_prev",    "VARCHAR(10) DEFAULT ''"),
             ("data_fim_real",    "VARCHAR(10) DEFAULT ''"),
             ("orcamento",        "FLOAT DEFAULT 0"),
+            ("tipo",             "VARCHAR(20) DEFAULT ''"),
         ],
         "entregaveis": [
             ("data_inicio",    "VARCHAR(10) DEFAULT ''"),
@@ -1106,6 +1108,37 @@ def _sync_schema():
         """))
         db.session.commit()
         print(f"[INFO] Schema: {res.rowcount} entregável(is) com conclusão retroalimentada")
+
+    # Semeia os modelos de entregáveis (OEM/Revenda) a partir dos entregáveis
+    # distintos já existentes — só quando a tabela está vazia (espelha a
+    # migration 006). Cross-dialect (Postgres/SQLite).
+    if "modelos_entregavel" in set(_sa_inspect(db.engine).get_table_names()):
+        ja = db.session.execute(text("SELECT COUNT(*) FROM modelos_entregavel")).scalar()
+        if not ja:
+            base = db.session.execute(text("""
+                SELECT categoria, tipo,
+                       COALESCE((SELECT responsaveis FROM entregaveis e2
+                                 WHERE e2.categoria = e1.categoria AND e2.tipo = e1.tipo
+                                 ORDER BY e2.id LIMIT 1), '') AS resp,
+                       MIN(id) AS ord
+                  FROM entregaveis e1
+                 GROUP BY categoria, tipo
+                 ORDER BY ord
+            """)).fetchall()
+            from models import TIPOS_PROJETO as _TP
+            n = 0
+            for tp in _TP:
+                for ordem, (categoria, tipo, resp, _min) in enumerate(base):
+                    db.session.execute(text(
+                        "INSERT INTO modelos_entregavel "
+                        "(tipo_projeto, categoria, tipo, responsavel_padrao, ordem) "
+                        "VALUES (:tp, :cat, :tipo, :resp, :ord)"),
+                        {"tp": tp, "cat": categoria or "Produto", "tipo": tipo,
+                         "resp": resp or "", "ord": ordem})
+                    n += 1
+            db.session.commit()
+            if n:
+                print(f"[INFO] Schema: {n} itens de modelo de entregável semeados")
 
 
 with app.app_context():

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entregáveis — DocTrack</title>
+  <title>Projetos — DocTrack</title>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <link rel="stylesheet" href="/static/entregaveis.css?v={{ asset_v }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -14,8 +14,8 @@
 
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div>
-          <h1 style="margin:0">Entregáveis por Projeto</h1>
-          <p class="muted" style="margin:4px 0 0">Engenharia · 2026</p>
+          <h1 style="margin:0">Projetos</h1>
+          <p class="muted" style="margin:4px 0 0">Engenharia · Entregáveis · 2026</p>
         </div>
         <div class="page-actions" style="display:flex;gap:10px;align-items:center">
           <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
@@ -29,6 +29,7 @@
         <button class="ent-tab active" id="tab-btn-dash" role="tab" aria-selected="true" onclick="trocarAba('dash')">Dashboard</button>
         <button class="ent-tab" id="tab-btn-pmo" role="tab" aria-selected="false" onclick="trocarAba('pmo')">PMO</button>
         <button class="ent-tab" id="tab-btn-proj" role="tab" aria-selected="false" onclick="trocarAba('proj')">Projetos</button>
+        <button class="ent-tab" id="tab-btn-modelos" role="tab" aria-selected="false" onclick="trocarAba('modelos')">Modelos</button>
       </div>
 
       <!-- ══ Aba Dashboard ══ -->
@@ -134,7 +135,8 @@
               <option value="pend_desc">Mais pendências</option>
               <option value="lancamento">Lançamento (recente)</option>
             </select>
-            <span class="filter-count" id="proj-badge" style="margin-left:auto">—</span>
+            <button class="btn btn-ghost btn-sm" id="btn-arquivados" onclick="toggleArquivados()" style="margin-left:auto" aria-pressed="false">Ver arquivados</button>
+            <span class="filter-count" id="proj-badge">—</span>
             <button class="btn btn-primary btn-sm" id="btn-novo-proj" onclick="abrirFormProjeto()" style="display:none">+ Novo projeto</button>
           </div>
           <div class="equip-chips" id="proj-chips"></div>
@@ -142,6 +144,20 @@
         <div class="equip-grid" id="proj-grid"></div>
       </div>
       </div><!-- /aba-proj -->
+
+      <!-- ══ Aba Modelos (templates de entregáveis por tipo) ══ -->
+      <div id="aba-modelos" style="display:none">
+        <div class="card" style="margin-top:14px">
+          <div class="modelos-head">
+            <div>
+              <div class="card-title" style="margin:0">Modelos de entregáveis</div>
+              <p class="muted" style="margin:4px 0 0">Listas-padrão usadas ao criar um projeto de cada tipo. Editar aqui só afeta projetos criados depois.</p>
+            </div>
+            <div class="modelos-tipo-toggle" id="modelos-tipo-toggle" role="tablist"></div>
+          </div>
+          <div id="modelos-body"><div class="loading-state"><div class="spinner"></div>Carregando…</div></div>
+        </div>
+      </div><!-- /aba-modelos -->
 
     </main>
   </div>
@@ -186,6 +202,8 @@
       <div class="equip-modal-tabs" id="proj-modal-tabs" role="tablist"></div>
       <div id="proj-modal-panels"></div>
       <div class="modal-footer" style="justify-content:flex-end;gap:8px">
+        <button class="btn btn-primary btn-sm" id="proj-modal-restore" onclick="restaurarProjetoAtual()" style="display:none">Restaurar projeto</button>
+        <button class="btn btn-ghost btn-sm" id="proj-modal-add-ent" onclick="abrirFormEntregavel()" style="display:none">+ Entregável</button>
         <button class="btn btn-edit" id="proj-modal-edit" onclick="editarProjetoAtual()" style="display:none">Editar projeto</button>
         <button class="btn btn-ghost" onclick="fecharProjModal()">Fechar</button>
       </div>
@@ -203,7 +221,13 @@
         <div class="form-group"><label class="form-label" for="pf-sku">SKU</label><input class="form-input" id="pf-sku" placeholder="Opcional"></div>
       </div>
       <div class="g2">
-        <div class="form-group"><label class="form-label" for="pf-lancamento">Data de lançamento</label><input type="date" class="form-input" id="pf-lancamento"></div>
+        <div class="form-group"><label class="form-label" for="pf-tipo">Tipo de projeto</label>
+          <select class="form-input" id="pf-tipo" onchange="onTipoProjetoChange()">
+            <option value="">—</option>
+            <option value="OEM">OEM</option>
+            <option value="Revenda">Revenda</option>
+          </select>
+        </div>
         <div class="form-group"><label class="form-label" for="pf-moscow">Prioridade MoSCoW</label>
           <select class="form-input" id="pf-moscow">
             <option value="">—</option>
@@ -214,7 +238,24 @@
           </select>
         </div>
       </div>
+      <div class="form-group"><label class="form-label" for="pf-lancamento">Data de lançamento</label><input type="date" class="form-input" id="pf-lancamento"></div>
       <div class="form-group"><label class="form-label" for="pf-desc">Descrição</label><textarea class="form-input" id="pf-desc" rows="2" placeholder="Opcional"></textarea></div>
+
+      <!-- Entregáveis iniciais (só na criação) -->
+      <div id="pf-ent-wrap" style="display:none">
+        <div class="section-label-line" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Entregáveis iniciais</span>
+          <span class="muted" id="pf-ent-count" style="font-weight:400">0 itens</span>
+        </div>
+        <p class="muted" id="pf-ent-hint" style="margin:0 0 8px">Escolha o tipo para carregar a lista-padrão. Você pode remover ou adicionar itens antes de criar.</p>
+        <div class="pf-ent-list" id="pf-ent-list"></div>
+        <div class="pf-ent-add">
+          <select class="form-input" id="pf-ent-cat" aria-label="Categoria do entregável"></select>
+          <input class="form-input" id="pf-ent-nome" placeholder="Nome do entregável" aria-label="Nome do entregável"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();pfAddEntregavel();}">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="pfAddEntregavel()">+ Adicionar</button>
+        </div>
+      </div>
 
       <div class="section-label-line">Cronograma &amp; Orçamento (PMO)</div>
       <div class="g2">
@@ -234,6 +275,34 @@
           <button class="btn btn-primary" onclick="salvarFormProjeto()">Salvar</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Adicionar entregável ao projeto -->
+  <div class="modal-overlay" id="modal-ent-form" role="dialog" aria-modal="true" aria-labelledby="ef-title" aria-hidden="true">
+    <div class="modal" style="width:460px" tabindex="-1">
+      <div class="modal-title" id="ef-title">Novo entregável</div>
+      <div class="modal-sub" id="ef-sub">Adiciona um entregável a este projeto</div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="ef-cat">Categoria</label><select class="form-input" id="ef-cat"></select></div>
+        <div class="form-group"><label class="form-label" for="ef-resp">Responsáveis</label><input class="form-input" id="ef-resp" placeholder="Ex.: Guilherme/Melk"></div>
+      </div>
+      <div class="form-group"><label class="form-label" for="ef-nome">Nome do entregável *</label><input class="form-input" id="ef-nome" placeholder="Ex.: Manual do Usuário"></div>
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharFormEntregavel()">Cancelar</button><button class="btn btn-primary" onclick="salvarFormEntregavel()">Adicionar</button></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Editar item de modelo -->
+  <div class="modal-overlay" id="modal-modelo-form" role="dialog" aria-modal="true" aria-labelledby="mdf-title" aria-hidden="true">
+    <div class="modal" style="width:460px" tabindex="-1">
+      <div class="modal-title" id="mdf-title">Editar item do modelo</div>
+      <div class="modal-sub" id="mdf-sub">Projetos já criados não são afetados</div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="mdf-cat">Categoria</label><select class="form-input" id="mdf-cat"></select></div>
+        <div class="form-group"><label class="form-label" for="mdf-resp">Responsável padrão</label><input class="form-input" id="mdf-resp" placeholder="Opcional"></div>
+      </div>
+      <div class="form-group"><label class="form-label" for="mdf-nome">Nome do entregável *</label><input class="form-input" id="mdf-nome" placeholder="Ex.: Manual do Usuário"></div>
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharModeloForm()">Cancelar</button><button class="btn btn-primary" onclick="salvarModeloForm()">Salvar</button></div>
     </div>
   </div>
 
@@ -298,6 +367,15 @@
       <div class="modal-sub" id="exp-preview" style="margin:8px 0 0">—</div>
 
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharModalExport()">Cancelar</button><button class="btn btn-primary" onclick="gerarRelatorioPDF()">Gerar PDF</button></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmação (substitui o confirm() do navegador) -->
+  <div class="modal-overlay" id="modal-confirm-ent" role="alertdialog" aria-modal="true" aria-labelledby="cf-title" aria-describedby="cf-msg" aria-hidden="true" style="z-index:9300">
+    <div class="modal" style="width:420px" tabindex="-1">
+      <div class="modal-title" id="cf-title">Confirmar</div>
+      <div class="modal-sub" id="cf-msg" style="font-size:14px;color:var(--t2)">Tem certeza?</div>
+      <div class="modal-footer"><button class="btn btn-ghost" id="cf-cancel">Cancelar</button><button class="btn btn-danger" id="cf-ok">Confirmar</button></div>
     </div>
   </div>
 

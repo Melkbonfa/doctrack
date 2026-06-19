@@ -2,6 +2,7 @@ const API='/api';
 let allDocs=[],chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
+let _dashEquip='';   // equipamento selecionado no dashboard ('' = todos)
 
 // ═══ TEMA CLARO/ESCURO ═══
 function applyTheme(theme){
@@ -566,10 +567,45 @@ async function reimportExcel() {
 }
 
 // ═══ DASHBOARD ═══
+// Replica compute_kpis() do servidor para recalcular o dashboard por equipamento
+// (filtro client-side; estrutura idêntica à de _lastKpis).
+function computeKpisJS(docs){
+  const setores=Object.keys((_lastKpis&&_lastKpis.por_setor)||{});
+  const por_setor={},status_counts={};
+  setores.forEach(s=>{por_setor[s]=0;status_counts[s]={};});
+  const global_counts={'Pendente':0,'Em progresso':0,'Finalizado':0};
+  docs.forEach(d=>{
+    const setor=d.setor;
+    if(setor in por_setor){por_setor[setor]++;const st=d.status||'Elaborar';status_counts[setor][st]=(status_counts[setor][st]||0)+1;}
+    const sg=d.status_global||'Pendente';global_counts[sg]=(global_counts[sg]||0)+1;
+  });
+  const total=docs.length,fin=global_counts['Finalizado']||0;
+  return {total,finalizados:fin,em_progresso:global_counts['Em progresso']||0,pendentes:global_counts['Pendente']||0,
+    backlog:total-fin,pct_concluidos:total?Math.round(fin/total*1000)/10:0,por_setor,status_counts,global_counts};
+}
+
+// Popula o seletor de equipamento do dashboard a partir de allDocs.
+function populateDashEquip(){
+  const sel=document.getElementById('dash-equip-sel');
+  if(!sel) return;
+  const nomes=[...new Set(allDocs.map(d=>(d.equipamento||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  if(_dashEquip && !nomes.includes(_dashEquip)) _dashEquip='';
+  sel.innerHTML='<option value="">Todos os equipamentos</option>'+
+    nomes.map(n=>`<option value="${esc(n)}" ${n===_dashEquip?'selected':''}>${esc(n)}</option>`).join('');
+  sel.value=_dashEquip;
+}
+
+function setDashEquip(v){ _dashEquip=v||''; renderDashboard(); }
+
 function renderDashboard(){
   if(!_lastKpis) return;
-  const total=_lastKpis.total;
-  
+  populateDashEquip();
+  const docsView=_dashEquip ? allDocs.filter(d=>(d.equipamento||'').trim()===_dashEquip) : allDocs;
+  const kpis=_dashEquip ? computeKpisJS(docsView) : _lastKpis;
+  const total=kpis.total;
+
+  const infoEl=document.getElementById('dash-equip-info');
+  if(infoEl) infoEl.textContent=_dashEquip ? (total+' documento(s) deste equipamento') : '';
   document.getElementById('dash-updated').textContent='Última atualização: '+new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   document.getElementById('dash-pct-badge').textContent=total+' documentos';
 
@@ -578,7 +614,7 @@ function renderDashboard(){
   const sgKeys=['Finalizado','Em progresso','Pendente'];
   let kpiHTML='';
   sgKeys.forEach((k,i)=>{
-    const v=_lastKpis.global_counts[k]||0,pct=total?Math.round(v/total*100):0;
+    const v=kpis.global_counts[k]||0,pct=total?Math.round(v/total*100):0;
     kpiHTML+=`<div class="kpi-ring">
       <div class="kpi-ring-canvas" style="width:110px;height:110px"><canvas id="ring${i}" width="110" height="110"></canvas><div class="kpi-ring-val" style="color:${ringColors[i]}">${v}</div></div>
       <div class="kpi-ring-label">${esc(k)}</div>
@@ -588,7 +624,7 @@ function renderDashboard(){
   document.getElementById('kpi-grid').innerHTML=kpiHTML||'<div class="loading-state" style="grid-column:1/-1">Sem dados</div>';
 
   sgKeys.forEach((k,i)=>{
-    const v=_lastKpis.global_counts[k]||0,pct=total?v/total:0;
+    const v=kpis.global_counts[k]||0,pct=total?v/total:0;
     if(chartInstances['ring'+i])chartInstances['ring'+i].destroy();
     chartInstances['ring'+i]=new Chart(document.getElementById('ring'+i),{
       type:'doughnut',data:{datasets:[{data:[pct*100,100-pct*100],backgroundColor:[ringColors[i],ringBgs[i]],borderWidth:0,hoverOffset:4}]},
@@ -596,7 +632,7 @@ function renderDashboard(){
     });
   });
 
-  const catLabels=Object.keys(_lastKpis.por_setor),catVals=Object.values(_lastKpis.por_setor);
+  const catLabels=Object.keys(kpis.por_setor),catVals=Object.values(kpis.por_setor);
   // mesma paleta do donut de status dos entregáveis (verde, ciano, âmbar)
   const donutPalette=['#10b981','#22d3ee','#f59e0b','#a78bfa','#06b6d4'];
   const dColors=catLabels.map((c,i)=>donutPalette[i % donutPalette.length]);
@@ -615,7 +651,7 @@ function renderDashboard(){
 
   // Exemplo de pipeline simples usando os status da PRE
   const etapaNames=_enums.status_map?_enums.status_map['PRE']:[];
-  const preStatusCounts = _lastKpis.status_counts['PRE'] || {};
+  const preStatusCounts = kpis.status_counts['PRE'] || {};
   const preTotal = catLabels.indexOf('PRE') >= 0 ? catVals[catLabels.indexOf('PRE')] : 0;
   const etapaColors=['#06b6d4','#f59e0b','#22d3ee','#10b981'];
   
@@ -641,7 +677,7 @@ function renderDashboard(){
 
   // Flatten status para chart de status
   const flatStatus = {};
-  Object.values(_lastKpis.status_counts).forEach(sc => {
+  Object.values(kpis.status_counts).forEach(sc => {
     Object.keys(sc).forEach(k => flatStatus[k] = (flatStatus[k]||0) + sc[k]);
   });
   const stLabels=Object.keys(flatStatus),stVals=Object.values(flatStatus);
@@ -655,7 +691,7 @@ function renderDashboard(){
               y:{ticks:{color:'#c7d2fe',font:{size:11,family:'Inter',weight:'500'}},grid:{display:false},border:{display:false}}}}
   });
 
-  document.getElementById('dash-table').innerHTML=allDocs.slice(0,10).map(d=>
+  document.getElementById('dash-table').innerHTML=docsView.slice(0,10).map(d=>
     `<tr><td class="bold">${esc(d.equipamento)}</td><td style="font-size:11px;color:var(--t2)" title="${esc(d.documento||'')}">${esc((d.documento||'—').substring(0,40))}</td><td><span class="pill pill-elab">${esc(d.setor)}</span></td><td>${pillGlobal(d.status_global)}</td><td class="mono">${esc(d.sku||'—')}</td></tr>`
   ).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }

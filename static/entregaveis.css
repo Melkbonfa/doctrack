@@ -197,3 +197,59 @@ select.input{cursor:pointer}
 .fin-rank-name{font-size:13px;font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fin-rank-meta{display:flex;align-items:center;gap:9px;flex-shrink:0}
 .fin-rank-over{font-size:13px;font-weight:800;color:#fda4af;font-variant-numeric:tabular-nums}
+
+/* ── Excluir entregável (linha do detalhe) ── */
+.ent-row-del{appearance:none;border:none;background:none;color:var(--t4);cursor:pointer;
+  font-size:13px;line-height:1;padding:2px 4px;border-radius:var(--r);margin-left:4px;
+  opacity:0;transition:opacity .12s,color .12s,background .12s}
+.ent-row:hover .ent-row-del{opacity:1}
+.ent-row-del:hover{color:#fda4af;background:rgba(248,113,113,.12)}
+
+/* ── Editor de entregáveis na criação de projeto ── */
+#pf-ent-list{display:flex;flex-direction:column;gap:0;max-height:200px;overflow-y:auto;
+  border:1px solid var(--border-soft);border-radius:var(--r);margin-bottom:8px}
+.pf-ent-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--border-dim)}
+.pf-ent-row:last-child{border-bottom:none}
+.pf-ent-cat{font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
+  color:var(--cyan);background:rgba(6,182,212,.10);padding:2px 8px;border-radius:20px;flex-shrink:0;min-width:84px;text-align:center}
+.pf-ent-nome{flex:1;font-size:13px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pf-ent-del{appearance:none;border:none;background:none;color:var(--t4);cursor:pointer;font-size:13px;
+  padding:2px 6px;border-radius:var(--r);transition:color .12s,background .12s}
+.pf-ent-del:hover{color:#fda4af;background:rgba(248,113,113,.12)}
+.pf-ent-add{display:flex;gap:8px;align-items:center}
+.pf-ent-add #pf-ent-cat{flex:0 0 130px}
+.pf-ent-add #pf-ent-nome{flex:1}
+
+/* ── Aba Modelos ── */
+.modelos-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.modelos-tipo-toggle{display:inline-flex;gap:4px;background:var(--bg-void);border:1px solid var(--border-soft);
+  border-radius:var(--r2);padding:3px}
+.modelos-tipo-btn{appearance:none;border:none;background:none;color:var(--t3);font-size:13px;font-weight:600;
+  font-family:var(--font-body);padding:6px 16px;border-radius:var(--r);cursor:pointer;transition:color .15s,background .15s}
+.modelos-tipo-btn:hover{color:var(--t1)}
+.modelos-tipo-btn.active{color:var(--cyan);background:rgba(6,182,212,.12)}
+.modelos-cat{margin-bottom:14px}
+.modelos-cat-head{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--t3);
+  margin:0 0 4px;padding-bottom:4px;border-bottom:1px solid var(--border-dim)}
+.modelos-row{display:flex;align-items:center;gap:12px;padding:8px 4px;border-bottom:1px solid var(--border-dim)}
+.modelos-row:last-child{border-bottom:none}
+.modelos-nome{flex:1;font-size:13px;color:var(--t1)}
+.modelos-resp{font-size:12px;color:var(--t3);flex:0 0 auto}
+.modelos-acts{display:inline-flex;gap:10px;flex-shrink:0}
+.modelos-acts .lnk{appearance:none;border:none;background:none;cursor:pointer;font-size:12px;font-weight:600;
+  color:var(--cyan);padding:0;font-family:var(--font-body)}
+.modelos-acts .lnk:hover{text-decoration:underline}
+.modelos-acts .lnk-danger{color:#fda4af}
+.modelos-add{display:flex;gap:8px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft);flex-wrap:wrap}
+.modelos-add #mod-add-cat{flex:0 0 140px}
+.modelos-add #mod-add-nome{flex:1;min-width:160px}
+.modelos-add #mod-add-resp{flex:0 0 200px}
+
+/* ── Diálogos pequenos centralizados (confirmação, edição de modelo, novo entregável) ── */
+#modal-confirm-ent.open,#modal-modelo-form.open,#modal-ent-form.open{align-items:center}
+#modal-confirm-ent .modal,#modal-modelo-form .modal,#modal-ent-form .modal{margin:auto}
+
+/* ── Selo de projeto arquivado (card) ── */
+.proj-arch-tag{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  color:var(--t3);background:var(--bg-void);border:1px solid var(--border-soft);
+  padding:2px 8px;border-radius:20px;flex-shrink:0}

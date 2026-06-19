@@ -1,9 +1,14 @@
 /* Entregáveis por Projeto — lógica da página */
 const TOKEN_KEY = "doctrack_token";
+const CATEGORIAS = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"];
+const TIPOS_PROJETO = ["OEM", "Revenda"];
 let _projetos = [], _projAtualId = null, _popEntregavel = null;
 let _resumo = null, _projetosAll = [], _charts = {};
 let _projChip = "todos";
 let _projSort = "padrao", _formProjId = null, _projDetalheAtual = null;
+let _pfEntregaveis = [];   // lista editável de entregáveis na criação de projeto
+let _modelosTipoAtual = "OEM";   // tipo selecionado na aba Modelos
+let _verArquivados = false;      // grade de projetos mostrando arquivados?
 let _fichaProj = null;   // projeto selecionado na ficha do Dashboard
 
 function token(){ return localStorage.getItem(TOKEN_KEY) || ""; }
@@ -66,14 +71,38 @@ function toast(msg, erro=false){
 
 function esc(s){ const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; }
 
+/* ── Confirmação interna (substitui confirm() do navegador) ──
+   Uso: if (!(await confirmar("Mensagem", {title, okLabel, danger}))) return; */
+let _confirmResolver = null;
+function confirmar(msg, opts={}){
+  return new Promise(resolve => {
+    _confirmResolver = resolve;
+    document.getElementById("cf-title").textContent = opts.title || "Confirmar";
+    document.getElementById("cf-msg").textContent = msg || "Tem certeza?";
+    const ok = document.getElementById("cf-ok");
+    ok.textContent = opts.okLabel || "Confirmar";
+    const danger = opts.danger !== false;   // padrão: ação destrutiva (vermelho)
+    ok.classList.toggle("btn-danger", danger);
+    ok.classList.toggle("btn-primary", !danger);
+    _abrirModal("modal-confirm-ent");
+    setTimeout(() => ok.focus(), 60);
+  });
+}
+function _fecharConfirm(val){
+  _fecharModal("modal-confirm-ent");
+  const r = _confirmResolver; _confirmResolver = null;
+  if (r) r(val);
+}
+
 /* ── Abas (Dashboard · PMO · Projetos) ── */
 function trocarAba(aba){
-  ["dash", "pmo", "proj"].forEach(t => {
+  ["dash", "pmo", "proj", "modelos"].forEach(t => {
     const sec = document.getElementById("aba-" + t);
     if (sec) sec.style.display = (t === aba) ? "" : "none";
     const b = document.getElementById("tab-btn-" + t);
     if (b){ b.classList.toggle("active", t === aba); b.setAttribute("aria-selected", t === aba); }
   });
+  if (aba === "modelos"){ loadModelos().catch(e => toast(e.message, true)); return; }
   if (aba === "dash"){
     Promise.all([loadKpis(), loadProjetosAll()]).then(() => {
       populateDashProjSel();
@@ -618,10 +647,24 @@ function renderFichaProjeto(p){
 
 /* ── Grade de projetos (mesmo padrão dos equipamentos) ── */
 async function loadProjetos(){
-  const data = await api("/api/projetos");
+  const data = await api("/api/projetos" + (_verArquivados ? "?arquivados=1" : ""));
   _projetos = data.projetos;
   renderProjChips();
   renderProjGrid();
+}
+
+function toggleArquivados(){
+  _verArquivados = !_verArquivados;
+  const btn = document.getElementById("btn-arquivados");
+  if (btn){
+    btn.textContent = _verArquivados ? "← Voltar aos ativos" : "Ver arquivados";
+    btn.classList.toggle("btn-primary", _verArquivados);
+    btn.classList.toggle("btn-ghost", !_verArquivados);
+    btn.setAttribute("aria-pressed", _verArquivados ? "true" : "false");
+  }
+  const novo = document.getElementById("btn-novo-proj");
+  if (novo && canEditProj()) novo.style.display = _verArquivados ? "none" : "";
+  loadProjetos().catch(e => toast(e.message, true));
 }
 
 function projMatchesChip(p, chip){
@@ -735,7 +778,7 @@ function renderProjGrid(){
     return `<div class="equip-card proj-card st-${cor}" onclick="abrirProjModal(${p.id})">
       <div class="proj-card-head">
         <span class="proj-card-name">${esc(p.nome)}</span>
-        ${moscowBadgeHtml(p.moscow)}
+        ${_verArquivados ? '<span class="proj-arch-tag">Arquivado</span>' : moscowBadgeHtml(p.moscow)}
       </div>
       <div class="proj-prog">
         <div class="proj-prog-track"><i style="width:${p.avanco}%"></i></div>
@@ -792,9 +835,15 @@ async function abrirProjModal(id){
   const p = await api("/api/projetos/" + id);
   _projDetalheAtual = p;
   document.getElementById("proj-modal-title").textContent = p.nome;
+  const arquivado = p.ativo === false;
   const editBtn = document.getElementById("proj-modal-edit");
-  if (editBtn) editBtn.style.display = canEditProj() ? "" : "none";
+  if (editBtn) editBtn.style.display = (canEditProj() && !arquivado) ? "" : "none";
+  const addBtn = document.getElementById("proj-modal-add-ent");
+  if (addBtn) addBtn.style.display = (canEditProj() && !arquivado) ? "" : "none";
+  const restoreBtn = document.getElementById("proj-modal-restore");
+  if (restoreBtn) restoreBtn.style.display = (canEditProj() && arquivado) ? "" : "none";
   const partes = [];
+  if (p.tipo) partes.push(esc(p.tipo));
   if (p.sku) partes.push("SKU " + esc(p.sku));
   if (p.lancamento) partes.push("Lançamento " + esc(fmtLanc(p.lancamento)));
   const periodo = periodoProjeto(p);
@@ -967,9 +1016,12 @@ function projRowHtml(e){
   if (e.status === "concluido"){ badgeCls = "sg-finalizado"; statusLabel = "Concluído"; }
   else if (e.status === "em_progresso"){ badgeCls = "sg-progresso"; statusLabel = (e.percentual ?? 0) + "%"; }
   else if (e.status === "na"){ badgeCls = "sg-pendente"; statusLabel = "N/A"; extra = ' style="color:var(--t4)"'; }
+  const delBtn = canEditProj()
+    ? `<button type="button" class="ent-row-del" title="Excluir entregável" aria-label="Excluir entregável" onclick='event.stopPropagation();excluirEntregavel(${e.id}, ${JSON.stringify(e.tipo)})'>✕</button>`
+    : "";
   return `<div class="ent-row" onclick='abrirPop(${JSON.stringify(e).replace(/'/g,"&#39;")})'>
     <span>${esc(e.tipo)}</span>
-    <span class="quem">${esc(e.responsaveis||"—")} <span class="sg-badge ${badgeCls}"${extra}>${statusLabel}</span></span>
+    <span class="quem">${esc(e.responsaveis||"—")} <span class="sg-badge ${badgeCls}"${extra}>${statusLabel}</span>${delBtn}</span>
   </div>`;
 }
 
@@ -1009,6 +1061,7 @@ function _parseMoeda(s){
 
 function _preencherForm(p){
   document.getElementById("pf-nome").value = p ? (p.nome || "") : "";
+  document.getElementById("pf-tipo").value = p ? (p.tipo || "") : "";
   document.getElementById("pf-sku").value = p ? (p.sku || "") : "";
   document.getElementById("pf-lancamento").value = p ? _toIso(p.lancamento) : "";
   document.getElementById("pf-moscow").value = p ? (normMoscow(p.moscow) || "") : "";
@@ -1020,11 +1073,76 @@ function _preencherForm(p){
   document.getElementById("pf-orcamento").value   = p ? _fmtMoeda(p.orcamento) : "";
 }
 
+/* Preenche um <select> com as categorias de entregável. */
+function _fillCatSelect(id, sel){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = CATEGORIAS.map(c => `<option value="${c}" ${c===sel?"selected":""}>${c}</option>`).join("");
+}
+
+/* ── Editor de entregáveis na criação de projeto ── */
+function pfRenderEntList(){
+  const host = document.getElementById("pf-ent-list");
+  const cnt = document.getElementById("pf-ent-count");
+  if (cnt) cnt.textContent = _pfEntregaveis.length + (_pfEntregaveis.length === 1 ? " item" : " itens");
+  if (!host) return;
+  if (!_pfEntregaveis.length){
+    host.innerHTML = `<div class="per-vazio" style="padding:8px 0">Nenhum entregável — adicione abaixo ou escolha um tipo.</div>`;
+    return;
+  }
+  host.innerHTML = _pfEntregaveis.map((e, i) =>
+    `<div class="pf-ent-row">
+      <span class="pf-ent-cat">${esc(e.categoria)}</span>
+      <span class="pf-ent-nome">${esc(e.tipo)}</span>
+      <button type="button" class="pf-ent-del" title="Remover" aria-label="Remover entregável" onclick="pfRemoveEntregavel(${i})">✕</button>
+    </div>`).join("");
+}
+
+function pfAddEntregavel(){
+  const nome = document.getElementById("pf-ent-nome").value.trim();
+  const cat = document.getElementById("pf-ent-cat").value || "Produto";
+  if (!nome){ toast("Informe o nome do entregável", true); return; }
+  _pfEntregaveis.push({ tipo: nome, categoria: cat, responsaveis: "" });
+  document.getElementById("pf-ent-nome").value = "";
+  pfRenderEntList();
+}
+
+function pfRemoveEntregavel(i){
+  _pfEntregaveis.splice(i, 1);
+  pfRenderEntList();
+}
+
+/* Ao escolher o tipo na criação: carrega a lista-padrão do modelo (substitui a atual). */
+async function onTipoProjetoChange(){
+  if (_formProjId) return;   // edição não recarrega template
+  const tipo = document.getElementById("pf-tipo").value;
+  const hint = document.getElementById("pf-ent-hint");
+  if (!tipo){
+    _pfEntregaveis = [];
+    if (hint) hint.textContent = "Escolha o tipo para carregar a lista-padrão. Você pode remover ou adicionar itens antes de criar.";
+    pfRenderEntList();
+    return;
+  }
+  try{
+    const data = await api("/api/modelos?tipo=" + encodeURIComponent(tipo));
+    const itens = (data.modelos && data.modelos[tipo]) || [];
+    _pfEntregaveis = itens.map(m => ({ tipo: m.tipo, categoria: m.categoria, responsaveis: m.responsavel_padrao || "" }));
+    if (hint) hint.textContent = `Lista-padrão de ${tipo} carregada. Remova ou adicione itens antes de criar.`;
+    pfRenderEntList();
+  }catch(err){ toast(err.message, true); }
+}
+
 function abrirFormProjeto(){
   _formProjId = null;
   document.getElementById("pf-title").textContent = "Novo projeto";
   _preencherForm(null);
   document.getElementById("pf-arquivar").style.display = "none";
+  // Editor de entregáveis: só na criação
+  _pfEntregaveis = [];
+  _fillCatSelect("pf-ent-cat", "Produto");
+  document.getElementById("pf-tipo").disabled = false;
+  document.getElementById("pf-ent-wrap").style.display = "";
+  pfRenderEntList();
   _abrirModal("modal-proj-form");
   setTimeout(() => document.getElementById("pf-nome").focus(), 60);
 }
@@ -1036,6 +1154,9 @@ function editarProjetoAtual(){
   document.getElementById("pf-title").textContent = "Editar projeto";
   _preencherForm(p);
   document.getElementById("pf-arquivar").style.display = "";
+  // Na edição não mexemos na lista de entregáveis (isso é feito no detalhe)
+  document.getElementById("pf-tipo").disabled = false;
+  document.getElementById("pf-ent-wrap").style.display = "none";
   _abrirModal("modal-proj-form");
 }
 
@@ -1055,6 +1176,7 @@ async function salvarFormProjeto(){
   if (!nome){ toast("Informe o nome do projeto", true); return; }
   const payload = {
     nome,
+    tipo: document.getElementById("pf-tipo").value,               // "" | OEM | Revenda
     sku: document.getElementById("pf-sku").value.trim(),
     lancamento: document.getElementById("pf-lancamento").value,   // ISO yyyy-mm-dd ou ""
     moscow: document.getElementById("pf-moscow").value,           // "" | Must | Should | Could | Wont
@@ -1070,6 +1192,7 @@ async function salvarFormProjeto(){
       await api("/api/projetos/" + _formProjId, { method: "PUT", body: JSON.stringify(payload) });
       toast("Projeto atualizado");
     } else {
+      payload.entregaveis = _pfEntregaveis;   // lista já editada no modal
       await api("/api/projetos", { method: "POST", body: JSON.stringify(payload) });
       toast("Projeto criado");
     }
@@ -1081,13 +1204,197 @@ async function salvarFormProjeto(){
 
 async function arquivarProjetoAtual(){
   if (!_formProjId) return;
-  if (!confirm("Arquivar este projeto? Ele deixará de aparecer nas listas (pode ser restaurado no banco).")) return;
+  if (!(await confirmar("Arquivar este projeto? Ele sai das listas, mas pode ser restaurado depois em “Ver arquivados”.",
+        {title:"Arquivar projeto", okLabel:"Arquivar"}))) return;
   try{
     await api("/api/projetos/" + _formProjId, { method: "DELETE" });
     toast("Projeto arquivado");
     fecharFormProjeto();
     fecharProjModal();
     await _recarregarTudo();
+  }catch(err){ toast(err.message, true); }
+}
+
+async function restaurarProjetoAtual(){
+  if (!_projAtualId) return;
+  if (!(await confirmar("Restaurar este projeto? Ele volta a aparecer nas listas de projetos ativos.",
+        {title:"Restaurar projeto", okLabel:"Restaurar", danger:false}))) return;
+  try{
+    await api("/api/projetos/" + _projAtualId + "/restaurar", { method: "POST" });
+    toast("Projeto restaurado");
+    fecharProjModal();
+    await loadProjetos();      // recarrega a visão atual (arquivados)
+    _recarregarTudo().catch(()=>{});
+  }catch(err){ toast(err.message, true); }
+}
+
+/* ── Entregáveis do projeto: adicionar / excluir (no detalhe) ── */
+function abrirFormEntregavel(){
+  if (!_projAtualId) return;
+  // categoria padrão = aba ativa no detalhe, se houver
+  const tabAtiva = document.querySelector("#proj-modal-tabs .equip-modal-tab.active");
+  const catAtual = (tabAtiva && tabAtiva.textContent.trim()) || "Produto";
+  _fillCatSelect("ef-cat", CATEGORIAS.includes(catAtual) ? catAtual : "Produto");
+  document.getElementById("ef-nome").value = "";
+  document.getElementById("ef-resp").value = "";
+  _abrirModal("modal-ent-form");
+  setTimeout(() => document.getElementById("ef-nome").focus(), 60);
+}
+
+function fecharFormEntregavel(){ _fecharModal("modal-ent-form"); }
+
+async function salvarFormEntregavel(){
+  if (!_projAtualId) return;
+  const nome = document.getElementById("ef-nome").value.trim();
+  if (!nome){ toast("Informe o nome do entregável", true); return; }
+  const payload = {
+    tipo: nome,
+    categoria: document.getElementById("ef-cat").value || "Produto",
+    responsaveis: document.getElementById("ef-resp").value.trim(),
+  };
+  try{
+    await api("/api/projetos/" + _projAtualId + "/entregaveis", { method: "POST", body: JSON.stringify(payload) });
+    toast("Entregável adicionado");
+    fecharFormEntregavel();
+    await abrirProjModal(_projAtualId);   // recarrega o detalhe
+    _recarregarTudo().catch(()=>{});
+  }catch(err){ toast(err.message, true); }
+}
+
+async function excluirEntregavel(eid, nome){
+  if (!(await confirmar(`Excluir o entregável "${nome}"? Esta ação não pode ser desfeita.`,
+        {title:"Excluir entregável", okLabel:"Excluir"}))) return;
+  try{
+    await api("/api/entregaveis/" + eid, { method: "DELETE" });
+    toast("Entregável excluído");
+    if (_projAtualId) await abrirProjModal(_projAtualId);
+    _recarregarTudo().catch(()=>{});
+  }catch(err){ toast(err.message, true); }
+}
+
+/* ── Aba Modelos: templates de entregáveis por tipo (OEM/Revenda) ── */
+let _modelosCache = {};
+
+async function loadModelos(){
+  const data = await api("/api/modelos");
+  _modelosCache = data.modelos || {};
+  renderModelosToggle(data.tipos || TIPOS_PROJETO);
+  renderModelos();
+}
+
+function renderModelosToggle(tipos){
+  const host = document.getElementById("modelos-tipo-toggle");
+  if (!host) return;
+  host.innerHTML = tipos.map(t =>
+    `<button type="button" class="modelos-tipo-btn${t===_modelosTipoAtual?" active":""}" onclick="setModelosTipo('${t}')">${esc(t)}</button>`
+  ).join("");
+}
+
+function setModelosTipo(t){
+  _modelosTipoAtual = t;
+  document.querySelectorAll("#modelos-tipo-toggle .modelos-tipo-btn")
+    .forEach(b => b.classList.toggle("active", b.textContent.trim() === t));
+  renderModelos();
+}
+
+function renderModelos(){
+  const host = document.getElementById("modelos-body");
+  if (!host) return;
+  const itens = _modelosCache[_modelosTipoAtual] || [];
+  const pode = canEditProj();
+  // agrupa por categoria
+  const grupos = {};
+  itens.forEach(m => (grupos[m.categoria] = grupos[m.categoria] || []).push(m));
+  const cats = CATEGORIAS.filter(c => grupos[c]).concat(
+    Object.keys(grupos).filter(c => !CATEGORIAS.includes(c)));
+  let html = "";
+  cats.forEach(c => {
+    html += `<div class="modelos-cat"><div class="modelos-cat-head">${esc(c)}</div>`;
+    html += grupos[c].map(m =>
+      `<div class="modelos-row">
+        <span class="modelos-nome">${esc(m.tipo)}</span>
+        <span class="modelos-resp">${esc(m.responsavel_padrao || "—")}</span>
+        ${pode ? `<span class="modelos-acts">
+          <button type="button" class="lnk" onclick="modeloEditar(${m.id})">Editar</button>
+          <button type="button" class="lnk lnk-danger" onclick="modeloExcluir(${m.id})">Excluir</button>
+        </span>` : ""}
+      </div>`).join("");
+    html += `</div>`;
+  });
+  if (!itens.length) html = `<div class="per-vazio" style="padding:16px 0">Nenhum item neste modelo ainda.</div>`;
+  if (pode){
+    const opts = CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join("");
+    html += `<div class="modelos-add">
+      <select class="form-input" id="mod-add-cat" aria-label="Categoria">${opts}</select>
+      <input class="form-input" id="mod-add-nome" placeholder="Nome do entregável" aria-label="Nome do entregável"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();modeloAdicionar();}">
+      <input class="form-input" id="mod-add-resp" placeholder="Responsável padrão (opcional)" aria-label="Responsável padrão">
+      <button type="button" class="btn btn-primary btn-sm" onclick="modeloAdicionar()">+ Adicionar</button>
+    </div>`;
+  }
+  host.innerHTML = html;
+}
+
+async function modeloAdicionar(){
+  const nome = document.getElementById("mod-add-nome").value.trim();
+  if (!nome){ toast("Informe o nome do entregável", true); return; }
+  const payload = {
+    tipo_projeto: _modelosTipoAtual,
+    categoria: document.getElementById("mod-add-cat").value || "Produto",
+    tipo: nome,
+    responsavel_padrao: document.getElementById("mod-add-resp").value.trim(),
+  };
+  try{
+    await api("/api/modelos", { method: "POST", body: JSON.stringify(payload) });
+    toast("Item adicionado ao modelo");
+    await loadModelos();
+  }catch(err){ toast(err.message, true); }
+}
+
+let _modeloEditId = null;
+
+function modeloEditar(mid){
+  const itens = _modelosCache[_modelosTipoAtual] || [];
+  const m = itens.find(x => x.id === mid);
+  if (!m) return;
+  _modeloEditId = mid;
+  _fillCatSelect("mdf-cat", m.categoria);
+  document.getElementById("mdf-nome").value = m.tipo || "";
+  document.getElementById("mdf-resp").value = m.responsavel_padrao || "";
+  document.getElementById("mdf-sub").textContent = `Modelo ${_modelosTipoAtual} · projetos já criados não são afetados`;
+  _abrirModal("modal-modelo-form");
+  setTimeout(() => document.getElementById("mdf-nome").focus(), 60);
+}
+
+function fecharModeloForm(){ _fecharModal("modal-modelo-form"); _modeloEditId = null; }
+
+async function salvarModeloForm(){
+  if (!_modeloEditId) return;
+  const nome = document.getElementById("mdf-nome").value.trim();
+  if (!nome){ toast("Informe o nome do entregável", true); return; }
+  const payload = {
+    tipo: nome,
+    categoria: document.getElementById("mdf-cat").value || "Produto",
+    responsavel_padrao: document.getElementById("mdf-resp").value.trim(),
+  };
+  try{
+    await api("/api/modelos/" + _modeloEditId, { method: "PUT", body: JSON.stringify(payload) });
+    toast("Modelo atualizado");
+    fecharModeloForm();
+    await loadModelos();
+  }catch(err){ toast(err.message, true); }
+}
+
+async function modeloExcluir(mid){
+  const itens = _modelosCache[_modelosTipoAtual] || [];
+  const m = itens.find(x => x.id === mid);
+  const nome = m ? m.tipo : "este item";
+  if (!(await confirmar(`Remover "${nome}" do modelo ${_modelosTipoAtual}? Projetos já criados não são afetados.`,
+        {title:"Remover item do modelo", okLabel:"Remover"}))) return;
+  try{
+    await api("/api/modelos/" + mid, { method: "DELETE" });
+    toast("Item removido do modelo");
+    await loadModelos();
   }catch(err){ toast(err.message, true); }
 }
 
@@ -1178,7 +1485,8 @@ async function salvarMensal(){
 
 async function excluirMensal(){
   if (!_projAtualId || !_mensalEditComp) return;
-  if (!confirm("Excluir o lançamento de " + _fmtComp(_mensalEditComp) + "?")) return;
+  if (!(await confirmar("Excluir o lançamento de " + _fmtComp(_mensalEditComp) + "?",
+        {title:"Excluir lançamento", okLabel:"Excluir"}))) return;
   try{
     await api("/api/projetos/" + _projAtualId + "/mensal/" + _mensalEditComp, { method: "DELETE" });
     toast("Lançamento excluído");
@@ -1267,9 +1575,23 @@ document.getElementById("modal-proj-form").addEventListener("click", (e) => {
 document.getElementById("modal-mensal").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) fecharModalMensal();
 });
+document.getElementById("modal-ent-form").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) fecharFormEntregavel();
+});
+document.getElementById("modal-modelo-form").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) fecharModeloForm();
+});
+document.getElementById("cf-ok").addEventListener("click", () => _fecharConfirm(true));
+document.getElementById("cf-cancel").addEventListener("click", () => _fecharConfirm(false));
+document.getElementById("modal-confirm-ent").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) _fecharConfirm(false);
+});
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (document.getElementById("modal-mensal").classList.contains("open")) fecharModalMensal();
+  if (document.getElementById("modal-confirm-ent").classList.contains("open")){ _fecharConfirm(false); return; }
+  if (document.getElementById("modal-modelo-form").classList.contains("open")) fecharModeloForm();
+  else if (document.getElementById("modal-ent-form").classList.contains("open")) fecharFormEntregavel();
+  else if (document.getElementById("modal-mensal").classList.contains("open")) fecharModalMensal();
   else if (document.getElementById("modal-proj-form").classList.contains("open")) fecharFormProjeto();
   else if (document.getElementById("modal-projeto").classList.contains("open")) fecharProjModal();
   else if (document.getElementById("edit-pop").style.display !== "none") fecharPop();
