@@ -156,7 +156,7 @@ body::before{
 }
 
 /* ═══════ LOGIN ═══════ */
-#login-screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:1000;
+#login-screen,#primeiro-acesso-screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:1000;
   background:radial-gradient(circle at 30% 20%,#2d1b69 0%,#15172e 60%)}
 .login-card{
   background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--r3);

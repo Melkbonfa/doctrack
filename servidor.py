@@ -1045,7 +1045,14 @@ def _sync_schema():
     from sqlalchemy import inspect as _sa_inspect, text
     insp = _sa_inspect(db.engine)
     existentes = set(insp.get_table_names())
+    # Boolean DEFAULT difere entre dialetos (Postgres exige FALSE, SQLite aceita 0)
+    _bool_false = "FALSE" if db.engine.dialect.name == "postgresql" else "0"
     novas_colunas = {
+        "users": [
+            ("precisa_definir_senha", f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
+            ("ativacao_codigo_hash",  "VARCHAR(256)"),
+            ("ativacao_expira",       "TIMESTAMP"),
+        ],
         "projetos": [
             ("data_inicio_prev", "VARCHAR(10) DEFAULT ''"),
             ("data_inicio_real", "VARCHAR(10) DEFAULT ''"),

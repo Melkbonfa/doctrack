@@ -19,7 +19,7 @@ from flask_jwt_extended import (
 from datetime import datetime
 from functools import wraps
 
-from models import db, User, AuditLog, RevokedToken
+from models import db, User, AuditLog, RevokedToken, Responsavel
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -77,6 +77,13 @@ def login():
         return jsonify({"erro": "Email e senha são obrigatórios"}), 400
 
     user = User.query.filter_by(email=email, ativo=True).first()
+
+    # Conta pendente de primeiro acesso/reset: orienta a definir a senha
+    if user and user.precisa_definir_senha:
+        return jsonify({
+            "erro": "Esta conta ainda não tem senha. Use o código de ativação para definir sua senha no primeiro acesso.",
+            "precisa_definir_senha": True,
+        }), 403
 
     if not user or not user.check_senha(senha):
         return jsonify({"erro": "Email ou senha incorretos"}), 401
@@ -136,6 +143,53 @@ def me():
     return jsonify(user.to_dict()), 200
 
 
+# ── PRIMEIRO ACESSO (definir a própria senha) ──────────────────────────────────
+
+@auth_bp.route("/api/auth/primeiro-acesso", methods=["POST"])
+def primeiro_acesso():
+    """Rota pública: o usuário troca o código de ativação pela própria senha.
+
+    Usada tanto no convite (admin cria a conta) quanto após um reset de senha.
+    """
+    data   = request.get_json(silent=True) or {}
+    email  = data.get("email",  "").strip().lower()
+    codigo = data.get("codigo", "").strip()
+    senha  = data.get("senha",  "")
+
+    if not email or not codigo or not senha:
+        return jsonify({"erro": "E-mail, código e nova senha são obrigatórios"}), 400
+    if len(senha) < 6:
+        return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
+
+    user = User.query.filter_by(email=email, ativo=True).first()
+
+    # Mensagens distintas para orientar o usuário (ferramenta interna)
+    if not user or not user.precisa_definir_senha or not user.ativacao_codigo_hash:
+        return jsonify({"erro": "Não há primeiro acesso pendente para este e-mail. Confira o e-mail digitado."}), 400
+    if user.ativacao_expira and datetime.now() > user.ativacao_expira:
+        return jsonify({"erro": "Código de ativação expirado. Peça um novo ao administrador."}), 400
+    if not user.check_codigo(codigo):
+        return jsonify({"erro": "Código de ativação incorreto."}), 400
+
+    user.set_senha(senha)          # também limpa o código e o estado pendente
+    user.ultimo_login = datetime.now()
+    db.session.commit()
+
+    log_action(user.email, "FIRST_ACCESS", entidade=user.email, ip=get_client_ip())
+
+    # Já autentica o usuário para entrar direto
+    additional = {"role": user.role, "nome": user.nome}
+    access_token  = create_access_token(identity=user.email, additional_claims=additional)
+    refresh_token = create_refresh_token(identity=user.email, additional_claims=additional)
+
+    return jsonify({
+        "mensagem": "Senha definida com sucesso",
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "usuario": user.to_dict(),
+    }), 200
+
+
 # ── LISTAR USUÁRIOS ────────────────────────────────────────────────────────────
 
 @auth_bp.route("/api/users", methods=["GET"])
@@ -166,24 +220,37 @@ def create_user():
     role  = data.get("role",  "tecnico").strip()
 
     # Validações
-    if not nome or not email or not senha:
-        return jsonify({"erro": "Nome, email e senha são obrigatórios"}), 400
+    if not nome or not email:
+        return jsonify({"erro": "Nome e email são obrigatórios"}), 400
     if role not in ("admin", "gestor", "tecnico", "leitura"):
         return jsonify({"erro": "Role inválido. Use: admin, gestor, tecnico, leitura"}), 400
-    if len(senha) < 6:
+    if senha and len(senha) < 6:
         return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({"erro": "Este e-mail já está cadastrado"}), 409
 
     user = User(nome=nome, email=email, role=role)
-    user.set_senha(senha)
+
+    codigo = None
+    if senha:
+        # Admin já definiu uma senha (comportamento antigo)
+        user.set_senha(senha)
+    else:
+        # Convite: usuário define a própria senha no primeiro acesso
+        codigo = user.gerar_codigo_ativacao()
+
     db.session.add(user)
     db.session.commit()
 
     log_action(caller_email, "CREATE", entidade=email,
                campo="role", novo=role, ip=get_client_ip())
 
-    return jsonify({"mensagem": "Usuário criado com sucesso", "usuario": user.to_dict()}), 201
+    resp = {"mensagem": "Usuário criado com sucesso", "usuario": user.to_dict()}
+    if codigo:
+        # Mostrado uma única vez para o admin repassar ao usuário
+        resp["codigo_ativacao"] = codigo
+        resp["validade_dias"]   = User.ATIVACAO_VALIDADE_DIAS
+    return jsonify(resp), 201
 
 
 # ── BUSCAR USUÁRIO POR ID ──────────────────────────────────────────────────────
@@ -266,24 +333,72 @@ def update_user(user_id):
     return jsonify({"mensagem": "Usuário atualizado", "usuario": user.to_dict()}), 200
 
 
-# ── DESATIVAR USUÁRIO (soft delete) ────────────────────────────────────────────
+# ── DESATIVAR (soft) OU EXCLUIR (permanente) USUÁRIO ───────────────────────────
 
 @auth_bp.route("/api/users/<int:user_id>", methods=["DELETE"])
 @require_role("admin")
 def delete_user(user_id):
+    """DELETE soft (ativo=False) por padrão.
+
+    Com ?permanente=true remove o usuário de vez: desfaz as responsabilidades
+    dele e desvincula (sem apagar) o histórico de auditoria, preservando a
+    rastreabilidade pelo e-mail já gravado em cada log.
+    """
+    caller_email = get_jwt_identity()
+    permanente = str(request.args.get("permanente", "")).lower() in ("1", "true", "yes")
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    # Protege: não deixa o admin se auto-excluir/desativar
+    if user.email == caller_email:
+        return jsonify({"erro": "Você não pode excluir ou desativar a própria conta"}), 400
+
+    if not permanente:
+        user.ativo = False
+        db.session.commit()
+        log_action(caller_email, "DELETE", entidade=user.email, ip=get_client_ip())
+        return jsonify({"mensagem": f"Usuário {user.email} desativado com sucesso"}), 200
+
+    # Exclusão permanente — limpar dependências para não violar FKs
+    email = user.email
+    Responsavel.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+    Responsavel.query.filter_by(atribuido_por_id=user.id).update(
+        {"atribuido_por_id": None}, synchronize_session=False)
+    AuditLog.query.filter_by(usuario_id=user.id).update(
+        {"usuario_id": None}, synchronize_session=False)
+
+    db.session.delete(user)
+    db.session.commit()
+
+    log_action(caller_email, "DELETE", entidade=email,
+               campo="permanente", novo="true", ip=get_client_ip())
+
+    return jsonify({"mensagem": f"Usuário {email} excluído permanentemente"}), 200
+
+
+# ── RESETAR SENHA (gera novo código de primeiro acesso) ────────────────────────
+
+@auth_bp.route("/api/users/<int:user_id>/reset-senha", methods=["POST"])
+@require_role("admin")
+def reset_senha(user_id):
+    """Devolve a conta ao estado de primeiro acesso: limpa a senha e gera um
+    novo código de ativação que o usuário troca pela nova senha."""
     caller_email = get_jwt_identity()
 
     user = User.query.get(user_id)
     if not user:
         return jsonify({"erro": "Usuário não encontrado"}), 404
 
-    # Protege: não deixa desativar o próprio usuário
-    if user.email == caller_email:
-        return jsonify({"erro": "Você não pode desativar sua própria conta"}), 400
-
-    user.ativo = False
+    codigo = user.gerar_codigo_ativacao()
     db.session.commit()
 
-    log_action(caller_email, "DELETE", entidade=user.email, ip=get_client_ip())
+    log_action(caller_email, "PASSWORD_RESET", entidade=user.email, ip=get_client_ip())
 
-    return jsonify({"mensagem": f"Usuário {user.email} desativado com sucesso"}), 200
+    return jsonify({
+        "mensagem": f"Senha de {user.email} resetada. Repasse o código de ativação.",
+        "codigo_ativacao": codigo,
+        "validade_dias":   User.ATIVACAO_VALIDADE_DIAS,
+        "usuario":         user.to_dict(),
+    }), 200
