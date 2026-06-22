@@ -6,8 +6,9 @@ Nova estrutura: 3 setores (PRE, Fabricante, PDE) com status lineares.
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import secrets
 
 db = SQLAlchemy()
 bcrypt = Bcrypt()
@@ -40,6 +41,7 @@ ACOES_AUDIT = [
     "DOCUMENT_STATUS_UPDATED", "ETAPA_COMPLETED",
     "RESPONSAVEL_ASSIGNED", "RESPONSAVEL_REMOVED",
     "NOTIFICATION", "USER_CONNECTED", "USER_DISCONNECTED",
+    "FIRST_ACCESS", "PASSWORD_RESET",
 ]
 
 
@@ -70,16 +72,52 @@ class User(db.Model):
     criado_em  = db.Column(db.DateTime, default=datetime.now)
     ultimo_login = db.Column(db.DateTime, nullable=True)
 
+    # Primeiro acesso / reset de senha (modelo de convite)
+    # Conta pendente: precisa_definir_senha=True, senha_hash inutilizável e
+    # um código de ativação (hash) que o usuário troca pela própria senha.
+    precisa_definir_senha = db.Column(db.Boolean, default=False, nullable=False)
+    ativacao_codigo_hash  = db.Column(db.String(256), nullable=True)
+    ativacao_expira       = db.Column(db.DateTime, nullable=True)
+
     responsabilidades = db.relationship(
         "Responsavel", back_populates="user",
         foreign_keys="Responsavel.user_id"
     )
 
+    # Validade padrão do código de ativação
+    ATIVACAO_VALIDADE_DIAS = 7
+
     def set_senha(self, senha):
         self.senha_hash = bcrypt.generate_password_hash(senha).decode("utf-8")
+        # Definir uma senha conclui qualquer pendência de primeiro acesso/reset
+        self.precisa_definir_senha = False
+        self.ativacao_codigo_hash  = None
+        self.ativacao_expira       = None
 
     def check_senha(self, senha):
+        # Conta pendente (sem senha utilizável) nunca autentica por senha
+        if self.precisa_definir_senha or not self.senha_hash:
+            return False
         return bcrypt.check_password_hash(self.senha_hash, senha)
+
+    def gerar_codigo_ativacao(self):
+        """Coloca a conta em estado de primeiro acesso e devolve o código em
+        texto puro (mostrado uma única vez para o admin)."""
+        codigo = secrets.token_hex(4).upper()          # ex.: "A1B2C3D4"
+        self.ativacao_codigo_hash = bcrypt.generate_password_hash(codigo).decode("utf-8")
+        self.ativacao_expira      = datetime.now() + timedelta(days=self.ATIVACAO_VALIDADE_DIAS)
+        self.precisa_definir_senha = True
+        # Hash inutilizável: mantém senha_hash NOT NULL sem permitir login por senha
+        self.senha_hash = bcrypt.generate_password_hash(secrets.token_urlsafe(32)).decode("utf-8")
+        return codigo
+
+    def check_codigo(self, codigo):
+        """Valida o código de ativação (existe, não expirou e confere)."""
+        if not self.precisa_definir_senha or not self.ativacao_codigo_hash:
+            return False
+        if self.ativacao_expira and datetime.now() > self.ativacao_expira:
+            return False
+        return bcrypt.check_password_hash(self.ativacao_codigo_hash, (codigo or "").strip().upper())
 
     def to_dict(self):
         return {
@@ -88,6 +126,7 @@ class User(db.Model):
             "email":        self.email,
             "role":         self.role,
             "ativo":        bool(self.ativo),
+            "precisa_definir_senha": bool(self.precisa_definir_senha),
             "criado_em":    self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
             "ultimo_login": self.ultimo_login.strftime("%d/%m/%Y %H:%M") if self.ultimo_login else "—",
         }

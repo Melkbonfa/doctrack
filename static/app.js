@@ -84,6 +84,11 @@ async function doLogin(){
   try{
     const res=await fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,senha})});
     const data=await res.json().catch(()=>({}));
+    if(res.status===403&&data.precisa_definir_senha){
+      btn.textContent='Entrar no DocTrack';
+      showToast('Conta sem senha. Defina sua senha com o código de ativação.','info');
+      showPrimeiroAcesso(email);return;
+    }
     if(!res.ok){btn.textContent='Entrar no DocTrack';showToast(data.erro||data.error||'Falha no login','error');return}
     setToken(data.access_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
     const u=data.usuario;currentUser={name:u.nome,email:u.email,role:u.role,initials:u.nome.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};
@@ -92,6 +97,60 @@ async function doLogin(){
     btn.textContent='Entrar no DocTrack';
     showToast('Servidor indisponível. Tente novamente.','error');
   }
+}
+
+// ── Primeiro acesso / definir senha ───────────────────────────────────────────
+function showPrimeiroAcesso(email){
+  document.getElementById('login-screen').style.display='none';
+  const scr=document.getElementById('primeiro-acesso-screen');
+  scr.style.display='flex';
+  if(email){const e=document.getElementById('pa-email');if(e)e.value=email;}
+  const f=document.getElementById(email?'pa-codigo':'pa-email');if(f)f.focus();
+}
+function showLogin(){
+  document.getElementById('primeiro-acesso-screen').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+  const e=document.getElementById('login-email');if(e)e.focus();
+}
+async function doPrimeiroAcesso(){
+  const btn=document.getElementById('pa-btn-text');
+  const email=document.getElementById('pa-email').value.trim();
+  const codigo=document.getElementById('pa-codigo').value.trim();
+  const senha=document.getElementById('pa-senha').value;
+  const senha2=document.getElementById('pa-senha2').value;
+  if(senha.length<6){showToast('A senha deve ter pelo menos 6 caracteres','error');return}
+  if(senha!==senha2){showToast('As senhas não conferem','error');return}
+  const original=btn.textContent;
+  btn.innerHTML='<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span>';
+  try{
+    const res=await fetch(API+'/auth/primeiro-acesso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,codigo,senha})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok){btn.textContent=original;showToast(data.erro||'Não foi possível definir a senha','error');return}
+    setToken(data.access_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
+    showToast('Senha definida! Entrando...','success');
+    window.location.href='/hub';
+  }catch(e){
+    btn.textContent=original;
+    showToast('Servidor indisponível. Tente novamente.','error');
+  }
+}
+// Exibe o código de ativação gerado (criação ou reset) num modal com cópia
+let _codigoAtivacaoAtual='';
+function showCodigoAtivacao(codigo,email,validadeDias){
+  _codigoAtivacaoAtual=codigo||'';
+  document.getElementById('codigo-ativacao-valor').textContent=codigo||'—';
+  document.getElementById('codigo-ativacao-sub').textContent=
+    'Repasse este código para '+(email||'o usuário')+'. Ele será mostrado apenas uma vez.';
+  document.getElementById('codigo-ativacao-validade').textContent=
+    validadeDias?('Validade: '+validadeDias+' dia(s).'):'';
+  const b=document.getElementById('codigo-ativacao-copy-btn');if(b)b.textContent='Copiar';
+  openModal('codigo-ativacao');
+}
+function copiarCodigoAtivacao(){
+  const b=document.getElementById('codigo-ativacao-copy-btn');
+  navigator.clipboard.writeText(_codigoAtivacaoAtual).then(()=>{
+    if(b)b.textContent='Copiado ✓';showToast('Código copiado','success');
+  }).catch(()=>showToast('Não foi possível copiar','error'));
 }
 function toggleLoginPass(){
   const inp=document.getElementById('login-pass'),eye=document.getElementById('login-eye');
@@ -129,6 +188,8 @@ document.body.addEventListener('click',(e)=>{
   switch(action){
     case 'edit-user': openEditUser(parseInt(id)); break;
     case 'delete-user': confirmDeleteUser(parseInt(id), btn.dataset.name||''); break;
+    case 'hard-delete-user': confirmHardDeleteUser(parseInt(id), btn.dataset.name||''); break;
+    case 'reset-user': confirmResetUser(parseInt(id), btn.dataset.name||'', btn.dataset.email||''); break;
   }
 });
 
@@ -1272,14 +1333,22 @@ async function renderUsers(){
 function renderUserCards(users){
   const rh={admin:'<span class="role-admin">Admin</span>',gestor:'<span class="role-gestor">Gestor</span>',tecnico:'<span class="role-tecnico">Técnico</span>',leitura:'<span class="role-leitura">Leitura</span>'};
   const canEdit=currentUser.role==='admin';
-  document.getElementById('users-list').innerHTML=users.map(u=>`
+  const showInactive=document.getElementById('users-show-inactive')?.checked;
+  const lista=(users||[]).filter(u=>showInactive||u.ativo);
+  const inativos=(users||[]).filter(u=>!u.ativo).length;
+  document.getElementById('users-list').innerHTML=lista.map(u=>`
     <div class="user-card" style="${!u.ativo?'opacity:.45':''}">
       <div class="uc-avatar">${esc((u.nome||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase())}</div>
-      <div style="flex:1;min-width:0"><div class="uc-name">${esc(u.nome)}${!u.ativo?' <span style="font-size:10px;color:var(--red)">(inativo)</span>':''}</div><div class="uc-email">${esc(u.email)}</div></div>
+      <div style="flex:1;min-width:0"><div class="uc-name">${esc(u.nome)}${!u.ativo?' <span style="font-size:10px;color:var(--red)">(inativo)</span>':''}${u.precisa_definir_senha?' <span style="font-size:10px;color:var(--amber,#f59e0b)">(senha pendente)</span>':''}</div><div class="uc-email">${esc(u.email)}</div></div>
       <div>${rh[u.role]||esc(u.role)}</div>
       <div style="text-align:right;min-width:90px"><div style="font-size:10px;color:var(--t4);font-family:var(--font-mono)">último</div><div style="font-size:11px;color:var(--t3);font-family:var(--font-mono)">${esc(u.ultimo_login||'—')}</div></div>
-      ${canEdit?`<div class="uc-actions"><button class="btn btn-ghost btn-sm" type="button" data-action="edit-user" data-id="${u.id}" aria-label="Editar usuário">Editar</button>${u.ativo&&u.email!==currentUser.email?`<button class="btn btn-danger btn-sm" type="button" data-action="delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Desativar usuário">×</button>`:''}</div>`:''}
-    </div>`).join('')||'<div style="color:var(--t4);padding:16px;font-size:12px">Nenhum usuário.</div>';
+      ${canEdit?`<div class="uc-actions"><button class="btn btn-ghost btn-sm" type="button" data-action="edit-user" data-id="${u.id}" aria-label="Editar usuário">Editar</button>${u.ativo?`<button class="btn btn-ghost btn-sm" type="button" data-action="reset-user" data-id="${u.id}" data-name="${esc(u.nome)}" data-email="${esc(u.email)}" aria-label="Resetar senha">Resetar senha</button>`:''}${u.ativo&&u.email!==currentUser.email?`<button class="btn btn-ghost btn-sm" type="button" data-action="delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Desativar usuário">Desativar</button>`:''}${u.email!==currentUser.email?`<button class="btn btn-danger btn-sm" type="button" data-action="hard-delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Excluir usuário permanentemente">Excluir</button>`:''}</div>`:''}
+    </div>`).join('')||`<div style="color:var(--t4);padding:16px;font-size:12px">Nenhum usuário${!showInactive&&inativos?' ativo. Há '+inativos+' inativo(s) — marque "Mostrar inativos".':'.'}</div>`;
+  // Dica discreta de quantos inativos estão ocultos
+  if(lista.length&&!showInactive&&inativos){
+    document.getElementById('users-list').insertAdjacentHTML('beforeend',
+      `<div style="color:var(--t4);padding:10px 16px;font-size:11px">${inativos} usuário(s) inativo(s) oculto(s). Marque "Mostrar inativos" para vê-los.</div>`);
+  }
 }
 function openEditUser(id){
   const u=_allUsers.find(x=>x.id===id);if(!u)return;
@@ -1303,11 +1372,35 @@ async function confirmDeleteUser(id,nome){
   if(!ok)return;
   try{const res=await apiFetch(`/users/${id}`,{method:'DELETE'});if(!res||!res.ok){showToast('Erro','error');return}showToast(nome+' desativado','success');renderUsers()}catch(e){showToast('Erro','error')}
 }
+async function confirmHardDeleteUser(id,nome){
+  const ok=await confirmModal('Excluir permanentemente',`Excluir DEFINITIVAMENTE o usuário "${nome}"? Esta ação não pode ser desfeita. As responsabilidades dele em documentos serão removidas (o histórico de auditoria é preservado).`);
+  if(!ok)return;
+  try{const res=await apiFetch(`/users/${id}?permanente=true`,{method:'DELETE'});const data=await res.json().catch(()=>({}));if(!res||!res.ok){showToast((data&&data.erro)||'Erro ao excluir','error');return}showToast(nome+' excluído','success');renderUsers()}catch(e){showToast('Erro','error')}
+}
 async function createUser(){
   const nome=document.getElementById('new-user-nome').value.trim(),email=document.getElementById('new-user-email').value.trim(),
     role=document.getElementById('new-user-role').value,senha=document.getElementById('new-user-senha').value.trim();
-  if(!nome||!email||!senha){showToast('Preencha tudo','error');return}
-  try{const res=await apiFetch('/users',{method:'POST',body:JSON.stringify({nome,email,role,senha})});const data=await res.json();if(!res.ok){showToast(data.erro||'Erro','error');return}showToast('Criado','success');closeModal('add-user');['new-user-nome','new-user-email','new-user-senha'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});renderUsers()}catch(e){showToast('Erro','error')}
+  if(!nome||!email){showToast('Preencha nome e e-mail','error');return}
+  if(senha&&senha.length<6){showToast('A senha deve ter pelo menos 6 caracteres','error');return}
+  const body={nome,email,role};if(senha)body.senha=senha;
+  try{
+    const res=await apiFetch('/users',{method:'POST',body:JSON.stringify(body)});const data=await res.json();
+    if(!res.ok){showToast(data.erro||'Erro','error');return}
+    showToast('Usuário criado','success');closeModal('add-user');
+    ['new-user-nome','new-user-email','new-user-senha'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+    renderUsers();
+    if(data.codigo_ativacao)showCodigoAtivacao(data.codigo_ativacao,email,data.validade_dias);
+  }catch(e){showToast('Erro','error')}
+}
+async function confirmResetUser(id,nome,email){
+  const ok=await confirmModal('Resetar senha',`Resetar a senha de "${nome}"? A senha atual deixa de funcionar e será gerado um código de ativação para o usuário definir uma nova senha.`);
+  if(!ok)return;
+  try{
+    const res=await apiFetch(`/users/${id}/reset-senha`,{method:'POST'});const data=await res.json().catch(()=>({}));
+    if(!res||!res.ok){showToast((data&&data.erro)||'Erro ao resetar','error');return}
+    showToast('Senha resetada','success');renderUsers();
+    if(data.codigo_ativacao)showCodigoAtivacao(data.codigo_ativacao,email||nome,data.validade_dias);
+  }catch(e){showToast('Erro','error')}
 }
 
 // ═══ HELPERS ═══

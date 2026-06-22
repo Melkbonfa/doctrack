@@ -48,6 +48,62 @@
       </div>
       <button type="submit" class="btn-login"><span id="login-btn-text">Entrar no DocTrack</span></button>
     </form>
+    <div style="text-align:center;margin-top:16px">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="showPrimeiroAcesso()" style="font-size:13px">
+        Primeiro acesso ou esqueci a senha
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- PRIMEIRO ACESSO / DEFINIR SENHA -->
+<div id="primeiro-acesso-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>
+      </div>
+      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS · v4.0 ENTERPRISE</div></div>
+    </div>
+    <div class="login-title">Definir senha</div>
+    <div class="login-subtitle">Use o código de ativação enviado pelo administrador</div>
+
+    <form id="pa-form" autocomplete="off" onsubmit="event.preventDefault();doPrimeiroAcesso()">
+      <div class="form-group">
+        <label class="form-label" for="pa-email">E-mail</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="m3 7 9 6 9-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <input class="form-input" id="pa-email" type="email" placeholder="seu@email.com" autocomplete="email" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pa-codigo">Código de ativação</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="pa-codigo" type="text" placeholder="Ex.: A1B2C3D4" style="text-transform:uppercase;letter-spacing:1px" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pa-senha">Nova senha</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="pa-senha" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pa-senha2">Confirmar senha</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="pa-senha2" type="password" placeholder="Repita a senha" autocomplete="new-password" required>
+        </div>
+      </div>
+      <button type="submit" class="btn-login"><span id="pa-btn-text">Definir senha e entrar</span></button>
+    </form>
+    <div style="text-align:center;margin-top:16px">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="showLogin()" style="font-size:13px">
+        ← Voltar para o login
+      </button>
+    </div>
   </div>
 </div>
 
@@ -188,7 +244,13 @@
       <div class="page" id="page-users">
         <div class="page-header">
           <div><div class="page-title">Usuários & RBAC</div><div class="page-sub">Controle de acesso</div></div>
-          <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openModal('add-user')">+ Novo Usuário</button></div>
+          <div class="page-actions" style="display:flex;gap:14px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--t3);white-space:nowrap;">
+              <input type="checkbox" id="users-show-inactive" onchange="renderUserCards(_allUsers)" style="width:15px;height:15px;cursor:pointer;">
+              Mostrar inativos
+            </label>
+            <button class="btn btn-primary btn-sm" onclick="openModal('add-user')">+ Novo Usuário</button>
+          </div>
         </div>
         <div class="card"><div id="users-list"></div></div>
       </div>
@@ -243,8 +305,22 @@
     <div class="form-group"><label class="form-label" for="new-user-nome">Nome completo</label><input class="form-input" id="new-user-nome" placeholder="Nome Sobrenome"></div>
     <div class="form-group"><label class="form-label" for="new-user-email">E-mail</label><input class="form-input" id="new-user-email" type="email" placeholder="email@empresa.com"></div>
     <div class="form-group"><label class="form-label" for="new-user-role">Perfil</label><select class="form-input" id="new-user-role"><option value="admin">Admin</option><option value="gestor">Gestor</option><option value="tecnico" selected>Técnico</option><option value="leitura">Leitura</option></select></div>
-    <div class="form-group"><label class="form-label" for="new-user-senha">Senha</label><input class="form-input" id="new-user-senha" type="password" placeholder="Mínimo 6 caracteres"></div>
+    <div class="form-group"><label class="form-label" for="new-user-senha">Senha (opcional)</label><input class="form-input" id="new-user-senha" type="password" placeholder="Deixe em branco p/ o usuário definir no 1º acesso"><div style="font-size:11px;color:var(--t4);margin-top:4px">Em branco gera um código de ativação para o usuário criar a própria senha.</div></div>
     <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('add-user')">Cancelar</button><button class="btn btn-primary" onclick="createUser()">Criar</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Código de Ativação (mostrado uma única vez ao admin) -->
+<div class="modal-overlay" id="modal-codigo-ativacao" role="dialog" aria-modal="true" aria-labelledby="modal-codigo-ativacao-title" aria-hidden="true">
+  <div class="modal" tabindex="-1">
+    <div class="modal-title" id="modal-codigo-ativacao-title">Código de ativação</div>
+    <div class="modal-sub" id="codigo-ativacao-sub">Repasse este código ao usuário. Ele será mostrado apenas uma vez.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin:18px 0">
+      <code id="codigo-ativacao-valor" style="flex:1;font-family:var(--font-mono);font-size:22px;letter-spacing:3px;text-align:center;padding:14px;border:1px dashed var(--b2,#444);border-radius:8px;background:var(--bg2,rgba(255,255,255,.04))">—</code>
+      <button class="btn btn-primary" onclick="copiarCodigoAtivacao()" id="codigo-ativacao-copy-btn">Copiar</button>
+    </div>
+    <div style="font-size:12px;color:var(--t4)" id="codigo-ativacao-validade"></div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('codigo-ativacao')">Fechar</button></div>
   </div>
 </div>
 
