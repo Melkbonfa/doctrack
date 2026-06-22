@@ -126,12 +126,14 @@ if (-not $nssm) {
 $waitress = "$Projeto\venv\Scripts\waitress-serve.exe"
 New-Item -ItemType Directory -Force -Path "$Projeto\logs" | Out-Null
 
-# Remove servico antigo se existir (reinstalacao limpa)
-& $nssm status $Servico 2>$null
-if ($LASTEXITCODE -eq 0) {
+# Remove servico antigo se existir (reinstalacao limpa).
+# Usa Get-Service (cmdlet) em vez de 'nssm status' para nao disparar erro
+# fatal quando o servico ainda nao existe na primeira instalacao.
+if (Get-Service $Servico -ErrorAction SilentlyContinue) {
     Aviso "Servico ja existe, reinstalando..."
     & $nssm stop $Servico 2>$null
     & $nssm remove $Servico confirm
+    Start-Sleep -Seconds 2
 }
 
 & $nssm install $Servico $waitress
