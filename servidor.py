@@ -342,6 +342,13 @@ def entregaveis_page():
 def hub_page():
     return render_template("hub.html", asset_v=_static_version())
 
+@app.route("/config")
+@app.route("/configuracoes")   # alias amigável
+def config_page():
+    # Página servida a qualquer um; o acesso real é barrado no front (token + role)
+    # e nas APIs (audit/users já exigem gestor+).
+    return render_template("config.html", asset_v=_static_version())
+
 @app.route("/socket-client.js")
 def serve_socket_client():
     return send_from_directory(BASE_DIR, "socket-client.js")

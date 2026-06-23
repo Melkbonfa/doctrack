@@ -134,24 +134,7 @@ async function doPrimeiroAcesso(){
     showToast('Servidor indisponível. Tente novamente.','error');
   }
 }
-// Exibe o código de ativação gerado (criação ou reset) num modal com cópia
-let _codigoAtivacaoAtual='';
-function showCodigoAtivacao(codigo,email,validadeDias){
-  _codigoAtivacaoAtual=codigo||'';
-  document.getElementById('codigo-ativacao-valor').textContent=codigo||'—';
-  document.getElementById('codigo-ativacao-sub').textContent=
-    'Repasse este código para '+(email||'o usuário')+'. Ele será mostrado apenas uma vez.';
-  document.getElementById('codigo-ativacao-validade').textContent=
-    validadeDias?('Validade: '+validadeDias+' dia(s).'):'';
-  const b=document.getElementById('codigo-ativacao-copy-btn');if(b)b.textContent='Copiar';
-  openModal('codigo-ativacao');
-}
-function copiarCodigoAtivacao(){
-  const b=document.getElementById('codigo-ativacao-copy-btn');
-  navigator.clipboard.writeText(_codigoAtivacaoAtual).then(()=>{
-    if(b)b.textContent='Copiado ✓';showToast('Código copiado','success');
-  }).catch(()=>showToast('Não foi possível copiar','error'));
-}
+// O modal de código de ativação (criação/reset de usuário) vive no módulo de Configurações.
 function toggleLoginPass(){
   const inp=document.getElementById('login-pass'),eye=document.getElementById('login-eye');
   if(!inp||!eye)return;
@@ -168,41 +151,27 @@ async function doLogout(){
   document.getElementById('login-screen').style.display='flex';
 }
 
-const PAGE_LABELS={dashboard:'Dashboard',docs:'Documentos',audit:'Audit Log',users:'Usuários',settings:'Configurações'};
+const PAGE_LABELS={dashboard:'Dashboard',docs:'Documentos'};
 function navigate(page){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('page-'+page).classList.add('active');
+  const pg=document.getElementById('page-'+page);
+  if(pg)pg.classList.add('active');
   document.getElementById('breadcrumb-current').textContent=PAGE_LABELS[page]||page;
-  if(page==='docs')renderDocs();if(page==='audit')renderAudit();if(page==='users')renderUsers();
+  if(page==='docs')renderDocs();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>navigate(el.dataset.page)));
 
 document.body.addEventListener('click',(e)=>{
   const chip=e.target.closest('.filter-chip');
   if(chip){ _equipChip = chip.dataset.chip; renderGrid(); return; }
-  const btn=e.target.closest('[data-action]');
-  if(!btn)return;
-  const action=btn.dataset.action;
-  const id=btn.dataset.id;
-  switch(action){
-    case 'edit-user': openEditUser(parseInt(id)); break;
-    case 'delete-user': confirmDeleteUser(parseInt(id), btn.dataset.name||''); break;
-    case 'hard-delete-user': confirmHardDeleteUser(parseInt(id), btn.dataset.name||''); break;
-    case 'reset-user': confirmResetUser(parseInt(id), btn.dataset.name||'', btn.dataset.email||''); break;
-  }
-});
-
-document.body.addEventListener('change',(e)=>{
-  if(e.target&&e.target.id==='audit-filter-action'){filterAudit();return}
 });
 
 document.body.addEventListener('input',(e)=>{
   if(!e.target)return;
-  if(e.target.id==='docs-search'||e.target.id==='audit-search'){
+  if(e.target.id==='docs-search'){
     clearTimeout(_filterTimer);
-    const fn=e.target.id==='docs-search'?renderGrid:filterAudit;
-    _filterTimer=setTimeout(fn,250);
+    _filterTimer=setTimeout(renderGrid,250);
   }
 });
 
@@ -212,7 +181,7 @@ async function initApp(){
   await loadEnums();
   await loadData();
 
-  renderDashboard();renderDocs();renderAudit();renderUsers();
+  renderDashboard();renderDocs();
   makeSortable();
   showToast('Bem-vindo ao DocTrack v4.0','success');
   document.getElementById('sync-label').textContent='Conectado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -221,14 +190,10 @@ async function initApp(){
 
 function updateUserUI(){
   const av=currentUser.initials,rl=currentUser.role;
-  ['nav-avatar','top-avatar','settings-avatar'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=av});
-  document.getElementById('nav-name').textContent=currentUser.name;
-  document.getElementById('nav-role').textContent=rl.toUpperCase();
-  document.getElementById('settings-name').textContent=currentUser.name;
-  document.getElementById('settings-email').textContent=currentUser.email;
-  const rh={admin:'<span class="role-admin">Admin</span>',gestor:'<span class="role-gestor">Gestor</span>',tecnico:'<span class="role-tecnico">Técnico</span>',leitura:'<span class="role-leitura">Leitura</span>'};
-  const rb=document.getElementById('settings-role-badge');if(rb)rb.innerHTML=rh[rl]||'';
-  
+  ['nav-avatar','top-avatar'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=av});
+  const nn=document.getElementById('nav-name');if(nn)nn.textContent=currentUser.name;
+  const nr=document.getElementById('nav-role');if(nr)nr.textContent=rl.toUpperCase();
+
   // Visibility rules
   if(rl==='leitura') {
     const b = document.getElementById('btn-add-equip');
@@ -602,30 +567,7 @@ async function refreshAll(){await loadData();renderDashboard();renderDocs();show
   document.getElementById('sync-label').textContent='Atualizado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 }
 
-async function reimportExcel() {
-    const ok = await confirmModal('Sincronizar Planilha', 'Isso irá limpar os documentos antigos e carregar todos os dados novamente da planilha excel. Deseja continuar?');
-    if(!ok) return;
-    try {
-        const res = await apiFetch('/reimport', {method: 'POST'});
-        if(!res) {
-            showToast('Erro de rede ou servidor não responde', 'error');
-            return;
-        }
-        let data = {};
-        try { data = await res.json(); } catch(e) { 
-            // Se o servidor retornar HTML (ex: 404, 500), tratamos aqui
-            data = {erro: `Erro no servidor (Status: ${res.status})`}; 
-        }
-        
-        if(res.ok) {
-            showToast(data.mensagem || 'Planilha sincronizada com sucesso!', 'success');
-        } else {
-            showToast(data.erro || 'Erro ao sincronizar planilha', 'error');
-        }
-    } catch(e) {
-        showToast('Erro de rede', 'error');
-    }
-}
+// reimportExcel() foi movido para o módulo de Configurações (static/config.js).
 
 // ═══ DASHBOARD ═══
 // Replica compute_kpis() do servidor para recalcular o dashboard por equipamento
@@ -1284,124 +1226,8 @@ async function submitNewEquip(){
   }catch(e){ showToast('Erro de rede','error'); }
 }
 
-// ═══ AUDIT ═══
-async function renderAudit(){filterAudit()}
-function _auditDateParams(){
-  const di=(document.getElementById('audit-date-inicio')||{}).value||'';
-  const df=(document.getElementById('audit-date-fim')||{}).value||'';
-  const p=new URLSearchParams();
-  if(di)p.set('inicio',di);
-  if(df)p.set('fim',df);
-  return p;
-}
-function limparAuditDatas(){
-  const a=document.getElementById('audit-date-inicio'),b=document.getElementById('audit-date-fim');
-  if(a)a.value='';if(b)b.value='';
-  filterAudit();
-}
-async function filterAudit(){
-  let logs=[];
-  const qs=_auditDateParams().toString();
-  try{const res=await apiFetch('/audit'+(qs?('?'+qs):''));if(res&&res.ok)logs=await res.json()}catch(e){}
-  const q=(document.getElementById('audit-search').value||'').toLowerCase();
-  const a=document.getElementById('audit-filter-action').value;
-  if(q)logs=logs.filter(l=>(l.usuario||'').toLowerCase().includes(q)||(l.entidade||'').toLowerCase().includes(q)||(l.campo||'').toLowerCase().includes(q));
-  if(a)logs=logs.filter(l=>l.acao===a);
-  document.getElementById('audit-list').innerHTML=logs.length?logs.map(l=>{
-    let actColor=l.acao==='DELETE'?'var(--red)':l.acao==='CREATE'?'var(--green)':l.acao==='UPDATE'?'var(--cyan)':'var(--purple)';
-    return `<div class="audit-item">
-      <div class="audit-user">${esc(l.usuario)}</div>
-      <div class="audit-action"><span style="color:${actColor};font-family:var(--font-mono);font-size:10px">[${esc(l.acao)}]</span> <strong>${esc(l.entidade)}</strong>
-        ${l.campo&&l.campo!=='—'?`<span style="color:var(--t3);font-size:10px"> (${esc(l.campo)}) </span>`:''}
-        ${l.valor_antigo?' <span class="old">'+esc(l.valor_antigo)+'</span> → <span class="new">'+esc(l.valor_novo)+'</span>':l.valor_novo?' '+esc(l.valor_novo):''}
-      </div><div class="audit-time">${esc(l.timestamp)}</div>
-    </div>`}).join(''):'<div style="text-align:center;padding:28px;color:var(--t4);font-size:12px">Nenhum registro</div>';
-}
-
-function exportAudit() {
-    const p=_auditDateParams();
-    p.set('token', getToken());
-    window.open(API + '/export/audit?' + p.toString(), '_blank');
-}
-
-// ═══ USERS ═══
-async function renderUsers(){
-  document.getElementById('users-list').innerHTML='<div class="loading-state"><div class="spinner"></div>Carregando...</div>';
-  try{const res=await apiFetch('/users');if(!res||!res.ok){document.getElementById('users-list').innerHTML='<div style="color:var(--t3);padding:16px;font-size:12px">Sem permissão.</div>';return}_allUsers=await res.json();renderUserCards(_allUsers)}
-  catch(e){_allUsers=[];renderUserCards([])}
-}
-function renderUserCards(users){
-  const rh={admin:'<span class="role-admin">Admin</span>',gestor:'<span class="role-gestor">Gestor</span>',tecnico:'<span class="role-tecnico">Técnico</span>',leitura:'<span class="role-leitura">Leitura</span>'};
-  const canEdit=currentUser.role==='admin';
-  const showInactive=document.getElementById('users-show-inactive')?.checked;
-  const lista=(users||[]).filter(u=>showInactive||u.ativo);
-  const inativos=(users||[]).filter(u=>!u.ativo).length;
-  document.getElementById('users-list').innerHTML=lista.map(u=>`
-    <div class="user-card" style="${!u.ativo?'opacity:.45':''}">
-      <div class="uc-avatar">${esc((u.nome||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase())}</div>
-      <div style="flex:1;min-width:0"><div class="uc-name">${esc(u.nome)}${!u.ativo?' <span style="font-size:10px;color:var(--red)">(inativo)</span>':''}${u.precisa_definir_senha?' <span style="font-size:10px;color:var(--amber,#f59e0b)">(senha pendente)</span>':''}</div><div class="uc-email">${esc(u.email)}</div></div>
-      <div>${rh[u.role]||esc(u.role)}</div>
-      <div style="text-align:right;min-width:90px"><div style="font-size:10px;color:var(--t4);font-family:var(--font-mono)">último</div><div style="font-size:11px;color:var(--t3);font-family:var(--font-mono)">${esc(u.ultimo_login||'—')}</div></div>
-      ${canEdit?`<div class="uc-actions"><button class="btn btn-ghost btn-sm" type="button" data-action="edit-user" data-id="${u.id}" aria-label="Editar usuário">Editar</button>${u.ativo?`<button class="btn btn-ghost btn-sm" type="button" data-action="reset-user" data-id="${u.id}" data-name="${esc(u.nome)}" data-email="${esc(u.email)}" aria-label="Resetar senha">Resetar senha</button>`:''}${u.ativo&&u.email!==currentUser.email?`<button class="btn btn-ghost btn-sm" type="button" data-action="delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Desativar usuário">Desativar</button>`:''}${u.email!==currentUser.email?`<button class="btn btn-danger btn-sm" type="button" data-action="hard-delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Excluir usuário permanentemente">Excluir</button>`:''}</div>`:''}
-    </div>`).join('')||`<div style="color:var(--t4);padding:16px;font-size:12px">Nenhum usuário${!showInactive&&inativos?' ativo. Há '+inativos+' inativo(s) — marque "Mostrar inativos".':'.'}</div>`;
-  // Dica discreta de quantos inativos estão ocultos
-  if(lista.length&&!showInactive&&inativos){
-    document.getElementById('users-list').insertAdjacentHTML('beforeend',
-      `<div style="color:var(--t4);padding:10px 16px;font-size:11px">${inativos} usuário(s) inativo(s) oculto(s). Marque "Mostrar inativos" para vê-los.</div>`);
-  }
-}
-function openEditUser(id){
-  const u=_allUsers.find(x=>x.id===id);if(!u)return;
-  document.getElementById('edit-user-id').value=u.id;document.getElementById('edit-user-nome').value=u.nome;
-  document.getElementById('edit-user-email').value=u.email;document.getElementById('edit-user-role').value=u.role;
-  const cb=document.getElementById('edit-user-ativo');if(cb)cb.checked=u.ativo;
-  document.getElementById('edit-user-senha').value='';openBaseModal('edit-user');
-}
-async function saveEditUser(){
-  const id=parseInt(document.getElementById('edit-user-id').value),nome=document.getElementById('edit-user-nome').value.trim(),
-    email=document.getElementById('edit-user-email').value.trim(),role=document.getElementById('edit-user-role').value,
-    senha=document.getElementById('edit-user-senha').value.trim();
-  const cb=document.getElementById('edit-user-ativo');
-  const ativo=cb?cb.checked:true;
-  if(!nome||!email){showToast('Preencha nome e email','error');return}
-  const p={nome,email,role,ativo};if(senha)p.senha=senha;
-  try{const res=await apiFetch(`/users/${id}`,{method:'PATCH',body:JSON.stringify(p)});const data=await res.json();if(!res.ok){showToast(data.erro||'Erro','error');return}showToast('Atualizado','success');closeModal('edit-user');renderUsers()}catch(e){showToast('Erro','error')}
-}
-async function confirmDeleteUser(id,nome){
-  const ok=await confirmModal('Desativar usuário',`Desativar o usuário "${nome}"? Ele não poderá mais acessar o sistema.`);
-  if(!ok)return;
-  try{const res=await apiFetch(`/users/${id}`,{method:'DELETE'});if(!res||!res.ok){showToast('Erro','error');return}showToast(nome+' desativado','success');renderUsers()}catch(e){showToast('Erro','error')}
-}
-async function confirmHardDeleteUser(id,nome){
-  const ok=await confirmModal('Excluir permanentemente',`Excluir DEFINITIVAMENTE o usuário "${nome}"? Esta ação não pode ser desfeita. As responsabilidades dele em documentos serão removidas (o histórico de auditoria é preservado).`);
-  if(!ok)return;
-  try{const res=await apiFetch(`/users/${id}?permanente=true`,{method:'DELETE'});const data=await res.json().catch(()=>({}));if(!res||!res.ok){showToast((data&&data.erro)||'Erro ao excluir','error');return}showToast(nome+' excluído','success');renderUsers()}catch(e){showToast('Erro','error')}
-}
-async function createUser(){
-  const nome=document.getElementById('new-user-nome').value.trim(),email=document.getElementById('new-user-email').value.trim(),
-    role=document.getElementById('new-user-role').value,senha=document.getElementById('new-user-senha').value.trim();
-  if(!nome||!email){showToast('Preencha nome e e-mail','error');return}
-  if(senha&&senha.length<6){showToast('A senha deve ter pelo menos 6 caracteres','error');return}
-  const body={nome,email,role};if(senha)body.senha=senha;
-  try{
-    const res=await apiFetch('/users',{method:'POST',body:JSON.stringify(body)});const data=await res.json();
-    if(!res.ok){showToast(data.erro||'Erro','error');return}
-    showToast('Usuário criado','success');closeModal('add-user');
-    ['new-user-nome','new-user-email','new-user-senha'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
-    renderUsers();
-    if(data.codigo_ativacao)showCodigoAtivacao(data.codigo_ativacao,email,data.validade_dias);
-  }catch(e){showToast('Erro','error')}
-}
-async function confirmResetUser(id,nome,email){
-  const ok=await confirmModal('Resetar senha',`Resetar a senha de "${nome}"? A senha atual deixa de funcionar e será gerado um código de ativação para o usuário definir uma nova senha.`);
-  if(!ok)return;
-  try{
-    const res=await apiFetch(`/users/${id}/reset-senha`,{method:'POST'});const data=await res.json().catch(()=>({}));
-    if(!res||!res.ok){showToast((data&&data.erro)||'Erro ao resetar','error');return}
-    showToast('Senha resetada','success');renderUsers();
-    if(data.codigo_ativacao)showCodigoAtivacao(data.codigo_ativacao,email||nome,data.validade_dias);
-  }catch(e){showToast('Erro','error')}
-}
+// ═══ AUDIT & USERS ═══
+// Movidos para o módulo de Configurações (static/config.js) — acessível pelo hub (gestor+).
 
 // ═══ HELPERS ═══
 function showToast(msg,type='info'){

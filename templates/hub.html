@@ -112,7 +112,7 @@
         </div>
       </div>
     </div>
-    <div class="foot"><span id="foot-email"></span><a id="theme-toggle" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a><a id="logout">Sair</a></div>
+    <div class="foot"><span id="foot-email"></span><a id="config-link" href="/config" title="Configurações (auditoria e sistema)" style="display:none">⚙️ Configurações</a><a id="theme-toggle" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a><a id="logout">Sair</a></div>
   </div>
 <script>
 // ═══ TEMA CLARO/ESCURO (mesma chave de Documentos/Entregáveis) ═══
@@ -143,6 +143,12 @@ applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
   if(!podeEntregaveis){
     var ce = document.getElementById('card-ent');
     if(ce && ce.parentNode) ce.parentNode.removeChild(ce);
+  }
+
+  // Configurações (auditoria + sistema): somente gestor ou acima. Mostra a engrenagem.
+  if(podeEntregaveis){
+    var cfg = document.getElementById('config-link');
+    if(cfg) cfg.style.display = '';
   }
 
   function sair(){
