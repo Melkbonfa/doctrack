@@ -1239,6 +1239,16 @@ with app.app_context():
         
         if User.query.count() == 0:
             init_db()
+
+        # PDR: na primeira subida as tabelas pdr_* já foram criadas por create_all();
+        # importa a Lista Mestra de Reagentes (versionada em pdr/data/) se estiver vazia.
+        try:
+            from pdr.models import Apresentacao as _PdrApres
+            if _PdrApres.query.count() == 0:
+                from pdr.importer import importar_planilha as _importar_pdr
+                _importar_pdr()
+        except Exception as _pdr_err:
+            print(f"[WARN] Importação inicial do PDR: {_pdr_err}")
     except Exception as _startup_err:
         print(f"[WARN] Erro na inicialização do banco: {_startup_err}")
 
