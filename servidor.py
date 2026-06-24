@@ -79,6 +79,10 @@ app.register_blueprint(auth_bp)
 from entregaveis import entregaveis_bp, init_realtime as entregaveis_init_realtime
 app.register_blueprint(entregaveis_bp)
 
+# Módulo PDR (P&D de reagentes) — montado sob /pdr, usa o mesmo db/login/auditoria.
+from pdr import pdr_bp, init_realtime as pdr_init_realtime
+app.register_blueprint(pdr_bp)
+
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
 socketio = SocketIO(
     app,
@@ -91,6 +95,7 @@ socketio = SocketIO(
 )
 
 entregaveis_init_realtime(socketio, publish_event, AuditLog, EventType)
+pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -340,14 +345,26 @@ def entregaveis_page():
 
 @app.route("/hub")
 def hub_page():
-    return render_template("hub.html", asset_v=_static_version())
+    from areas import AREAS
+    return render_template("hub.html", asset_v=_static_version(), areas=AREAS)
+
+@app.route("/hub/<slug>")
+def subhub_page(slug):
+    # Sub-hub de uma área (ex.: /hub/pde → Documentos + Projetos). O acesso real
+    # é validado no front (token + áreas do usuário) como no hub.
+    from areas import AREAS, get_area
+    area = get_area(slug)
+    if not area:
+        return render_template("hub.html", asset_v=_static_version(), areas=AREAS), 404
+    return render_template("subhub.html", asset_v=_static_version(), area=area)
 
 @app.route("/config")
 @app.route("/configuracoes")   # alias amigável
 def config_page():
     # Página servida a qualquer um; o acesso real é barrado no front (token + role)
     # e nas APIs (audit/users já exigem gestor+).
-    return render_template("config.html", asset_v=_static_version())
+    from areas import AREAS
+    return render_template("config.html", asset_v=_static_version(), areas=AREAS)
 
 @app.route("/socket-client.js")
 def serve_socket_client():
@@ -1059,6 +1076,8 @@ def _sync_schema():
             ("precisa_definir_senha", f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
             ("ativacao_codigo_hash",  "VARCHAR(256)"),
             ("ativacao_expira",       "TIMESTAMP"),
+            ("pode_pdr",              f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
+            ("areas",                 "VARCHAR(200) DEFAULT '' NOT NULL"),
         ],
         "projetos": [
             ("data_inicio_prev", "VARCHAR(10) DEFAULT ''"),
@@ -1088,6 +1107,24 @@ def _sync_schema():
                 adicionadas.add(f"{tabela}.{nome}")
                 print(f"[INFO] Schema: coluna {tabela}.{nome} adicionada")
     db.session.commit()
+
+    # Acesso ao PDR: ao criar a coluna, libera automaticamente para os admins.
+    if "users.pode_pdr" in adicionadas:
+        _bool_true = "TRUE" if db.engine.dialect.name == "postgresql" else "1"
+        db.session.execute(text(
+            f"UPDATE users SET pode_pdr = {_bool_true} WHERE role = 'admin'"))
+        db.session.commit()
+        print("[INFO] Schema: pode_pdr liberado para os administradores")
+
+    # Áreas: ao criar a coluna, todos viram membros de 'pde' (são usuários de
+    # equipamentos hoje); quem tinha pode_pdr também recebe 'pdr'.
+    if "users.areas" in adicionadas:
+        _bool_true = "TRUE" if db.engine.dialect.name == "postgresql" else "1"
+        db.session.execute(text("UPDATE users SET areas = 'pde'"))
+        db.session.execute(text(
+            f"UPDATE users SET areas = 'pde,pdr' WHERE pode_pdr = {_bool_true}"))
+        db.session.commit()
+        print("[INFO] Schema: áreas inicializadas (pde; pdr p/ quem tinha PDR)")
 
     # Retroalimenta a conclusão dos entregáveis já concluídos com a última
     # atualização, para que projetos antigos já exibam alguma Curva-S. Só roda

@@ -66,7 +66,7 @@ def test_evm_live_atrasado_e_estourando(app):
             Entregavel(projeto_id=p.id, tipo="D", categoria="Produto", status="pendente"),
         ])
         db.session.add(ProjetoMensal(projeto_id=p.id, competencia="2020-06",
-                                     custo_acumulado=150000.0))
+                                     custo_mes=150000.0))
         db.session.commit()
         m = p.pmo_metrics()
         assert m["pct_previsto"] == 100      # baseline (decorrido) no passado
@@ -128,7 +128,7 @@ def test_evm_sem_datas_nao_calcula_spi(app):
         db.session.add(Entregavel(projeto_id=p.id, tipo="A", categoria="Produto",
                                   status="concluido"))
         db.session.add(ProjetoMensal(projeto_id=p.id, competencia="2026-05",
-                                     custo_acumulado=50000.0))
+                                     custo_mes=50000.0))
         db.session.commit()
         m = p.pmo_metrics()
         assert m["pct_previsto"] is None

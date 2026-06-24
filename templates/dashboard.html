@@ -23,7 +23,7 @@
       <div class="login-logo-icon">
         <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>
       </div>
-      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS · v4.0 ENTERPRISE</div></div>
+      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS</div></div>
     </div>
     <div class="login-title">Entrar no sistema</div>
     <div class="login-subtitle">Gestão Documental Industrial — Consolidado</div>
@@ -63,7 +63,7 @@
       <div class="login-logo-icon">
         <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>
       </div>
-      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS · v4.0 ENTERPRISE</div></div>
+      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS</div></div>
     </div>
     <div class="login-title">Definir senha</div>
     <div class="login-subtitle">Use o código de ativação enviado pelo administrador</div>
@@ -119,7 +119,7 @@
         <div class="brand-icon"><svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg></div>
         <div class="brand-name">DocTrack</div>
       </div>
-      <div class="brand-version">P&D EQUIPAMENTOS · v4.0</div>
+      <div class="brand-version">P&D EQUIPAMENTOS</div>
     </div>
     <div class="sidebar-user">
       <div class="user-avatar" id="nav-avatar">A</div>
@@ -137,10 +137,15 @@
     </button>
     <div class="sidebar-footer">
       <div class="sync-row"><div class="sync-dot"></div><span class="sync-text" id="sync-label">Conectado</span></div>
-      <button class="sidebar-refresh" onclick="refreshAll()">
+      <a class="sidebar-refresh" href="#" onclick="location.href='/hub/'+(sessionStorage.getItem('dt_area')||'pde');return false;" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Voltar aos módulos
+      </a>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="refreshAll()">
         <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         Atualizar dados
       </button>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="doLogout()">Sair</button>
     </div>
   </nav>
 
@@ -160,7 +165,6 @@
         <div class="page-header">
           <div><div class="page-title">Dashboard Executivo</div><div class="page-sub" id="dash-updated">Carregando dados...</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center;">
-            <a class="btn-modulos" href="/hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>Módulos</a>
             <span id="dash-pct-badge" class="docs-count-badge">—</span>
             <button id="btn-export-kpis" class="btn btn-ghost btn-sm" onclick="openExportModal()" style="display:none">Exportar relatório</button>
           </div>

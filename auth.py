@@ -20,6 +20,7 @@ from datetime import datetime
 from functools import wraps
 
 from models import db, User, AuditLog, RevokedToken, Responsavel
+from areas import dump_areas, parse_areas, AREA_SLUGS
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -59,6 +60,33 @@ def require_role(*roles):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def require_area(slug, *roles):
+    """Exige acesso a uma Área de P&D e, opcionalmente, um dos perfis informados.
+
+    Acesso: admin (sempre) ou usuário com `slug` em `areas`.
+    Se `roles` for informado, também exige que o perfil esteja na lista
+    (usado nas rotas de escrita / módulos como Projetos). Sem `roles`, basta o acesso.
+    """
+    def decorator(fn):
+        @wraps(fn)
+        @jwt_required()
+        def wrapper(*args, **kwargs):
+            email = get_jwt_identity()
+            user  = User.query.filter_by(email=email, ativo=True).first()
+            if not user or not user.tem_area(slug):
+                return jsonify({"erro": "Sem acesso a esta área"}), 403
+            if roles and user.role not in roles:
+                return jsonify({"erro": "Acesso negado para este perfil"}), 403
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def require_pdr_access(*roles):
+    """Compat: acesso à área PDR (P&D de reagentes)."""
+    return require_area("pdr", *roles)
 
 
 def get_client_ip():
@@ -231,6 +259,12 @@ def create_user():
 
     user = User(nome=nome, email=email, role=role)
 
+    # Áreas de acesso (lista de slugs). Admin acessa todas por padrão da lógica;
+    # para os demais, vale exatamente o que foi selecionado no cadastro.
+    user.areas = dump_areas(data.get("areas") or [])
+    # Compat: mantém a flag legada coerente com a área PDR selecionada.
+    user.pode_pdr = "pdr" in parse_areas(user.areas)
+
     codigo = None
     if senha:
         # Admin já definiu uma senha (comportamento antigo)
@@ -315,6 +349,25 @@ def update_user(user_id):
         if novo_ativo != user.ativo:
             changes.append(("ativo", user.ativo, novo_ativo))
             user.ativo = novo_ativo
+
+    if "areas" in data:
+        novas = dump_areas(data["areas"] or [])
+        if novas != (user.areas or ""):
+            changes.append(("areas", user.areas or "", novas))
+            user.areas = novas
+            user.pode_pdr = "pdr" in parse_areas(novas)   # compat com a flag legada
+    elif "pode_pdr" in data:
+        # Compat: edição antiga que ainda manda só a flag do PDR.
+        novo_pdr = bool(data["pode_pdr"])
+        if novo_pdr != bool(user.pode_pdr):
+            changes.append(("pode_pdr", user.pode_pdr, novo_pdr))
+            user.pode_pdr = novo_pdr
+            atuais = parse_areas(user.areas)
+            if novo_pdr and "pdr" not in atuais:
+                atuais.append("pdr")
+            elif not novo_pdr and "pdr" in atuais:
+                atuais.remove("pdr")
+            user.areas = dump_areas(atuais)
 
     if "senha" in data:
         nova_senha = data["senha"].strip()

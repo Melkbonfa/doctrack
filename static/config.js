@@ -143,7 +143,7 @@ function renderUserCards(users){
     <div class="user-card" style="${!u.ativo?'opacity:.45':''}">
       <div class="uc-avatar">${esc((u.nome||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase())}</div>
       <div style="flex:1;min-width:0"><div class="uc-name">${esc(u.nome)}${!u.ativo?' <span style="font-size:10px;color:var(--red)">(inativo)</span>':''}${u.precisa_definir_senha?' <span style="font-size:10px;color:var(--amber,#f59e0b)">(senha pendente)</span>':''}</div><div class="uc-email">${esc(u.email)}</div></div>
-      <div>${rh[u.role]||esc(u.role)}</div>
+      <div>${rh[u.role]||esc(u.role)}${(u.areas||[]).map(a=>` <span class="role-tecnico" title="Acessa a área ${esc(a)}" style="margin-left:4px">${esc(String(a).toUpperCase())}</span>`).join('')}</div>
       <div style="text-align:right;min-width:90px"><div style="font-size:10px;color:var(--t4);font-family:var(--font-mono)">último</div><div style="font-size:11px;color:var(--t3);font-family:var(--font-mono)">${esc(u.ultimo_login||'—')}</div></div>
       ${canEdit?`<div class="uc-actions"><button class="btn btn-ghost btn-sm" type="button" data-action="edit-user" data-id="${u.id}" aria-label="Editar usuário">Editar</button>${u.ativo?`<button class="btn btn-ghost btn-sm" type="button" data-action="reset-user" data-id="${u.id}" data-name="${esc(u.nome)}" data-email="${esc(u.email)}" aria-label="Resetar senha">Resetar senha</button>`:''}${u.ativo&&u.email!==currentUser.email?`<button class="btn btn-ghost btn-sm" type="button" data-action="delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Desativar usuário">Desativar</button>`:''}${u.email!==currentUser.email?`<button class="btn btn-danger btn-sm" type="button" data-action="hard-delete-user" data-id="${u.id}" data-name="${esc(u.nome)}" aria-label="Excluir usuário permanentemente">Excluir</button>`:''}</div>`:''}
     </div>`).join('')||`<div style="color:var(--t4);padding:16px;font-size:12px">Nenhum usuário${!showInactive&&inativos?' ativo. Há '+inativos+' inativo(s) — marque "Mostrar inativos".':'.'}</div>`;
@@ -157,6 +157,8 @@ function openEditUser(id){
   document.getElementById('edit-user-id').value=u.id;document.getElementById('edit-user-nome').value=u.nome;
   document.getElementById('edit-user-email').value=u.email;document.getElementById('edit-user-role').value=u.role;
   const cb=document.getElementById('edit-user-ativo');if(cb)cb.checked=u.ativo;
+  const uareas=Array.isArray(u.areas)?u.areas:[];
+  document.querySelectorAll('.edit-user-area').forEach(el=>{el.checked=uareas.indexOf(el.value)!==-1});
   document.getElementById('edit-user-senha').value='';openBaseModal('edit-user');
 }
 async function saveEditUser(){
@@ -165,8 +167,9 @@ async function saveEditUser(){
     senha=document.getElementById('edit-user-senha').value.trim();
   const cb=document.getElementById('edit-user-ativo');
   const ativo=cb?cb.checked:true;
+  const areas=Array.from(document.querySelectorAll('.edit-user-area')).filter(el=>el.checked).map(el=>el.value);
   if(!nome||!email){showToast('Preencha nome e email','error');return}
-  const p={nome,email,role,ativo};if(senha)p.senha=senha;
+  const p={nome,email,role,ativo,areas};if(senha)p.senha=senha;
   try{const res=await apiFetch(`/users/${id}`,{method:'PATCH',body:JSON.stringify(p)});const data=await res.json();if(!res.ok){showToast(data.erro||'Erro','error');return}showToast('Atualizado','success');closeModal('edit-user');renderUsers()}catch(e){showToast('Erro','error')}
 }
 async function confirmDeleteUser(id,nome){
@@ -184,12 +187,14 @@ async function createUser(){
     role=document.getElementById('new-user-role').value,senha=document.getElementById('new-user-senha').value.trim();
   if(!nome||!email){showToast('Preencha nome e e-mail','error');return}
   if(senha&&senha.length<6){showToast('A senha deve ter pelo menos 6 caracteres','error');return}
-  const body={nome,email,role};if(senha)body.senha=senha;
+  const areas=Array.from(document.querySelectorAll('.new-user-area')).filter(el=>el.checked).map(el=>el.value);
+  const body={nome,email,role,areas};if(senha)body.senha=senha;
   try{
     const res=await apiFetch('/users',{method:'POST',body:JSON.stringify(body)});const data=await res.json();
     if(!res.ok){showToast(data.erro||'Erro','error');return}
     showToast('Usuário criado','success');closeModal('add-user');
     ['new-user-nome','new-user-email','new-user-senha'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+    document.querySelectorAll('.new-user-area').forEach(el=>{el.checked=false});
     renderUsers();
     if(data.codigo_ativacao)showCodigoAtivacao(data.codigo_ativacao,email,data.validade_dias);
   }catch(e){showToast('Erro','error')}
@@ -221,20 +226,6 @@ function copiarCodigoAtivacao(){
   navigator.clipboard.writeText(_codigoAtivacaoAtual).then(()=>{
     if(b)b.textContent='Copiado ✓';showToast('Código copiado','success');
   }).catch(()=>showToast('Não foi possível copiar','error'));
-}
-
-// ═══ SISTEMA / SETTINGS ═══
-async function reimportExcel() {
-    const ok = await confirmModal('Sincronizar Planilha', 'Isso irá limpar os documentos antigos e carregar todos os dados novamente da planilha excel. Deseja continuar?');
-    if(!ok) return;
-    try {
-        const res = await apiFetch('/reimport', {method: 'POST'});
-        if(!res){ showToast('Erro de rede ou servidor não responde', 'error'); return; }
-        let data = {};
-        try { data = await res.json(); } catch(e) { data = {erro: `Erro no servidor (Status: ${res.status})`}; }
-        if(res.ok) showToast(data.mensagem || 'Planilha sincronizada com sucesso!', 'success');
-        else showToast(data.erro || 'Erro ao sincronizar planilha', 'error');
-    } catch(e) { showToast('Erro ao sincronizar planilha', 'error'); }
 }
 
 // ═══ HELPERS DE UI ═══

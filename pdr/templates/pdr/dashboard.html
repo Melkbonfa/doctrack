@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard PDR — Lista Mestra de Reagentes</title>
+<meta name="description" content="Controle de P&D de reagentes — produtos, apresentações e documentação">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/pdr/static/style.css?v={{ asset_v }}">
+<script src="/pdr/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
+<script src="/pdr/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
+<script>
+  // Sessão única do DocTrack: sem token, volta para o login do mestre.
+  if (!localStorage.getItem("doctrack_token")) { window.location.replace("/"); }
+</script>
+</head>
+<body>
+
+<!-- ═══════════ APP ═══════════ -->
+<div id="app">
+  <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar-nav" aria-label="Navegação principal">
+    <div class="sidebar-brand">
+      <div class="brand-row">
+        <div class="brand-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M5 4h9l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" fill="#fff" opacity=".92"/><path d="M8 12h8M8 16h8M8 8h3" stroke="#06b6d4" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+        <div class="brand-name">Dashboard PDR</div>
+      </div>
+      <div class="brand-version">P&D REAGENTES</div>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar" id="nav-avatar">A</div>
+      <div><div class="user-name" id="nav-name">—</div><div class="user-role" id="nav-role">—</div></div>
+    </div>
+    <span class="nav-section-label">Visão</span>
+    <button type="button" class="nav-item active" data-page="dashboard">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
+      Dashboard
+    </button>
+    <span class="nav-section-label">Catálogo</span>
+    <button type="button" class="nav-item" data-page="produtos">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M20 7L12 3 4 7m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      Produtos
+    </button>
+    <button type="button" class="nav-item" data-page="apresentacoes">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Apresentações
+    </button>
+    <div class="sidebar-footer">
+      <div class="sync-row"><div class="sync-dot" id="sync-dot"></div><span class="sync-text" id="sync-label">Conectado</span></div>
+      <a class="sidebar-refresh" href="/hub" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Voltar aos módulos
+      </a>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="refreshAll()">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Atualizar dados
+      </button>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="doLogout()">Sair</button>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="breadcrumb"><span>Dashboard PDR</span><span style="color:var(--t4)">/</span><span class="current" id="breadcrumb-current">Dashboard</span></div>
+      <div class="topbar-actions">
+        <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
+        <div class="user-avatar" style="width:32px;height:32px;font-size:12px" id="top-avatar">A</div>
+      </div>
+    </div>
+
+    <main class="content" id="main-content" tabindex="-1">
+
+      <!-- ═══ DASHBOARD ═══ -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-header">
+          <div><div class="page-title">Dashboard Executivo</div><div class="page-sub" id="dash-updated">Carregando…</div></div>
+          <div class="page-actions">
+            <span class="docs-count-badge" id="dash-badge">—</span>
+            <a class="btn btn-ghost btn-sm" href="/pdr/api/export/apresentacoes.csv" id="btn-export">Exportar CSV</a>
+          </div>
+        </div>
+
+        <div class="filter-bar" style="margin-bottom:18px">
+          <span style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px">Visão individual:</span>
+          <select class="filter-sel" id="dash-produto" onchange="onDashProduto()"><option value="">Todos os produtos</option></select>
+          <select class="filter-sel" id="dash-apres" onchange="onDashApres()" disabled><option value="">Todas as apresentações</option></select>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="clearDashScope()">Limpar</button>
+        </div>
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi-ring">
+            <div class="kpi-ring-canvas"><canvas id="ringAvanco" width="120" height="120"></canvas><div class="kpi-ring-val" id="val-avanco">—</div></div>
+            <div class="kpi-ring-label">Avanço Geral</div>
+            <div class="kpi-ring-delta">documentação concluída</div>
+          </div>
+          <div class="kpi-ring">
+            <div class="kpi-ring-canvas"><canvas id="ringFinal" width="120" height="120"></canvas><div class="kpi-ring-val" id="val-final">—</div></div>
+            <div class="kpi-ring-label">Apresentações Finalizadas</div>
+            <div class="kpi-ring-delta" id="delta-final">—</div>
+          </div>
+          <div class="kpi-ring">
+            <div class="kpi-ring-canvas"><canvas id="ringAtivas" width="120" height="120"></canvas><div class="kpi-ring-val" id="val-ativas">—</div></div>
+            <div class="kpi-ring-label">Ativas (não descont.)</div>
+            <div class="kpi-ring-delta" id="delta-ativas">—</div>
+          </div>
+        </div>
+
+        <div class="metric-row" id="metric-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="metric-card"><div class="metric-letter" style="background:var(--grad-cyan-brand)">P</div><div class="metric-info"><div class="metric-value" id="m-produtos">—</div><div class="metric-label">Produtos / KITs</div></div></div>
+          <div class="metric-card"><div class="metric-letter" style="background:var(--grad-cyan)">A</div><div class="metric-info"><div class="metric-value" id="m-apres">—</div><div class="metric-label">Apresentações (SKUs)</div></div></div>
+          <div class="metric-card"><div class="metric-letter" style="background:var(--grad-green)">✓</div><div class="metric-info"><div class="metric-value" id="m-final">—</div><div class="metric-label">Finalizadas</div></div></div>
+          <div class="metric-card"><div class="metric-letter" style="background:linear-gradient(135deg,#64748b,#475569)">⊘</div><div class="metric-info"><div class="metric-value" id="m-descont">—</div><div class="metric-label">Descontinuadas</div></div></div>
+        </div>
+
+        <div class="g2">
+          <div class="card"><div class="card-title">Apresentações por Linha</div><div class="donut-wrap"><div class="donut-canvas-wrap"><canvas id="chLinha" width="150" height="150"></canvas><div class="donut-center"><div class="donut-center-val" id="donut-total">—</div><div class="donut-center-lbl">SKUs</div></div></div><div class="legend-list" id="legend-linha"></div></div></div>
+          <div class="card"><div class="card-title">Funil de Documentação</div><div id="funil-list"></div></div>
+        </div>
+
+        <div class="g2">
+          <div class="card"><div class="card-title">Top Fornecedores</div><div style="position:relative;height:220px"><canvas id="chFornecedor"></canvas></div></div>
+          <div class="card"><div class="card-title">Situação ANVISA & Protheus</div><div style="position:relative;height:220px"><canvas id="chAnvisa"></canvas></div></div>
+        </div>
+
+        <div class="card mb"><div class="card-title">Últimas Alterações</div><div class="tbl-wrap"><table style="min-width:760px"><thead><tr><th>Produto</th><th>Apresentação</th><th>SKU</th><th>Status Global</th><th>Avanço</th><th>Atualizado</th></tr></thead><tbody id="dash-table"></tbody></table></div></div>
+      </div>
+
+      <!-- ═══ PRODUTOS ═══ -->
+      <div class="page" id="page-produtos">
+        <div class="page-header">
+          <div><div class="page-title">Produtos / KITs</div><div class="page-sub">Famílias de reagentes e seu avanço de documentação</div></div>
+          <div class="page-actions">
+            <span class="filter-count" id="produtos-count">—</span>
+            <button class="btn btn-primary btn-sm gestor-only" onclick="openProdutoModal()">+ Novo produto</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="filter-bar">
+            <div class="search-wrap"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input class="search-input" id="produtos-search" placeholder="Buscar produto…" oninput="renderProdutos()"></div>
+            <select class="filter-sel" id="produtos-linha" onchange="renderProdutos()"><option value="">Todas as linhas</option></select>
+            <select class="filter-sel" id="produtos-sigla" onchange="renderProdutos()"><option value="">Todas as siglas</option></select>
+          </div>
+          <div class="equip-grid" id="produtos-grid"></div>
+        </div>
+      </div>
+
+      <!-- ═══ APRESENTAÇÕES ═══ -->
+      <div class="page" id="page-apresentacoes">
+        <div class="page-header">
+          <div><div class="page-title">Apresentações</div><div class="page-sub">Visão por SKU — identificação, regulatório e documentação</div></div>
+          <div class="page-actions"><span class="filter-count" id="ap-count">—</span><button class="btn btn-primary btn-sm gestor-only" onclick="openNewApres()">+ Nova apresentação</button></div>
+        </div>
+        <div class="card">
+          <div class="filter-bar">
+            <div class="search-wrap"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input class="search-input" id="ap-search" placeholder="Buscar SKU, produto, modelo, fornecedor…" oninput="renderApres()"></div>
+            <select class="filter-sel" id="ap-linha" onchange="renderApres()"><option value="">Todas as linhas</option></select>
+            <select class="filter-sel" id="ap-fornecedor" onchange="renderApres()"><option value="">Todos fornecedores</option></select>
+            <select class="filter-sel" id="ap-anvisa" onchange="renderApres()"><option value="">Toda ANVISA</option></select>
+            <select class="filter-sel" id="ap-status" onchange="renderApres()"><option value="">Todo status</option><option>Finalizado</option><option>Em progresso</option><option>Pendente</option><option>Descontinuado</option></select>
+          </div>
+          <div class="tbl-wrap"><table id="ap-table"><thead><tr>
+            <th>Produto</th><th>Apresentação</th><th>SKU</th><th>Modelo</th><th>Protheus</th><th>ANVISA</th><th>Fornecedor</th><th>Status Global</th><th>Avanço</th><th>Ações</th>
+          </tr></thead><tbody id="ap-tbody"></tbody></table></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══ MODAL APRESENTAÇÃO ═══ -->
+<div class="modal-overlay" id="modal-apres-overlay">
+  <div class="modal" style="max-width:680px" role="dialog" aria-modal="true">
+    <div class="modal-title" id="ma-title">Editar Apresentação</div>
+    <div class="modal-sub" id="ma-sub">—</div>
+    <div id="ma-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-apres-overlay')">Cancelar</button>
+      <button class="btn btn-primary btn-sm editor-only" id="ma-save" onclick="saveApres()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL PRODUTO ═══ -->
+<div class="modal-overlay" id="modal-produto-overlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-title" id="mp-title">Novo Produto</div>
+    <div class="modal-sub">Família / KIT de reagente</div>
+    <div class="form-group"><label class="form-label">Nome</label><input class="form-input" id="mp-nome"></div>
+    <div class="form-group"><label class="form-label">Sigla</label><input class="form-input" id="mp-sigla"></div>
+    <div class="form-group"><label class="form-label">Linha</label><select class="form-input" id="mp-linha"></select></div>
+    <div class="form-group"><label class="form-label">Observações</label><input class="form-input" id="mp-obs"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-produto-overlay')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" onclick="saveProduto()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL NOVA APRESENTAÇÃO ═══ -->
+<div class="modal-overlay" id="modal-newapres-overlay">
+  <div class="modal" style="max-width:560px" role="dialog" aria-modal="true">
+    <div class="modal-title">Nova Apresentação</div>
+    <div class="modal-sub" id="mna-sub">Cadastrar nova apresentação (SKU) para um produto</div>
+    <div id="mna-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-newapres-overlay')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" onclick="saveNewApres()">Criar apresentação</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><div class="toast-dot"></div><span id="toast-msg"></span></div>
+
+<script src="/pdr/static/app.js?v={{ asset_v }}"></script>
+</body>
+</html>

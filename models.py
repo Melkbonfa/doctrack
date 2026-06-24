@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import json
 import secrets
 
+from areas import AREA_SLUGS, parse_areas
+
 db = SQLAlchemy()
 bcrypt = Bcrypt()
 
@@ -72,6 +74,14 @@ class User(db.Model):
     criado_em  = db.Column(db.DateTime, default=datetime.now)
     ultimo_login = db.Column(db.DateTime, nullable=True)
 
+    # Acesso ao módulo PDR (P&D de reagentes). Legado: substituído pela coluna
+    # `areas`; mantido só para compatibilidade da migração (backfill de áreas).
+    pode_pdr   = db.Column(db.Boolean, default=False, nullable=False)
+
+    # Áreas de P&D que o usuário acessa (CSV de slugs, ex.: "pde,pdr").
+    # Admin sempre acessa todas — ver area_slugs(). Fonte dos slugs: areas.py.
+    areas      = db.Column(db.String(200), default="", nullable=False)
+
     # Primeiro acesso / reset de senha (modelo de convite)
     # Conta pendente: precisa_definir_senha=True, senha_hash inutilizável e
     # um código de ativação (hash) que o usuário troca pela própria senha.
@@ -119,6 +129,15 @@ class User(db.Model):
             return False
         return bcrypt.check_password_hash(self.ativacao_codigo_hash, (codigo or "").strip().upper())
 
+    def area_slugs(self):
+        """Áreas que o usuário acessa. Admin acessa todas."""
+        if self.role == "admin":
+            return list(AREA_SLUGS)
+        return parse_areas(self.areas)
+
+    def tem_area(self, slug):
+        return self.role == "admin" or slug in parse_areas(self.areas)
+
     def to_dict(self):
         return {
             "id":           self.id,
@@ -126,6 +145,8 @@ class User(db.Model):
             "email":        self.email,
             "role":         self.role,
             "ativo":        bool(self.ativo),
+            "pode_pdr":     bool(self.pode_pdr),
+            "areas":        self.area_slugs(),
             "precisa_definir_senha": bool(self.precisa_definir_senha),
             "criado_em":    self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
             "ultimo_login": self.ultimo_login.strftime("%d/%m/%Y %H:%M") if self.ultimo_login else "—",

@@ -50,6 +50,15 @@ class EventType:
     PROJETO_CREATED = "PROJETO_CREATED"
     PROJETO_UPDATED = "PROJETO_UPDATED"
 
+    # PDR (P&D de reagentes)
+    PRODUTO_CREATED = "PRODUTO_CREATED"
+    PRODUTO_UPDATED = "PRODUTO_UPDATED"
+    PRODUTO_DELETED = "PRODUTO_DELETED"
+    APRESENTACAO_CREATED = "APRESENTACAO_CREATED"
+    APRESENTACAO_UPDATED = "APRESENTACAO_UPDATED"
+    APRESENTACAO_DELETED = "APRESENTACAO_DELETED"
+    REIMPORT = "REIMPORT"
+
     # Sistema / notificações
     NOTIFICATION = "NOTIFICATION"
     USER_CONNECTED = "USER_CONNECTED"
@@ -92,6 +101,13 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
             rooms.append(f"equipamento:{payload['equipamento']}")
         if payload.get("documento_id"):
             rooms.append(f"doc:{payload['documento_id']}")
+
+    # PDR: produtos / apresentações vão para gestor + técnico (e a sala da apres.)
+    if event_type.startswith("PRODUTO_") or event_type.startswith("APRESENTACAO_"):
+        rooms.append("role:gestor")
+        rooms.append("role:tecnico")
+        if payload.get("apresentacao_id"):
+            rooms.append(f"apres:{payload['apresentacao_id']}")
 
     if event_type == EventType.NOTIFICATION:
         # Notificações vão para o destinatário específico (ou broadcast)

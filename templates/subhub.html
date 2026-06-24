@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocTrack — {{ area.nome }}</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+<style>
+  body{
+    background:var(--bg-void);color:var(--t1);font-family:var(--font-body);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .hub{width:100%;max-width:640px;text-align:center}
+  .brand{color:var(--accent);font-size:12px;font-weight:700;letter-spacing:3px;margin-bottom:14px}
+  .hello{font-size:21px;color:var(--t1);font-weight:600;margin-bottom:6px}
+  .sub{color:var(--t3);font-size:14px;margin-bottom:36px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:22px}
+  .hubcard{
+    position:relative;overflow:hidden;cursor:pointer;
+    background:var(--bg-card);border:1px solid var(--border-dim);
+    border-radius:var(--r3);padding:40px 26px 30px;
+    display:flex;flex-direction:column;align-items:center;gap:18px;
+    transition:transform .28s cubic-bezier(.2,.8,.2,1),border-color .28s,box-shadow .28s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .hubcard::before{
+    content:'';position:absolute;left:50%;top:-30%;width:240px;height:240px;
+    transform:translateX(-50%) scale(.6);
+    background:radial-gradient(circle,var(--glow) 0%,transparent 68%);
+    opacity:0;transition:opacity .35s,transform .35s;pointer-events:none;
+  }
+  .hubcard:hover,.hubcard:focus-visible{
+    transform:translateY(-7px);border-color:var(--accent);
+    box-shadow:0 20px 44px -14px var(--glow),0 0 0 1px var(--accent) inset;outline:none;
+  }
+  .hubcard:hover::before,.hubcard:focus-visible::before{opacity:1;transform:translateX(-50%) scale(1)}
+  .hubcard:active{transform:translateY(-2px) scale(.985)}
+  .hubcard .ico{position:relative;z-index:1;width:72px;height:72px;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+  .hubcard .ico::after{content:'';position:absolute;inset:-10px;border-radius:50%;z-index:-1;background:radial-gradient(circle,var(--accent-bg) 0%,transparent 70%);opacity:.85;transition:opacity .3s,transform .3s}
+  .hubcard .ico svg{width:52px;height:52px;transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+  .hubcard:hover .ico svg{transform:scale(1.1) translateY(-3px)}
+  .hubcard:hover .ico::after{opacity:1;transform:scale(1.18)}
+  .hubcard h2{position:relative;z-index:1;font-size:22px;font-weight:700;margin:0;color:var(--t1);letter-spacing:-.4px}
+  .hubcard .arrow{position:relative;z-index:1;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-soft);color:var(--t3);opacity:0;transform:translateY(6px);transition:opacity .28s,transform .28s,color .28s,border-color .28s,background .28s}
+  .hubcard:hover .arrow{opacity:1;transform:translateY(0)}
+  .hubcard .arrow:hover{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .hubcard .arrow svg{transition:transform .28s}
+  .hubcard .arrow:hover svg{transform:translateX(3px)}
+  .foot{margin-top:40px;font-size:12.5px;color:var(--t3)}
+  .foot a{color:var(--accent);text-decoration:none;margin-left:10px;cursor:pointer}
+  .foot a:hover{text-decoration:underline}
+  @media (prefers-reduced-motion:reduce){
+    .hubcard,.hubcard .ico,.hubcard .arrow,.hubcard .arrow svg,.hubcard::before{transition:none}
+  }
+</style>
+</head>
+<body style="--accent:{{ area.accent }};--glow:{{ area.accent }}38;--accent-bg:{{ area.accent }}1a">
+  <div class="hub">
+    <div class="brand">{{ area.sub }}</div>
+    <div class="hello">{{ area.nome }}</div>
+    <div class="sub">Escolha um módulo</div>
+    <div class="cards" id="cards">
+      {% for m in area.modulos %}
+      <div class="hubcard mod-card" data-url="{{ m.url }}" data-role="{{ m.role or '' }}" data-module="{{ m.module or '' }}"
+           role="button" tabindex="0" aria-label="Abrir {{ m.label }}">
+        <div class="ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">{{ m.icon|safe }}</svg>
+        </div>
+        <h2>{{ m.label }}</h2>
+        <div class="arrow" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="foot"><a id="back" href="/hub">← Áreas</a><a id="theme-toggle" onclick="toggleTheme()" title="Alternar tema">🌙 Tema</a><a id="logout">Sair</a></div>
+  </div>
+<script>
+function applyTheme(theme){
+  var isLight = theme === 'light';
+  document.body.classList.toggle('theme-light', isLight);
+  var btn = document.getElementById('theme-toggle');
+  if(btn) btn.textContent = isLight ? '☀️ Tema' : '🌙 Tema';
+}
+function toggleTheme(){
+  var next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
+  localStorage.setItem('doctrack_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
+
+(function(){
+  var slug = "{{ area.slug }}";
+  var token = localStorage.getItem('doctrack_token') || '';
+  if(!token){ window.location.href = '/'; return; }
+
+  var user = {};
+  try { user = JSON.parse(localStorage.getItem('doctrack_user') || '{}') || {}; } catch(e){}
+  var isAdmin = user.role === 'admin';
+  var isGestor = isAdmin || user.role === 'gestor';
+  var minhas = Array.isArray(user.areas) ? user.areas : [];
+
+  // Sem acesso à área: volta ao hub.
+  if(!(isAdmin || minhas.indexOf(slug) !== -1)){ window.location.href = '/hub'; return; }
+
+  // Entrar num módulo carrega a área no contexto (telas cientes de área) e o
+  // token de módulo que a tela de destino espera (ex.: Documentos exige 'docs').
+  function entrar(url, mod){
+    sessionStorage.setItem('dt_area', slug);
+    if(mod) sessionStorage.setItem('dt_module', mod);
+    window.location.href = url;
+  }
+
+  document.querySelectorAll('.mod-card').forEach(function(card){
+    var role = card.getAttribute('data-role');
+    if(role === 'gestor' && !isGestor){ card.parentNode.removeChild(card); return; }
+    var url = card.getAttribute('data-url');
+    var mod = card.getAttribute('data-module');
+    card.addEventListener('click', function(){ entrar(url, mod); });
+    card.addEventListener('keydown', function(e){
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); entrar(url, mod); }
+    });
+  });
+
+  document.getElementById('logout').addEventListener('click', function(){
+    localStorage.removeItem('doctrack_token');
+    localStorage.removeItem('doctrack_user');
+    window.location.href = '/';
+  });
+})();
+</script>
+</body>
+</html>
