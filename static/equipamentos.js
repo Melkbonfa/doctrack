@@ -1,14 +1,19 @@
-/* Módulo Equipamentos — dashboard de completude · lista+ficha · taxonomia */
+/* Módulo Equipamentos — shell + gráficos no mesmo padrão do módulo de Documentos */
 const TOKEN_KEY = "doctrack_token";
 function token(){ return localStorage.getItem(TOKEN_KEY) || ""; }
-function userRole(){ try{ return (JSON.parse(localStorage.getItem("doctrack_user")||"{}").role)||""; }catch(e){ return ""; } }
+function userObj(){ try{ return JSON.parse(localStorage.getItem("doctrack_user")||"{}")||{}; }catch(e){ return {}; } }
+const ROLE = (userObj().role)||"";
+const podeEditar = ["admin","gestor","tecnico"].includes(ROLE);
+const podeGerir  = ["admin","gestor"].includes(ROLE);
 sessionStorage.setItem("dt_module", "equip");
 
 function applyTheme(t){ const l=t==="light"; document.body.classList.toggle("theme-light",l);
   const b=document.getElementById("theme-toggle"); if(b) b.textContent=l?"☀️":"🌙"; }
 function toggleTheme(){ const n=document.body.classList.contains("theme-light")?"dark":"light";
-  localStorage.setItem("doctrack_theme",n); applyTheme(n); }
+  localStorage.setItem("doctrack_theme",n); applyTheme(n);
+  if(document.getElementById("page-dashboard").classList.contains("active")) renderDashboard(); }
 applyTheme(localStorage.getItem("doctrack_theme")||"dark");
+function doLogout(){ localStorage.removeItem("doctrack_token"); localStorage.removeItem("doctrack_user"); window.location.href="/"; }
 
 async function api(url, opts={}){
   const res = await fetch(url, {...opts, headers:{
@@ -23,11 +28,14 @@ function toast(msg, erro=false){ const t=document.getElementById("toast");
 function esc(s){ const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; }
 function val(id){ const e=document.getElementById(id); return e?e.value:""; }
 
+// gráficos (mesmo visual do Documentos)
+let chartInstances = {};
+function _darken(hex,f){ const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  r=Math.round(r*(1-f)); g=Math.round(g*(1-f)); b=Math.round(b*(1-f)); return `rgb(${r},${g},${b})`; }
+function donutGrad(ctx,hex){ const g=ctx.createLinearGradient(0,0,0,160); g.addColorStop(0,hex); g.addColorStop(1,_darken(hex,0.5)); return g; }
+
 // ── estado ───────────────────────────────────────────────────────────────
 let EQUIP=[], DOCS_BY_EQ={}, TAX={categorias:[],linhas:[]}, selCatId=null;
-const ROLE=userRole();
-const podeEditar = ["admin","gestor","tecnico"].includes(ROLE);
-const podeGerir  = ["admin","gestor"].includes(ROLE);
 
 // ── completude (ICE) ───────────────────────────────────────────────────────
 const CAD = ["sku","sku_importacao","nome_tecnico","codigo_interno","fabricante","categoria_id","familia_id","linha_id"];
@@ -36,7 +44,6 @@ const NDOC = 9;
 const CAD_LABEL = {sku:"SKU de Venda",sku_importacao:"SKU de Importação",nome_tecnico:"Nome técnico",
   codigo_interno:"Código interno",fabricante:"Fabricante",categoria_id:"Categoria",familia_id:"Família",linha_id:"Linha"};
 const REG_LABEL = {anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",anvisa_validade:"Validade ANVISA"};
-
 function preenchido(e,f){ const v=e[f]; return f.endsWith("_id") ? !!v : !!(v&&String(v).trim()); }
 function docFinal(d){ return (d.setor==="PRE"&&d.status==="Homologado")||(d.setor==="Manuais"&&d.status==="Concluído"); }
 function docsFinais(eqId){ return (DOCS_BY_EQ[eqId]||[]).filter(docFinal).length; }
@@ -47,9 +54,21 @@ function scores(e){
   return {cad,reg,doc,ice:Math.round((cad+reg+doc)/3)};
 }
 const faixa = i=> i>=85?"completo":i>=50?"parcial":"inicial";
-const COR = {completo:"var(--green)",parcial:"var(--amber)",inicial:"var(--red)"};
-const cor = v=> v>=85?"var(--green)":v>=50?"var(--amber)":"var(--red)";
+const FCOLOR = {completo:"#10b981",parcial:"#f59e0b",inicial:"#f43f5e"};
+const FBG = {completo:"rgba(16,185,129,.15)",parcial:"rgba(245,158,11,.15)",inicial:"rgba(244,63,94,.15)"};
+const cor = v=> v>=85?"#10b981":v>=50?"#f59e0b":"#f43f5e";
 const ehBloqueado = e=> e.bloqueado || e.status==="Obsoleto" || e.status==="Descontinuado";
+
+// ── navegação (sidebar) ─────────────────────────────────────────────────────
+function navigate(page){
+  document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active", el.dataset.page===page));
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  const el=document.getElementById("page-"+page); if(el) el.classList.add("active");
+  document.getElementById("breadcrumb-current").textContent={dashboard:"Dashboard",lista:"Equipamentos",cat:"Categorias"}[page]||"";
+  if(page==="dashboard") renderDashboard();
+  if(page==="lista") renderLista();
+  if(page==="cat") renderCategorias();
+}
 
 // ── carga ──────────────────────────────────────────────────────────────────
 async function loadAll(){
@@ -62,96 +81,104 @@ async function loadAll(){
     (docs||[]).forEach(d=>{ if(d.equipamento_id){ (DOCS_BY_EQ[d.equipamento_id] ||= []).push(d); } });
     TAX = tax || {categorias:[],linhas:[]};
   }catch(e){ toast(e.message||"Erro ao carregar", true); }
-  if(podeEditar){ const b=document.getElementById("btn-novo-eq"); if(b) b.style.display=""; }
-  if(podeGerir){ const b=document.getElementById("btn-import"); if(b) b.style.display=""; }
-  preencherSelectsLista();
+  const u=userObj(); const ini=(u.nome||"A").trim()[0]||"A";
+  document.getElementById("nav-name").textContent=u.nome||"Usuário";
+  document.getElementById("nav-role").textContent=(u.role||"").toUpperCase();
+  document.getElementById("nav-avatar").textContent=ini; document.getElementById("top-avatar").textContent=ini;
+  if(podeEditar) document.getElementById("btn-novo-eq").style.display="";
+  if(podeGerir) document.getElementById("btn-import").style.display="";
+  preencherSelects();
   renderDashboard(); renderLista(); renderCategorias();
 }
-
-function preencherSelectsLista(){
-  const sc=document.getElementById("eq-f-cat");
-  sc.innerHTML='<option value="">Categoria: todas</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join("");
+function preencherSelects(){
+  const opts='<option value="">Todas as categorias</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join("");
+  const dc=document.getElementById("dash-cat"); if(dc){ const v=dc.value; dc.innerHTML=opts; dc.value=v; }
+  const fc=document.getElementById("eq-f-cat"); if(fc){ const v=fc.value; fc.innerHTML='<option value="">Categoria: todas</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join(""); fc.value=v; }
   const st=[...new Set(EQUIP.map(e=>e.status).filter(Boolean))];
-  document.getElementById("eq-f-status").innerHTML='<option value="">Status: todos</option>'+st.map(s=>`<option>${esc(s)}</option>`).join("");
+  const fs=document.getElementById("eq-f-status"); if(fs){ const v=fs.value; fs.innerHTML='<option value="">Status: todos</option>'+st.map(s=>`<option>${esc(s)}</option>`).join(""); fs.value=v; }
 }
 
-// ── abas ────────────────────────────────────────────────────────────────────
-function trocarAba(a){
-  ["dash","lista","cat"].forEach(x=>{
-    document.getElementById("aba-"+x).style.display = x===a?"":"none";
-    document.getElementById("tab-btn-"+x).classList.toggle("active", x===a);
-  });
-}
-
-// ══ DASHBOARD ══════════════════════════════════════════════════════════════
-let dashIncBloq=false, dashCat="", dashStatus="";
+// ══ DASHBOARD (gráficos no padrão do Documentos) ═══════════════════════════
 function renderDashboard(){
-  const fl=document.getElementById("dash-filters");
-  fl.innerHTML = `
-    <div class="filter-bar" style="margin:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <select class="filter-sel" id="dash-cat" onchange="dashCat=this.value;renderDashboard()">
-        <option value="">Categoria: todas</option>
-        ${TAX.categorias.map(c=>`<option value="${c.id}" ${dashCat==c.id?'selected':''}>${esc(c.nome)}</option>`).join("")}
-      </select>
-      <label class="muted" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-left:auto">
-        <input type="checkbox" id="dash-bloq" ${dashIncBloq?'checked':''} onchange="dashIncBloq=this.checked;renderDashboard()"> incluir obsoletos/bloqueados
-      </label>
-    </div>`;
-  let list = EQUIP.filter(e=> (dashIncBloq||!ehBloqueado(e)) && (!dashCat||String(e.categoria_id)===String(dashCat)));
+  if(typeof Chart==="undefined") return;
+  const cat=val("dash-cat"), inc=(document.getElementById("dash-bloq")||{}).checked;
+  let list = EQUIP.filter(e=> (inc||!ehBloqueado(e)) && (!cat||String(e.categoria_id)===String(cat)));
   const S = list.map(e=>({e, s:scores(e)}));
-  const n = S.length, avg = a=> n?Math.round(a.reduce((x,y)=>x+y,0)/n):0;
+  const n = S.length, avg=a=> n?Math.round(a.reduce((x,y)=>x+y,0)/n):0;
   const iceAvg=avg(S.map(o=>o.s.ice)), cadAvg=avg(S.map(o=>o.s.cad)), regAvg=avg(S.map(o=>o.s.reg)), docAvg=avg(S.map(o=>o.s.doc));
-  const completos=S.filter(o=>o.s.ice>=85).length;
-  const pendReg=S.filter(o=>!o.e.anvisa).length;
-  const docInc=S.filter(o=>o.s.doc<100).length;
+  document.getElementById("eq-ice-badge").textContent="ICE médio "+iceAvg+"%";
 
-  document.getElementById("eq-kpis").innerHTML=[
-    ["equipamentos no recorte", n, "", "var(--cyan,#22d3ee)"],
-    ["ICE médio da frota", iceAvg+"%", n?(completos+" completos (≥85%)"):"", cor(iceAvg)],
-    ["sem registro ANVISA", pendReg, "pendência regulatória", "var(--amber)"],
-    ["documentação incompleta", docInc, "algum dos 9 tipos não finalizado", "var(--red)"],
-  ].map(([l,v,h,c])=>`<div class="kpi-card"><div class="kpi-value" style="color:${c}">${v}</div><div class="kpi-label">${l}</div>${h?`<div class="muted" style="font-size:11px;margin-top:4px">${h}</div>`:""}</div>`).join("");
-
-  // donut por faixa
+  // KPI rings por faixa
   const cnt={completo:0,parcial:0,inicial:0}; S.forEach(o=>cnt[faixa(o.s.ice)]++);
-  const tot=n||1; let acc=0; const segs=[];
-  ["completo","parcial","inicial"].forEach(k=>{ const a=acc/tot*360; acc+=cnt[k]; const b=acc/tot*360; if(cnt[k]) segs.push(`${COR[k]} ${a}deg ${b}deg`); });
-  document.getElementById("eq-donut").style.background = n?`conic-gradient(${segs.join(",")})`:"var(--bg-elevated,#222)";
-  document.getElementById("eq-donut-avg").textContent=iceAvg+"%";
-  document.getElementById("eq-donut-legend").innerHTML=[["Completo ≥85%","completo"],["Parcial 50–84%","parcial"],["Inicial <50%","inicial"]]
-    .map(([l,k])=>`<div class="eq-leg-row"><span class="eq-leg-dot" style="background:${COR[k]}"></span>${l}<span class="eq-leg-n">${cnt[k]}</span></div>`).join("");
+  const faixas=[["completo","Completo ≥85%"],["parcial","Parcial 50–84%"],["inicial","Inicial <50%"]];
+  document.getElementById("kpi-grid").innerHTML=faixas.map(([k,l],i)=>{
+    const v=cnt[k], pct=n?Math.round(v/n*100):0;
+    return `<div class="kpi-ring"><div class="kpi-ring-canvas" style="width:110px;height:110px"><canvas id="ring${i}" width="110" height="110"></canvas><div class="kpi-ring-val" style="color:${FCOLOR[k]}">${v}</div></div><div class="kpi-ring-label">${l}</div><div class="kpi-ring-delta" style="color:${FCOLOR[k]}">${pct}% da frota</div></div>`;
+  }).join("");
+  faixas.forEach(([k],i)=>{ const v=cnt[k], pct=n?v/n:0;
+    if(chartInstances["ring"+i]) chartInstances["ring"+i].destroy();
+    chartInstances["ring"+i]=new Chart(document.getElementById("ring"+i),{type:"doughnut",
+      data:{datasets:[{data:[pct*100,100-pct*100],backgroundColor:[FCOLOR[k],FBG[k]],borderWidth:0,hoverOffset:4}]},
+      options:{responsive:false,cutout:"78%",plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{animateRotate:true,duration:900}}}); });
 
-  document.getElementById("eq-dims").innerHTML=[["Cadastro",cadAvg],["Regulatório",regAvg],["Documental",docAvg]]
-    .map(([l,v])=>`<div class="eq-bar"><div class="eq-bar-top"><span>${l}</span><span style="color:${cor(v)};font-weight:700">${v}%</span></div><div class="eq-track"><div class="eq-fill" style="width:${v}%;background:${cor(v)}"></div></div></div>`).join("");
-  document.getElementById("eq-dims-note").textContent=`ICE = (Cadastro + Regulatório + Documental) / 3 = ${iceAvg}%`;
+  // donut por categoria
+  const porCat={}; S.forEach(o=>{ const c=o.e.categoria||"Sem categoria"; porCat[c]=(porCat[c]||0)+1; });
+  const cLabels=Object.keys(porCat), cVals=Object.values(porCat);
+  const pal=["#10b981","#22d3ee","#f59e0b","#a78bfa","#06b6d4","#f43f5e","#3b82f6"];
+  const dColors=cLabels.map((c,i)=>pal[i%pal.length]);
+  document.getElementById("donut-total").textContent=n;
+  document.getElementById("donut-legend").innerHTML=cLabels.map((c,i)=>`<div class="legend-row" title="${esc(c)}"><span class="legend-dot" style="background:${dColors[i]}"></span><span>${esc(c)}</span><span class="legend-val">${cVals[i]}</span></div>`).join("")||'<div class="muted">Sem dados</div>';
+  if(chartInstances.donut) chartInstances.donut.destroy();
+  const elD=document.getElementById("cDonut");
+  if(elD && cLabels.length){ const bg=dColors.map(c=>donutGrad(elD.getContext("2d"),c));
+    chartInstances.donut=new Chart(elD,{type:"doughnut",
+      data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:bg,borderWidth:0,borderRadius:8,spacing:3,hoverOffset:6}]},
+      options:{responsive:false,cutout:"78%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed}`}}},animation:{animateRotate:true,duration:1000}}}); }
 
-  // lacunas
-  const gaps={};
-  S.forEach(o=>{ CAD.forEach(f=>{ if(!preenchido(o.e,f)) gaps[CAD_LABEL[f]]=(gaps[CAD_LABEL[f]]||0)+1; });
+  // prog-list = dimensões
+  const dims=[["Cadastro",cadAvg],["Regulatório",regAvg],["Documental",docAvg]];
+  const dimC=["#22d3ee","#f59e0b","#10b981"];
+  document.getElementById("prog-list").innerHTML=dims.map(([l,v],i)=>`<div class="prog-row"><span class="prog-label">${l}</span><div class="prog-track"><div class="prog-fill" style="width:${v}%;background:${dimC[i]}"></div></div><span class="prog-pct">${v}%</span></div>`).join("")+`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border-dim);display:flex;justify-content:space-between"><span style="font-size:10px;color:var(--t3)">ICE médio</span><span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--cyan)">${iceAvg}%</span></div>`;
+
+  // bar: equipamentos por categoria
+  if(chartInstances.bar) chartInstances.bar.destroy();
+  const cb=document.getElementById("chartBar");
+  if(cb){ const ctx=cb.getContext("2d"); const grad=ctx.createLinearGradient(0,0,0,200); grad.addColorStop(0,"#22d3ee"); grad.addColorStop(1,"#3b82f6");
+    chartInstances.bar=new Chart(ctx,{type:"bar",data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:grad,borderRadius:8,borderWidth:0}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{display:false},border:{display:false}},
+                y:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}}}}}); }
+
+  // bar horizontal: lacunas mais comuns
+  const gaps={}; S.forEach(o=>{ CAD.forEach(f=>{ if(!preenchido(o.e,f)) gaps[CAD_LABEL[f]]=(gaps[CAD_LABEL[f]]||0)+1; });
     REG.forEach(f=>{ if(!preenchido(o.e,f)) gaps[REG_LABEL[f]]=(gaps[REG_LABEL[f]]||0)+1; });
-    const falt=NDOC-Math.min(NDOC,docsFinais(o.e.id)); if(falt) gaps["Documentos não finalizados"]=(gaps["Documentos não finalizados"]||0)+falt; });
-  const top=Object.entries(gaps).sort((a,b)=>b[1]-a[1]).slice(0,6); const mx=top.length?top[0][1]:1;
-  document.getElementById("eq-gaps").innerHTML=top.map(([l,c])=>`<div class="eq-bar"><div class="eq-bar-top"><span>${l}</span><span class="muted">${c}</span></div><div class="eq-track"><div class="eq-fill" style="width:${Math.round(c/mx*100)}%;background:var(--purple,#a78bfa)"></div></div></div>`).join("")||'<p class="muted" style="font-size:12px">Sem lacunas no recorte.</p>';
+    const falt=NDOC-Math.min(NDOC,docsFinais(o.e.id)); if(falt) gaps["Docs não finalizados"]=(gaps["Docs não finalizados"]||0)+falt; });
+  const top=Object.entries(gaps).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  if(chartInstances.gaps) chartInstances.gaps.destroy();
+  const cg=document.getElementById("chartGaps");
+  if(cg){ chartInstances.gaps=new Chart(cg,{type:"bar",
+      data:{labels:top.map(t=>t[0]),datasets:[{data:top.map(t=>t[1]),backgroundColor:"#a78bfa",borderRadius:8,borderWidth:0}]},
+      options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}},
+                y:{ticks:{color:"#c7d2fe",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
 
-  // worklist
-  const rank=[...S].sort((a,b)=>a.s.ice-b.s.ice).slice(0,8);
-  const mini=v=>`<div class="eq-mini"><div class="eq-track" style="height:6px"><div class="eq-fill" style="width:${v}%;background:${cor(v)}"></div></div><span>${v}%</span></div>`;
-  document.getElementById("eq-worklist").innerHTML=`<table class="eq-wtable"><thead><tr><th>Equipamento</th><th>Cad</th><th>Reg</th><th>Doc</th><th>ICE</th></tr></thead><tbody>`+
-    (rank.map(o=>`<tr onclick="abrirFicha(${o.e.id})" style="cursor:pointer"><td><b>${esc(o.e.nome)}</b>${ehBloqueado(o.e)?` <span class="muted" style="font-size:10px">${esc(o.e.status)}</span>`:""}<br><span class="muted" style="font-size:11px">SKU ${esc(o.e.sku||"—")}</span></td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="eq-badge" style="background:${COR[faixa(o.s.ice)]}22;color:${COR[faixa(o.s.ice)]}">${o.s.ice}%</span></td></tr>`).join("")||'<tr><td colspan="5" class="muted">Sem equipamentos.</td></tr>')+
-    `</tbody></table>`;
+  // tabela worklist
+  const rank=[...S].sort((a,b)=>a.s.ice-b.s.ice).slice(0,10);
+  const mini=v=>`<span class="mono" style="color:${cor(v)}">${v}%</span>`;
+  document.getElementById("dash-table").innerHTML=rank.map(o=>`<tr onclick="abrirFicha(${o.e.id})" style="cursor:pointer"><td class="bold">${esc(o.e.nome)}</td><td class="mono">${esc(o.e.sku||"—")}</td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="sg-badge ${o.s.ice>=85?'sg-finalizado':o.s.ice>=50?'sg-progresso':'sg-pendente'}">${o.s.ice}%</span></td></tr>`).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }
 
 // ══ LISTA ══════════════════════════════════════════════════════════════════
 function renderLista(){
-  const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"), st=val("eq-f-status"), inc=document.getElementById("eq-f-bloq").checked;
+  const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"), st=val("eq-f-status"), inc=(document.getElementById("eq-f-bloq")||{}).checked;
   let list=EQUIP.filter(e=>(inc||!ehBloqueado(e))
     &&(!cat||String(e.categoria_id)===String(cat))&&(!st||e.status===st)
     &&(!q||[e.nome,e.sku,e.nome_tecnico,e.fabricante,e.sku_importacao].filter(Boolean).join(" ").toLowerCase().includes(q)));
   document.getElementById("eq-badge").textContent=list.length+" equip.";
   document.getElementById("eq-grid").innerHTML=list.map(e=>{
-    const s=scores(e), col=faixa(s.ice);
-    return `<div class="equip-card st-${col==='completo'?'green':col==='parcial'?'amber':'red'}" onclick="abrirFicha(${e.id})">
-      <div class="eq-ring" style="background:conic-gradient(${COR[col]} ${s.ice*3.6}deg, var(--bg-elevated,#222) 0)"><span>${s.ice}%</span></div>
+    const s=scores(e), f=faixa(s.ice);
+    return `<div class="equip-card st-${f==='completo'?'green':f==='parcial'?'amber':'red'}" onclick="abrirFicha(${e.id})">
+      <div class="eq-ring" style="background:conic-gradient(${FCOLOR[f]} ${s.ice*3.6}deg, var(--bg-elevated) 0)"><span>${s.ice}%</span></div>
       <div class="equip-card-name" style="padding-right:46px">${esc(e.nome)}</div>
       <div class="equip-card-sku">${e.sku?esc(e.sku):'<span class="muted">sem SKU</span>'}</div>
       <div class="eq-card-meta">${e.categoria?`<span class="eq-chip">${esc(e.categoria)}</span>`:""}${ehBloqueado(e)?`<span class="eq-chip bloq">${esc(e.status)}</span>`:""}</div>
@@ -172,26 +199,22 @@ function abrirFicha(id){
   document.getElementById("eq-ficha-save").style.display = podeEditar?"inline-flex":"none";
   document.getElementById("eq-ficha-head").innerHTML = `
     <div class="eq-fhead">
-      <div><div class="eq-fname"><span class="eq-fdot" style="background:${COR[faixa(s.ice)]}"></span>${esc(e.nome||"Novo equipamento")}</div>
+      <div><div class="eq-fname"><span class="eq-fdot" style="background:${FCOLOR[faixa(s.ice)]}"></span>${esc(e.nome||"Novo equipamento")}</div>
       <div class="eq-fsub">${e.sku?("SKU "+esc(e.sku)+" · "):""}ICE ${s.ice}% · ${esc(e.status||"Ativo")}</div></div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('eq')" aria-label="Fechar" style="padding:4px 10px">✕</button>
     </div>`;
   const tabs=[["geral","Geral"],["tecnico","Técnico"],["reg","Regulatório"],["docs","Documentos"],["hist","Histórico"]];
   document.getElementById("eq-ficha-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===fichaTab?'active':''}" onclick="fichaSwitch('${k}')">${l}</button>`).join("");
   document.getElementById("eq-ficha-panels").innerHTML=tabs.map(([k])=>`<div class="equip-tab-panel ${k===fichaTab?'active':''}" data-panel="${k}">${painelFicha(k,e)}</div>`).join("");
-  // popula familia conforme categoria
   onCatChange(true);
   openBaseModal("eq");
 }
 function fichaSwitch(k){
   fichaTab=k;
-  document.querySelectorAll("#eq-ficha-tabs .equip-modal-tab").forEach(b=>
-    b.classList.toggle("active", (b.getAttribute("onclick")||"").includes("'"+k+"'")));
-  document.querySelectorAll("#eq-ficha-panels .equip-tab-panel").forEach(p=>
-    p.classList.toggle("active", p.dataset.panel===k));
+  document.querySelectorAll("#eq-ficha-tabs .equip-modal-tab").forEach(b=>b.classList.toggle("active",(b.getAttribute("onclick")||"").includes("'"+k+"'")));
+  document.querySelectorAll("#eq-ficha-panels .equip-tab-panel").forEach(p=>p.classList.toggle("active",p.dataset.panel===k));
 }
 function fld(label,id,v,ph){ return `<div class="form-group"><label class="form-label">${label}</label><input class="form-input" id="${id}" value="${esc(v||"")}" placeholder="${ph||""}"></div>`; }
-
 function painelFicha(k,e){
   if(k==="geral"){
     const catOpts='<option value="">—</option>'+TAX.categorias.map(c=>`<option value="${c.id}" ${String(e.categoria_id)===String(c.id)?'selected':''}>${esc(c.nome)}</option>`).join("");
@@ -217,12 +240,11 @@ function painelFicha(k,e){
     if(!e.id) return '<p class="muted">Salve o equipamento para vincular documentos.</p>';
     const docs=DOCS_BY_EQ[e.id]||[];
     if(!docs.length) return '<p class="muted">Nenhum documento vinculado ainda. Crie-os no módulo de Documentos.</p>';
-    const stc=s=>(s==="Homologado"||s==="Concluído")?"var(--green)":s==="Elaborar"?"var(--red)":"var(--amber)";
+    const stc=s=>(s==="Homologado"||s==="Concluído")?"#10b981":s==="Elaborar"?"#f43f5e":"#f59e0b";
     return `<div class="eq-doclist">${docs.map(d=>`<div class="eq-docrow"><span class="eq-docdot" style="background:${stc(d.status)}"></span>${esc(d.tipo_doc_label||d.tipo_doc||d.documento)}<span class="muted" style="margin-left:auto;font-size:11px">${esc(d.status)}</span></div>`).join("")}</div><p class="muted" style="font-size:11px;margin-top:8px">${docsFinais(e.id)}/${NDOC} finalizados.</p>`;
   }
   return '<p class="muted">Auditoria de alterações deste equipamento — integra com o log na Fase 3.</p>';
 }
-
 function onCatChange(keepFam){
   const sel=document.getElementById("f-categoria_id"); if(!sel) return;
   const fams=famsDe(sel.value);
@@ -230,7 +252,6 @@ function onCatChange(keepFam){
   const cur = keepFam && e ? e.familia_id : null;
   document.getElementById("f-familia_id").innerHTML='<option value="">—</option>'+fams.map(f=>`<option value="${f.id}" ${String(cur)===String(f.id)?'selected':''}>${esc(f.nome)}</option>`).join("");
 }
-
 async function salvarFicha(){
   const nome=val("f-nome").trim();
   if(!nome){ toast("Informe o nome comercial", true); return; }
@@ -255,19 +276,15 @@ async function excluirEquip(){
   catch(e){ toast(e.message,true); }
 }
 
-// ══ CATEGORIAS (taxonomia) ═════════════════════════════════════════════════
+// ══ CATEGORIAS ═════════════════════════════════════════════════════════════
 function renderCategorias(){
   const cl=document.getElementById("cat-list");
   cl.innerHTML=TAX.categorias.map(c=>`<div class="eq-trow ${c.id===selCatId?'sel':''}" onclick="selCat(${c.id})">
     <input class="eq-tname" value="${esc(c.nome)}" onclick="event.stopPropagation()" onchange="renCategoria(${c.id},this.value)">
-    <span class="eq-tct">${c.uso||0}</span>
-    ${podeEditar?`<button class="eq-tdel" title="Excluir" onclick="event.stopPropagation();delCategoria(${c.id})">🗑</button>`:""}
-  </div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma categoria.</p>';
+    <span class="eq-tct">${c.uso||0}</span>${podeEditar?`<button class="eq-tdel" onclick="event.stopPropagation();delCategoria(${c.id})">🗑</button>`:""}</div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma categoria.</p>';
   document.getElementById("lin-list").innerHTML=TAX.linhas.map(l=>`<div class="eq-trow">
     <input class="eq-tname" value="${esc(l.nome)}" onchange="renLinha(${l.id},this.value)">
-    <span class="eq-tct">${l.uso||0}</span>
-    ${podeEditar?`<button class="eq-tdel" onclick="delLinha(${l.id})">🗑</button>`:""}
-  </div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma linha.</p>';
+    <span class="eq-tct">${l.uso||0}</span>${podeEditar?`<button class="eq-tdel" onclick="delLinha(${l.id})">🗑</button>`:""}</div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma linha.</p>';
   renderCatDetail();
 }
 function selCat(id){ selCatId=id; renderCategorias(); }
@@ -278,7 +295,7 @@ function renderCatDetail(){
   d.innerHTML=`<div class="card-title">Famílias de “${esc(c.nome)}”</div>
     <div class="eq-chips">${(c.familias||[]).map(f=>`<span class="eq-fchip">${esc(f.nome)} <span class="muted">(${f.uso||0})</span>${podeEditar?`<button onclick="delFamilia(${f.id})">×</button>`:""}</span>`).join("")||'<span class="muted" style="font-size:12px">Sem famílias.</span>'}</div>
     ${podeEditar?`<div class="eq-addline" style="max-width:300px"><input class="form-input" id="fam-new" placeholder="Nova família…"><button class="btn btn-ghost btn-sm" onclick="addFamilia(${c.id})">+ família</button></div>`:""}
-    <p class="muted" style="font-size:11px;margin-top:12px">O vínculo de cada equipamento a uma categoria/família é feito na ficha (aba Equipamentos).</p>`;
+    <p class="muted" style="font-size:11px;margin-top:12px">O vínculo de cada equipamento a uma categoria/família é feito na ficha (Todos os equipamentos).</p>`;
 }
 async function addCategoria(){ const nome=val("cat-new").trim(); if(!nome) return;
   try{ await api("/api/categorias-equipamento",{method:"POST",body:JSON.stringify({nome})}); document.getElementById("cat-new").value=""; await reloadTax(); }catch(e){ toast(e.message,true); } }
@@ -292,29 +309,24 @@ async function addLinha(){ const nome=val("lin-new").trim(); if(!nome) return;
   try{ await api("/api/linhas-produto",{method:"POST",body:JSON.stringify({nome})}); document.getElementById("lin-new").value=""; await reloadTax(); }catch(e){ toast(e.message,true); } }
 async function renLinha(id,nome){ if(!nome.trim())return; try{ await api("/api/linhas-produto/"+id,{method:"PATCH",body:JSON.stringify({nome})}); await reloadTax(); }catch(e){ toast(e.message,true); } }
 async function delLinha(id){ try{ await api("/api/linhas-produto/"+id,{method:"DELETE"}); await reloadTax(); }catch(e){ toast(e.message,true); } }
-async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); preencherSelectsLista(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
+async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); preencherSelects(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
 
-// ══ IMPORTAÇÃO ═════════════════════════════════════════════════════════════
+// ══ IMPORTAÇÃO / EXPORT ════════════════════════════════════════════════════
 function abrirImport(){ document.getElementById("import-preview").innerHTML="—";
-  document.getElementById("btn-aplicar").style.display="none"; document.getElementById("import-file").value="";
-  openBaseModal("import"); }
+  document.getElementById("btn-aplicar").style.display="none"; document.getElementById("import-file").value=""; openBaseModal("import"); }
 async function rodarImport(dryrun){
   const f=document.getElementById("import-file").files[0];
   const fd=new FormData(); if(f) fd.append("arquivo",f);
-  const url="/api/equipamentos/import?dryrun="+(dryrun?"1":"0");
   document.getElementById("import-preview").innerHTML="Processando…";
   try{
-    const res=await fetch(url,{method:"POST",headers:{"Authorization":"Bearer "+token()},body:fd});
+    const res=await fetch("/api/equipamentos/import?dryrun="+(dryrun?"1":"0"),{method:"POST",headers:{"Authorization":"Bearer "+token()},body:fd});
     const rel=await res.json();
-    if(!res.ok){ document.getElementById("import-preview").innerHTML=`<span style="color:var(--red)">${esc(rel.erro||"Falha")}</span>`; return; }
-    const incList=(rel.inconsistencias||[]).slice(0,8).map(x=>`linha ${x.linha}: ${esc(x.motivo)}${x.equipamento?(" — "+esc(x.equipamento)):""}`).join("<br>");
-    document.getElementById("import-preview").innerHTML=`
-      <b>${rel.aplicado?"Importação aplicada":"Prévia"}</b> — ${rel.total_linhas} linhas<br>
-      A criar: <b>${rel.a_criar}</b> · A atualizar: <b>${rel.a_atualizar}</b> · Inconsistências: <b>${rel.inconsistencias_n}</b>
-      ${incList?`<div class="muted" style="font-size:11px;margin-top:8px">${incList}</div>`:""}`;
-    document.getElementById("btn-aplicar").style.display = (dryrun && !rel.erro) ? "inline-flex" : "none";
+    if(!res.ok){ document.getElementById("import-preview").innerHTML=`<span style="color:#f43f5e">${esc(rel.erro||"Falha")}</span>`; return; }
+    const inc=(rel.inconsistencias||[]).slice(0,8).map(x=>`linha ${x.linha}: ${esc(x.motivo)}${x.equipamento?(" — "+esc(x.equipamento)):""}`).join("<br>");
+    document.getElementById("import-preview").innerHTML=`<b>${rel.aplicado?"Importação aplicada":"Prévia"}</b> — ${rel.total_linhas} linhas<br>A criar: <b>${rel.a_criar}</b> · A atualizar: <b>${rel.a_atualizar}</b> · Inconsistências: <b>${rel.inconsistencias_n}</b>${inc?`<div class="muted" style="font-size:11px;margin-top:8px">${inc}</div>`:""}`;
+    document.getElementById("btn-aplicar").style.display=(dryrun)?"inline-flex":"none";
     if(!dryrun){ toast(`Importado: ${rel.a_criar} criados, ${rel.a_atualizar} atualizados`); await loadAll(); setTimeout(()=>closeModal("import"),1200); }
-  }catch(e){ document.getElementById("import-preview").innerHTML=`<span style="color:var(--red)">${esc(e.message)}</span>`; }
+  }catch(e){ document.getElementById("import-preview").innerHTML=`<span style="color:#f43f5e">${esc(e.message)}</span>`; }
 }
 async function exportarCSV(){
   try{ const res=await fetch("/api/equipamentos/export",{headers:{"Authorization":"Bearer "+token()}});
@@ -322,10 +334,15 @@ async function exportarCSV(){
   catch(e){ toast("Erro ao exportar",true); }
 }
 
-// ── modais ───────────────────────────────────────────────────────────────────
+// ── modais + nav wiring ──────────────────────────────────────────────────────
 function openBaseModal(id){ const m=document.getElementById("modal-"+id); if(m){ m.classList.add("open"); m.setAttribute("aria-hidden","false"); } }
 function closeModal(id){ const m=document.getElementById("modal-"+id); if(m){ m.classList.remove("open"); m.setAttribute("aria-hidden","true"); } }
 document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{ if(e.target===m) closeModal(m.id.replace("modal-","")); }));
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") document.querySelectorAll(".modal-overlay.open").forEach(m=>closeModal(m.id.replace("modal-",""))); });
+document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.addEventListener("click",()=>navigate(el.dataset.page)));
+const _st=document.getElementById("sidebar-toggle"), _sb=document.getElementById("sidebar-backdrop"), _sn=document.getElementById("sidebar-nav");
+function toggleSidebar(f){ const open=f!==undefined?f:!_sn.classList.contains("open"); _sn.classList.toggle("open",open); _sb.classList.toggle("open",open); }
+_st&&_st.addEventListener("click",()=>toggleSidebar()); _sb&&_sb.addEventListener("click",()=>toggleSidebar(false));
 
-if(!token()){ window.location.href="/"; } else { loadAll(); }
+if(!token()){ window.location.href="/"; }
+else { document.getElementById("app").style.display="block"; loadAll(); }
