@@ -44,9 +44,15 @@ EXCEL_PATH = os.path.join(RUN_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
 DB_PATH    = os.path.join(RUN_DIR, "doctrack.db")
 
 # Raízes permitidas para visualizar/baixar arquivos dos equipamentos.
-# Configurável via DOCTRACK_FILE_ROOTS (separado por ';'). Default: a pasta de Engenharia na rede.
+# Configurável via DOCTRACK_FILE_ROOTS (separado por ';').
+# Inclui tanto a forma UNC (\\loccus-srv03\Projetos$\Engenharia) quanto a letra
+# de unidade mapeada (P:\Engenharia), pois os caminhos podem estar gravados em
+# qualquer um dos formatos e um serviço Windows só enxerga o caminho UNC.
 ARQUIVOS_ROOTS = [
-    r.strip() for r in os.environ.get("DOCTRACK_FILE_ROOTS", r"P:\Engenharia").split(";") if r.strip()
+    r.strip() for r in os.environ.get(
+        "DOCTRACK_FILE_ROOTS",
+        r"\\loccus-srv03\Projetos$\Engenharia;P:\Engenharia",
+    ).split(";") if r.strip()
 ]
 
 _database_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
