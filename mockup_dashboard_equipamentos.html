@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — Dashboard de Equipamentos (Completude)</title>
+<style>
+  :root{
+    --bg:#0e1430; --surface:#1a2147; --surface2:#212a55; --line:#2c386b;
+    --t1:#eaf0ff; --t2:#aab4e0; --t3:#7b86bd;
+    --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#fb7185; --purple:#a78bfa;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--t1);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;padding:26px 26px 60px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  h1{font-size:22px;font-weight:700;margin:0;}
+  .sub{font-size:13px;color:var(--t3);margin:4px 0 0;}
+  .muted{color:var(--t3);}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;}
+
+  /* filtros */
+  .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:20px 0;}
+  .filters select,.filters input{background:var(--surface2);border:1px solid var(--line);color:var(--t1);
+    border-radius:9px;padding:8px 11px;font-size:13px;}
+  .filters label.toggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);margin-left:auto;cursor:pointer;}
+
+  /* KPIs */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .kpi .val{font-size:30px;font-weight:800;}
+  .kpi .lbl{font-size:12px;color:var(--t3);margin-top:4px;}
+  .kpi .hint{font-size:11px;margin-top:6px;}
+
+  .grid2{display:grid;grid-template-columns:300px 1fr;gap:16px;margin-bottom:16px;}
+  .grid2b{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+  .card h3{font-size:13px;font-weight:600;margin:0 0 16px;display:flex;align-items:center;gap:7px;}
+  .card h3::before{content:"";width:3px;height:13px;background:var(--cyan);border-radius:2px;}
+
+  /* donut */
+  .donut-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .donut{width:170px;height:170px;border-radius:50%;position:relative;}
+  .donut::after{content:"";position:absolute;inset:26px;background:var(--surface);border-radius:50%;}
+  .donut-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2;}
+  .donut-center .big{font-size:30px;font-weight:800;}
+  .donut-center .cap{font-size:10px;color:var(--t3);letter-spacing:1px;text-transform:uppercase;}
+  .legend{display:flex;flex-direction:column;gap:8px;width:100%;}
+  .legend .row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t2);}
+  .legend .dot{width:10px;height:10px;border-radius:3px;}
+  .legend .n{margin-left:auto;font-weight:700;color:var(--t1);}
+
+  /* barras */
+  .bar-row{margin-bottom:14px;}
+  .bar-row .top{display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;}
+  .bar-row .top .v{font-weight:700;}
+  .track{height:9px;background:var(--surface2);border-radius:6px;overflow:hidden;}
+  .fill{height:100%;border-radius:6px;}
+
+  /* tabela ranking */
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{text-align:left;color:var(--t3);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  td{padding:9px 8px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  .eqname{font-weight:600;}
+  .eqsku{color:var(--t3);font-size:11px;}
+  .mini{display:flex;align-items:center;gap:6px;}
+  .mini .track{flex:1;height:6px;}
+  .mini .pct{font-size:11px;color:var(--t2);width:34px;text-align:right;}
+  .badge{font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;}
+  .pill-gap{font-size:10px;color:var(--t3);}
+  .note{font-size:11px;color:var(--t3);margin-top:10px;}
+  .tag-bloq{font-size:9px;padding:1px 6px;border-radius:6px;background:#3a2030;color:#fb7185;margin-left:6px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Dashboard de Equipamentos</h1>
+  <p class="sub">Índices de completude — Cadastro · Regulatório · Documental (ICE = média das três)</p>
+
+  <div class="filters">
+    <select id="f-cat"><option value="">Categoria: todas</option></select>
+    <select id="f-fam"><option value="">Família: todas</option></select>
+    <select id="f-lin"><option value="">Linha: todas</option></select>
+    <select id="f-status"><option value="">Status: todos</option></select>
+    <input id="f-busca" type="text" placeholder="Buscar nome ou SKU…" style="width:170px">
+    <label class="toggle"><input type="checkbox" id="f-bloq"> incluir obsoletos/bloqueados</label>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Distribuição por completude</h3>
+      <div class="donut-wrap">
+        <div class="donut" id="donut"><div class="donut-center"><span class="big" id="donut-avg">—</span><span class="cap">ICE médio</span></div></div>
+        <div class="legend" id="donut-legend"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Completude média por dimensão</h3>
+      <div id="dims"></div>
+      <p class="note" id="dims-note"></p>
+    </div>
+  </div>
+
+  <div class="grid2b">
+    <div class="card">
+      <h3>Lacunas mais comuns na frota</h3>
+      <div id="gaps"></div>
+      <p class="note">Onde falta mais — atacar aqui dá o maior ganho de completude.</p>
+    </div>
+    <div class="card">
+      <h3>Menos completos — worklist</h3>
+      <table>
+        <thead><tr><th>Equipamento</th><th>Cad.</th><th>Reg.</th><th>Doc.</th><th>ICE</th></tr></thead>
+        <tbody id="ranking"></tbody>
+      </table>
+      <p class="note">Clicar abriria o equipamento (modal de 9 abas) no app real.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Dados de exemplo (frota reduzida; campos preenchidos em graus variados) ──
+// cad: 8 campos de cadastro preenchidos? reg: 4 campos regulatórios? doc: tipos em status FINAL (de 9)
+const CAD_CAMPOS = ['sku_venda','sku_import','nome_com','nome_tec','categoria','familia','linha','fabricante'];
+const REG_CAMPOS = ['anvisa','registro','validade_ok','classe_risco'];
+const NDOC = 9;
+const EQ = [
+  {nome:'AmpliGene Lite', sku:'01.000889', cat:'PCR', fam:'AmpliGene', lin:'Termocicladores', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:1,registro:1,validade_ok:1,classe_risco:1}, doc:9},
+  {nome:'AmpliGene Plus', sku:'01.000920', cat:'PCR', fam:'AmpliGene', lin:'Termocicladores', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:1,registro:1,validade_ok:0,classe_risco:1}, doc:6},
+  {nome:'Amplio 16', sku:'01.001205', cat:'PCR', fam:'Amplio', lin:'PCR Tempo Real', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:0,fabricante:1}, reg:{anvisa:1,registro:0,validade_ok:0,classe_risco:0}, doc:4},
+  {nome:'Amplio RX', sku:'01.000918', cat:'PCR', fam:'Amplio', lin:'PCR Tempo Real', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:0}, reg:{anvisa:0,registro:0,validade_ok:0,classe_risco:0}, doc:2},
+  {nome:'Extracta 32', sku:'01.000162', cat:'Extração', fam:'Extracta', lin:'Extração NA', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:1,registro:1,validade_ok:1,classe_risco:0}, doc:7},
+  {nome:'Extracta 96', sku:'01.000163', cat:'Extração', fam:'Extracta', lin:'Extração NA', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:0,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:0,registro:0,validade_ok:0,classe_risco:0}, doc:3},
+  {nome:'Extracta Station 4800', sku:'01.000355', cat:'Extração', fam:'Extracta', lin:'Workflow', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:0,nome_com:1,nome_tec:1,categoria:0,familia:1,linha:0,fabricante:1}, reg:{anvisa:0,registro:0,validade_ok:0,classe_risco:0}, doc:0},
+  {nome:'Centricis MF48', sku:'1.000408', cat:'Centrífuga', fam:'Centricis', lin:'Bancada', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:1,registro:1,validade_ok:1,classe_risco:1}, doc:8},
+  {nome:'Centricis 260 R', sku:'1.000382', cat:'Centrífuga', fam:'Centricis', lin:'Bancada', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:0,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:1,registro:0,validade_ok:0,classe_risco:0}, doc:5},
+  {nome:'DB-HCS (220V)', sku:'1.000379', cat:'Banho Seco', fam:'DB', lin:'Banhos', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:0,linha:1,fabricante:1}, reg:{anvisa:0,registro:0,validade_ok:0,classe_risco:0}, doc:1},
+  {nome:'FlexVortex 2', sku:'01.000777', cat:'Agitador', fam:'FlexVortex', lin:'Agitadores', status:'Obsoleto', bloq:true,
+    cad:{sku_venda:1,sku_import:0,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:0,registro:0,validade_ok:0,classe_risco:0}, doc:9},
+  {nome:'Gelbot 96', sku:'01.000654', cat:'Eletroforese', fam:'Gelbot', lin:'Capilar', status:'Descontinuado', bloq:true,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:1,fabricante:1}, reg:{anvisa:1,registro:1,validade_ok:0,classe_risco:1}, doc:9},
+  {nome:'Fluo-200 Mini', sku:'01.000512', cat:'Fluorímetro', fam:'Fluo', lin:'Quantificação', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:1,nome_com:1,nome_tec:0,categoria:1,familia:1,linha:1,fabricante:0}, reg:{anvisa:0,registro:0,validade_ok:0,classe_risco:0}, doc:2},
+  {nome:'Caleo', sku:'01.000301', cat:'Banho Seco', fam:'Caleo', lin:'Banhos', status:'Ativo', bloq:false,
+    cad:{sku_venda:1,sku_import:0,nome_com:1,nome_tec:1,categoria:1,familia:1,linha:0,fabricante:1}, reg:{anvisa:1,registro:1,validade_ok:1,classe_risco:0}, doc:6},
+];
+
+const pct = (filled,total)=> Math.round(filled/total*100);
+function scores(e){
+  const cad = pct(CAD_CAMPOS.reduce((s,c)=>s+(e.cad[c]||0),0), CAD_CAMPOS.length);
+  const reg = pct(REG_CAMPOS.reduce((s,c)=>s+(e.reg[c]||0),0), REG_CAMPOS.length);
+  const doc = pct(e.doc, NDOC);
+  const ice = Math.round((cad+reg+doc)/3);
+  return {cad,reg,doc,ice};
+}
+const faixa = ice => ice>=85?'completo':ice>=50?'parcial':'inicial';
+const COR = {completo:'var(--green)', parcial:'var(--amber)', inicial:'var(--red)'};
+const fillColor = v => v>=85?'var(--green)':v>=50?'var(--amber)':'var(--red)';
+
+function uniq(arr){return [...new Set(arr)].sort();}
+function fillSelect(id, vals, prefixo){
+  const s=document.getElementById(id);
+  vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);});
+}
+fillSelect('f-cat', uniq(EQ.map(e=>e.cat)));
+fillSelect('f-fam', uniq(EQ.map(e=>e.fam)));
+fillSelect('f-lin', uniq(EQ.map(e=>e.lin)));
+fillSelect('f-status', uniq(EQ.map(e=>e.status)));
+
+function filtered(){
+  const cat=f('f-cat'),fam=f('f-fam'),lin=f('f-lin'),st=f('f-status'),q=f('f-busca').toLowerCase(),incBloq=document.getElementById('f-bloq').checked;
+  return EQ.filter(e=>{
+    if(!incBloq && e.bloq) return false;
+    if(cat&&e.cat!==cat) return false;
+    if(fam&&e.fam!==fam) return false;
+    if(lin&&e.lin!==lin) return false;
+    if(st&&e.status!==st) return false;
+    if(q && !(e.nome.toLowerCase().includes(q)||e.sku.includes(q))) return false;
+    return true;
+  });
+}
+function f(id){return document.getElementById(id).value;}
+
+function render(){
+  const list = filtered().map(e=>({...e, s:scores(e)}));
+  const n = list.length;
+  const avg = a => n? Math.round(a.reduce((x,y)=>x+y,0)/n):0;
+  const iceAvg = avg(list.map(e=>e.s.ice));
+  const cadAvg = avg(list.map(e=>e.s.cad)), regAvg=avg(list.map(e=>e.s.reg)), docAvg=avg(list.map(e=>e.s.doc));
+
+  // KPIs
+  const completos = list.filter(e=>e.s.ice>=85).length;
+  const pendReg = list.filter(e=>e.reg.anvisa===0 || e.reg.validade_ok===0).length;
+  const docInc = list.filter(e=>e.s.doc<100).length;
+  document.getElementById('kpis').innerHTML = [
+    ['equipamentos no recorte', n, '', 'var(--cyan)'],
+    ['ICE médio da frota', iceAvg+'%', n?`${completos} completos (≥85%)`:'', fillColor(iceAvg)],
+    ['com pendência regulatória', pendReg, 'sem ANVISA ou validade vencida', 'var(--amber)'],
+    ['com documentação incompleta', docInc, 'algum dos 9 tipos não finalizado', 'var(--red)'],
+  ].map(([lbl,val,hint,col])=>`<div class="kpi"><div class="val" style="color:${col}">${val}</div><div class="lbl">${lbl}</div>${hint?`<div class="hint muted">${hint}</div>`:''}</div>`).join('');
+
+  // Donut por faixa
+  const cnt={completo:0,parcial:0,inicial:0};
+  list.forEach(e=>cnt[faixa(e.s.ice)]++);
+  const total=n||1;
+  let acc=0; const segs=[];
+  ['completo','parcial','inicial'].forEach(k=>{ const start=acc/total*360; acc+=cnt[k]; const end=acc/total*360; if(cnt[k]) segs.push(`${COR[k]} ${start}deg ${end}deg`); });
+  document.getElementById('donut').style.background = n? `conic-gradient(${segs.join(',')})` : 'var(--surface2)';
+  document.getElementById('donut-avg').textContent = iceAvg+'%';
+  document.getElementById('donut-legend').innerHTML = [
+    ['Completo ≥85%','completo'],['Parcial 50–84%','parcial'],['Inicial <50%','inicial']
+  ].map(([l,k])=>`<div class="row"><span class="dot" style="background:${COR[k]}"></span>${l}<span class="n">${cnt[k]}</span></div>`).join('');
+
+  // Dimensões
+  document.getElementById('dims').innerHTML = [
+    ['Cadastro',cadAvg],['Regulatório',regAvg],['Documental',docAvg]
+  ].map(([l,v])=>`<div class="bar-row"><div class="top"><span>${l}</span><span class="v" style="color:${fillColor(v)}">${v}%</span></div><div class="track"><div class="fill" style="width:${v}%;background:${fillColor(v)}"></div></div></div>`).join('');
+  document.getElementById('dims-note').textContent = `ICE = (Cadastro + Regulatório + Documental) / 3 = ${iceAvg}%`;
+
+  // Lacunas mais comuns
+  const gaps={};
+  const labelCad={sku_import:'SKU de Importação',nome_tec:'Nome técnico',linha:'Linha de produto',fabricante:'Fabricante',categoria:'Categoria',familia:'Família',nome_com:'Nome comercial',sku_venda:'SKU de Venda'};
+  const labelReg={anvisa:'Registro ANVISA',registro:'Data de registro',validade_ok:'Validade ANVISA',classe_risco:'Classe de risco'};
+  list.forEach(e=>{
+    CAD_CAMPOS.forEach(c=>{ if(!e.cad[c]) gaps[labelCad[c]]=(gaps[labelCad[c]]||0)+1; });
+    REG_CAMPOS.forEach(c=>{ if(!e.reg[c]) gaps[labelReg[c]]=(gaps[labelReg[c]]||0)+1; });
+    if(e.doc<NDOC) gaps['Documentos pendentes']=(gaps['Documentos pendentes']||0)+(NDOC-e.doc);
+  });
+  const top=Object.entries(gaps).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxGap=top.length?top[0][1]:1;
+  document.getElementById('gaps').innerHTML = top.map(([l,c])=>`<div class="bar-row"><div class="top"><span>${l}</span><span class="v muted">${c}</span></div><div class="track"><div class="fill" style="width:${Math.round(c/maxGap*100)}%;background:var(--purple)"></div></div></div>`).join('') || '<p class="muted">Sem lacunas no recorte.</p>';
+
+  // Ranking menos completos
+  const rank=[...list].sort((a,b)=>a.s.ice-b.s.ice).slice(0,8);
+  const miniBar=v=>`<div class="mini"><div class="track"><div class="fill" style="width:${v}%;background:${fillColor(v)}"></div></div><span class="pct">${v}%</span></div>`;
+  document.getElementById('ranking').innerHTML = rank.map(e=>`<tr>
+    <td><span class="eqname">${e.nome}</span>${e.bloq?`<span class="tag-bloq">${e.status}</span>`:''}<br><span class="eqsku">SKU ${e.sku}</span></td>
+    <td>${miniBar(e.s.cad)}</td><td>${miniBar(e.s.reg)}</td><td>${miniBar(e.s.doc)}</td>
+    <td><span class="badge" style="background:${COR[faixa(e.s.ice)]}22;color:${COR[faixa(e.s.ice)]}">${e.s.ice}%</span></td>
+  </tr>`).join('') || '<tr><td colspan="5" class="muted">Nenhum equipamento no recorte.</td></tr>';
+}
+
+['f-cat','f-fam','f-lin','f-status','f-busca','f-bloq'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', render);
+  document.getElementById(id).addEventListener('change', render);
+});
+render();
+</script>
+</body>
+</html>

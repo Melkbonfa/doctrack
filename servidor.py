@@ -79,6 +79,7 @@ app.config["JWT_QUERY_STRING_NAME"]          = "token"
 
 from models import (
     db, bcrypt, User, Documento, Equipamento, AuditLog, RevokedToken, Responsavel,
+    CategoriaEquipamento, FamiliaEquipamento, LinhaProduto,
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, SETOR_DO_TIPO, TIPOS_DOC_LABELS
 )
@@ -518,23 +519,91 @@ def create_documento():
     except Exception: pass
     return jsonify({"mensagem": "Documento criado", "documento": doc.to_dict()}), 201
 
-# ── API — EQUIPAMENTOS (identidade) ──────────────────────────────────────────
+# ── API — EQUIPAMENTOS (entidade central) ────────────────────────────────────
 @app.route("/api/equipamentos", methods=["GET"])
 @jwt_required()
 def api_equipamentos():
     q = norm(request.args.get("q", ""))
-    equips = [e.to_dict() for e in Equipamento.query
-              .filter(Equipamento.ativo == True).order_by(Equipamento.nome).all()]
+    query = Equipamento.query.filter(Equipamento.ativo == True)
+    for campo, col in (("categoria_id", Equipamento.categoria_id),
+                       ("familia_id", Equipamento.familia_id),
+                       ("linha_id", Equipamento.linha_id)):
+        val = request.args.get(campo)
+        if val:
+            query = query.filter(col == int(val))
+    if request.args.get("status"):
+        query = query.filter(Equipamento.status == request.args.get("status"))
+    bloq = request.args.get("bloqueado")
+    if bloq in ("0", "false", "nao"):
+        query = query.filter(Equipamento.bloqueado == False)
+    elif bloq in ("1", "true", "sim"):
+        query = query.filter(Equipamento.bloqueado == True)
+
+    equips = [e.to_dict() for e in query.order_by(Equipamento.nome).all()]
     if q:
         def matches(e):
             blob = " ".join(norm(str(e.get(f, ""))) for f in
-                            ("nome", "nome_original", "sku", "anvisa", "fabricante", "familia"))
+                            ("nome", "nome_original", "nome_tecnico", "sku", "sku_importacao",
+                             "codigo_interno", "anvisa", "fabricante", "familia", "categoria"))
             return q in blob
         equips = [e for e in equips if matches(e)]
     return jsonify(equips), 200
 
-_EQUIP_CAMPOS = ["nome_original", "sku", "anvisa", "anvisa_registro",
-                 "anvisa_validade", "fabricante", "familia", "armazenamento_base"]
+@app.route("/api/equipamentos/<int:equip_id>", methods=["GET"])
+@jwt_required()
+def get_equipamento(equip_id):
+    equip = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    d = equip.to_dict()
+    d["docs_count"] = Documento.query.filter(Documento.ativo == True, Documento.equipamento_id == equip.id).count()
+    return jsonify(d), 200
+
+@app.route("/api/equipamentos", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def create_equipamento():
+    caller = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Informe o nome do equipamento"}), 400
+    equip = Equipamento(nome=nome)
+    _aplicar_campos_equip(equip, data)
+    db.session.add(equip)
+    db.session.commit()
+    log_action(caller, "CREATE", entidade=f"Equipamento: {equip.nome}", campo="nome", novo=nome, ip=get_client_ip())
+    return jsonify({"mensagem": "Equipamento criado", "equipamento": equip.to_dict()}), 201
+
+_EQUIP_STR = ["nome", "nome_original", "nome_tecnico", "descricao", "codigo_interno",
+              "sku", "sku_importacao", "anvisa", "anvisa_registro", "anvisa_validade",
+              "fabricante", "status", "observacoes", "armazenamento_base"]
+_EQUIP_INT = ["categoria_id", "familia_id", "linha_id"]
+
+def _aplicar_campos_equip(equip, data):
+    """Aplica os campos do payload ao equipamento. Devolve a lista de campos mudados."""
+    mudou = []
+    for campo in _EQUIP_STR:
+        if campo in data:
+            novo = (data.get(campo) or "").strip()
+            if novo != (getattr(equip, campo) or ""):
+                setattr(equip, campo, novo); mudou.append(campo)
+    if "bloqueado" in data:
+        novo = bool(data.get("bloqueado"))
+        if novo != bool(equip.bloqueado):
+            equip.bloqueado = novo; mudou.append("bloqueado")
+    for campo in _EQUIP_INT:
+        if campo in data:
+            raw = data.get(campo)
+            novo = int(raw) if raw not in (None, "", 0, "0") else None
+            if novo != getattr(equip, campo):
+                setattr(equip, campo, novo); mudou.append(campo)
+    # Família precisa pertencer à categoria escolhida; senão zera.
+    if equip.familia_id:
+        fam = FamiliaEquipamento.query.get(equip.familia_id)
+        if not fam or (equip.categoria_id and fam.categoria_id != equip.categoria_id):
+            equip.familia_id = None
+    return mudou
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["PATCH", "PUT"])
 @jwt_required()
@@ -546,14 +615,12 @@ def update_equipamento(equip_id):
     if not equip:
         return jsonify({"erro": "Equipamento não encontrado"}), 404
 
-    mudou = []
-    for campo in _EQUIP_CAMPOS:
-        if campo in data:
-            novo = (data.get(campo) or "").strip()
-            if novo != (getattr(equip, campo) or ""):
-                setattr(equip, campo, novo)
-                mudou.append(campo)
-    # SKU é replicado nos documentos (continuam expondo d.sku no card/busca)
+    nome_antigo, sku_antigo = equip.nome, equip.sku
+    mudou = _aplicar_campos_equip(equip, data)
+    # nome/SKU são replicados nos documentos vinculados (join + card)
+    if "nome" in mudou:
+        Documento.query.filter(Documento.equipamento_id == equip.id).update(
+            {Documento.equipamento: equip.nome}, synchronize_session=False)
     if "sku" in mudou:
         Documento.query.filter(Documento.equipamento_id == equip.id).update(
             {Documento.sku: equip.sku}, synchronize_session=False)
@@ -561,8 +628,139 @@ def update_equipamento(equip_id):
         equip.updated_em = datetime.now()
         db.session.commit()
         log_action(caller, "UPDATE", entidade=f"Equipamento: {equip.nome}",
-                   campo=",".join(mudou), novo="", ip=get_client_ip())
+                   campo=",".join(mudou), antigo=nome_antigo if "nome" in mudou else "",
+                   novo="", ip=get_client_ip())
     return jsonify({"mensagem": "Equipamento atualizado", "equipamento": equip.to_dict()}), 200
+
+@app.route("/api/equipamentos/export", methods=["GET"])
+@jwt_required()
+def export_equipamentos():
+    import csv
+    equips = Equipamento.query.filter(Equipamento.ativo == True).order_by(Equipamento.nome).all()
+    cols = ["codigo_interno", "sku", "sku_importacao", "nome", "nome_tecnico",
+            "categoria", "familia", "linha", "status", "bloqueado", "anvisa", "fabricante"]
+    buf = io.StringIO(); w = csv.writer(buf, delimiter=";")
+    w.writerow(cols)
+    for e in equips:
+        d = e.to_dict(); w.writerow([d.get(c, "") for c in cols])
+    out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    return send_file(out, mimetype="text/csv", as_attachment=True, download_name="equipamentos.csv")
+
+@app.route("/api/equipamentos/import", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor")
+def import_equipamentos():
+    caller = get_jwt_identity()
+    dryrun = request.args.get("dryrun", "1") not in ("0", "false")
+    file_bytes = None
+    if "arquivo" in request.files:
+        file_bytes = request.files["arquivo"].read()
+    try:
+        from equipamentos_importer import importar_equipamentos
+        rel = importar_equipamentos(file_bytes=file_bytes, dryrun=dryrun)
+    except FileNotFoundError:
+        return jsonify({"erro": "Planilha mestra não encontrada. Faça upload do arquivo."}), 404
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao importar: {e}"}), 500
+    if rel.get("erro"):
+        return jsonify(rel), 400
+    if not dryrun:
+        log_action(caller, "REIMPORT", entidade="Equipamentos (planilha mestra)",
+                   campo="import", novo=f"criados={rel['a_criar']} atualizados={rel['a_atualizar']}",
+                   ip=get_client_ip())
+    return jsonify(rel), 200
+
+# ── API — TAXONOMIA (Categorias · Famílias · Linhas) ─────────────────────────
+@app.route("/api/equip-taxonomia", methods=["GET"])
+@jwt_required()
+def api_taxonomia():
+    cats = CategoriaEquipamento.query.filter_by(ativo=True).order_by(CategoriaEquipamento.nome).all()
+    linhas = LinhaProduto.query.filter_by(ativo=True).order_by(LinhaProduto.nome).all()
+    def uso(model, attr, _id):
+        return Equipamento.query.filter(Equipamento.ativo == True, getattr(Equipamento, attr) == _id).count()
+    return jsonify({
+        "categorias": [{**c.to_dict(com_familias=True),
+                        "uso": uso(None, "categoria_id", c.id),
+                        "familias": [{**f.to_dict(), "uso": uso(None, "familia_id", f.id)} for f in c.familias if f.ativo]}
+                       for c in cats],
+        "linhas": [{**l.to_dict(), "uso": uso(None, "linha_id", l.id)} for l in linhas],
+    }), 200
+
+def _tax_uso(attr, _id):
+    return Equipamento.query.filter(getattr(Equipamento, attr) == _id).count()
+
+@app.route("/api/categorias-equipamento", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_categoria():
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if not nome: return jsonify({"erro": "Informe o nome"}), 400
+    c = CategoriaEquipamento(nome=nome); db.session.add(c); db.session.commit()
+    return jsonify(c.to_dict()), 201
+
+@app.route("/api/categorias-equipamento/<int:cid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_categoria(cid):
+    c = CategoriaEquipamento.query.get(cid)
+    if not c: return jsonify({"erro": "Não encontrada"}), 404
+    if request.method == "DELETE":
+        Equipamento.query.filter(Equipamento.categoria_id == cid).update(
+            {Equipamento.categoria_id: None, Equipamento.familia_id: None}, synchronize_session=False)
+        db.session.delete(c); db.session.commit()
+        return jsonify({"mensagem": "Categoria excluída"}), 200
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if nome: c.nome = nome; db.session.commit()
+    return jsonify(c.to_dict()), 200
+
+@app.route("/api/familias-equipamento", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_familia():
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip(); cid = data.get("categoria_id")
+    if not nome or not cid: return jsonify({"erro": "Informe nome e categoria"}), 400
+    f = FamiliaEquipamento(nome=nome, categoria_id=int(cid)); db.session.add(f); db.session.commit()
+    return jsonify(f.to_dict()), 201
+
+@app.route("/api/familias-equipamento/<int:fid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_familia(fid):
+    f = FamiliaEquipamento.query.get(fid)
+    if not f: return jsonify({"erro": "Não encontrada"}), 404
+    if request.method == "DELETE":
+        Equipamento.query.filter(Equipamento.familia_id == fid).update(
+            {Equipamento.familia_id: None}, synchronize_session=False)
+        db.session.delete(f); db.session.commit()
+        return jsonify({"mensagem": "Família excluída"}), 200
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if nome: f.nome = nome; db.session.commit()
+    return jsonify(f.to_dict()), 200
+
+@app.route("/api/linhas-produto", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_linha():
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if not nome: return jsonify({"erro": "Informe o nome"}), 400
+    l = LinhaProduto(nome=nome); db.session.add(l); db.session.commit()
+    return jsonify(l.to_dict()), 201
+
+@app.route("/api/linhas-produto/<int:lid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_linha(lid):
+    l = LinhaProduto.query.get(lid)
+    if not l: return jsonify({"erro": "Não encontrada"}), 404
+    if request.method == "DELETE":
+        Equipamento.query.filter(Equipamento.linha_id == lid).update(
+            {Equipamento.linha_id: None}, synchronize_session=False)
+        db.session.delete(l); db.session.commit()
+        return jsonify({"mensagem": "Linha excluída"}), 200
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if nome: l.nome = nome; db.session.commit()
+    return jsonify(l.to_dict()), 200
 
 @app.route("/api/documentos/<int:doc_id>", methods=["PATCH", "PUT"])
 @jwt_required()
@@ -1169,6 +1367,18 @@ def _sync_schema():
         ],
         "documentos": [
             ("equipamento_id", "INTEGER"),
+        ],
+        "equipamentos": [
+            ("nome_tecnico",   "VARCHAR(400) DEFAULT ''"),
+            ("descricao",      "TEXT DEFAULT ''"),
+            ("codigo_interno", "VARCHAR(50) DEFAULT ''"),
+            ("sku_importacao", "VARCHAR(50) DEFAULT ''"),
+            ("status",         "VARCHAR(40) DEFAULT 'Ativo'"),
+            ("bloqueado",      f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
+            ("observacoes",    "TEXT DEFAULT ''"),
+            ("categoria_id",   "INTEGER"),
+            ("familia_id",     "INTEGER"),
+            ("linha_id",       "INTEGER"),
         ],
     }
     adicionadas = set()

@@ -279,33 +279,106 @@ class Equipamento(db.Model):
     __tablename__ = "equipamentos"
 
     id                 = db.Column(db.Integer, primary_key=True)
-    nome               = db.Column(db.String(200), nullable=False, index=True)  # chave de junção
+    nome               = db.Column(db.String(200), nullable=False, index=True)  # Nome comercial / chave de junção
     nome_original      = db.Column(db.String(300), default="")
-    sku                = db.Column(db.String(50), default="")
+    nome_tecnico       = db.Column(db.String(400), default="")  # nome longo/descritivo (planilha mestra)
+    descricao          = db.Column(db.Text, default="")         # descritivo livre (≠ nome_tecnico ≠ observacoes)
+    codigo_interno     = db.Column(db.String(50), default="")
+    sku                = db.Column(db.String(50), default="")   # SKU de Venda (chave de junção)
+    sku_importacao     = db.Column(db.String(50), default="")   # SKU de Importação
     anvisa             = db.Column(db.String(60), default="")   # nº de registro ANVISA
     anvisa_registro    = db.Column(db.String(40), default="")   # data (texto, padrão do projeto)
     anvisa_validade    = db.Column(db.String(40), default="")   # data (texto)
     fabricante         = db.Column(db.String(200), default="")
-    familia            = db.Column(db.String(120), default="")  # categoria p/ filtro no grid
+    familia            = db.Column(db.String(120), default="")  # LEGADO (texto); migrar p/ familia_id
+    status             = db.Column(db.String(40), default="Ativo")  # Ativo/Obsoleto/Descontinuado
+    bloqueado          = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    observacoes        = db.Column(db.Text, default="")
     armazenamento_base = db.Column(db.String(500), default="")
+    # Taxonomia gerenciada (família aninhada na categoria)
+    categoria_id       = db.Column(db.Integer, db.ForeignKey("categorias_equipamento.id"), nullable=True, index=True)
+    familia_id         = db.Column(db.Integer, db.ForeignKey("familias_equipamento.id"), nullable=True, index=True)
+    linha_id           = db.Column(db.Integer, db.ForeignKey("linhas_produto.id"), nullable=True, index=True)
     ativo              = db.Column(db.Boolean, default=True, nullable=False, index=True)
     criado_em          = db.Column(db.DateTime, default=datetime.now)
     updated_em         = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    categoria_rel = db.relationship("CategoriaEquipamento", foreign_keys=[categoria_id], lazy="joined")
+    familia_rel   = db.relationship("FamiliaEquipamento", foreign_keys=[familia_id], lazy="joined")
+    linha_rel     = db.relationship("LinhaProduto", foreign_keys=[linha_id], lazy="joined")
 
     def to_dict(self):
         return {
             "id":                 self.id,
             "nome":               self.nome or "",
             "nome_original":      self.nome_original or "",
+            "nome_tecnico":       self.nome_tecnico or "",
+            "descricao":          self.descricao or "",
+            "codigo_interno":     self.codigo_interno or "",
             "sku":                self.sku or "",
+            "sku_importacao":     self.sku_importacao or "",
             "anvisa":             self.anvisa or "",
             "anvisa_registro":    self.anvisa_registro or "",
             "anvisa_validade":    self.anvisa_validade or "",
             "fabricante":         self.fabricante or "",
-            "familia":            self.familia or "",
+            "status":             self.status or "Ativo",
+            "bloqueado":          bool(self.bloqueado),
+            "observacoes":        self.observacoes or "",
             "armazenamento_base": self.armazenamento_base or "",
+            "categoria_id":       self.categoria_id,
+            "categoria":          (self.categoria_rel.nome if self.categoria_rel else ""),
+            "familia_id":         self.familia_id,
+            "familia":            (self.familia_rel.nome if self.familia_rel else (self.familia or "")),
+            "linha_id":           self.linha_id,
+            "linha":              (self.linha_rel.nome if self.linha_rel else ""),
             "ativo":              bool(self.ativo),
         }
+
+
+# ── TAXONOMIA DE EQUIPAMENTOS (gerenciável) ──────────────────────────────────
+# Categoria → Famílias (aninhadas) · Linhas (lista plana). O vínculo de cada
+# equipamento é feito na ficha do card; estas tabelas só guardam as listas.
+
+class CategoriaEquipamento(db.Model):
+    __tablename__ = "categorias_equipamento"
+    id    = db.Column(db.Integer, primary_key=True)
+    nome  = db.Column(db.String(120), nullable=False, index=True)
+    ordem = db.Column(db.Integer, default=0)
+    ativo = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    familias = db.relationship("FamiliaEquipamento", back_populates="categoria",
+                               order_by="FamiliaEquipamento.nome", cascade="all, delete-orphan")
+
+    def to_dict(self, com_familias=False):
+        d = {"id": self.id, "nome": self.nome or "", "ordem": self.ordem or 0, "ativo": bool(self.ativo)}
+        if com_familias:
+            d["familias"] = [f.to_dict() for f in self.familias if f.ativo]
+        return d
+
+
+class FamiliaEquipamento(db.Model):
+    __tablename__ = "familias_equipamento"
+    id           = db.Column(db.Integer, primary_key=True)
+    categoria_id = db.Column(db.Integer, db.ForeignKey("categorias_equipamento.id"), nullable=False, index=True)
+    nome         = db.Column(db.String(120), nullable=False, index=True)
+    ordem        = db.Column(db.Integer, default=0)
+    ativo        = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    categoria = db.relationship("CategoriaEquipamento", back_populates="familias")
+
+    def to_dict(self):
+        return {"id": self.id, "categoria_id": self.categoria_id,
+                "categoria_nome": self.categoria.nome if self.categoria else "",
+                "nome": self.nome or "", "ordem": self.ordem or 0, "ativo": bool(self.ativo)}
+
+
+class LinhaProduto(db.Model):
+    __tablename__ = "linhas_produto"
+    id    = db.Column(db.Integer, primary_key=True)
+    nome  = db.Column(db.String(120), nullable=False, index=True)
+    ordem = db.Column(db.Integer, default=0)
+    ativo = db.Column(db.Boolean, default=True, nullable=False, index=True)
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome or "", "ordem": self.ordem or 0, "ativo": bool(self.ativo)}
 
 
 # ── RESPONSAVEL ───────────────────────────────────────────────────────────────

@@ -14,6 +14,19 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Módulo Equipamentos — Fase 1 (backend)
+- Entidade `Equipamento` estendida: nome_tecnico, descricao (descritivo livre),
+  codigo_interno, sku_importacao, status, bloqueado, observacoes e taxonomia
+  (categoria_id / familia_id / linha_id).
+- Taxonomia gerenciável: `categorias_equipamento`, `familias_equipamento`
+  (família aninhada na categoria) e `linhas_produto`.
+- Importador da planilha mestra (`equipamentos_importer.py`): casa por **SKU de Venda**
+  com fallback por nome (existentes sem SKU), deriva nome/descrição, dry-run + commit,
+  relatório de inconsistências. Reconciliou 45 existentes e criou os novos sem duplicar.
+- API: `GET/POST/PATCH /api/equipamentos` (filtros categoria/família/linha/status/bloqueado),
+  `GET /api/equipamentos/<id>`, `/export` (CSV), `/import`; e CRUD da taxonomia
+  (`/api/equip-taxonomia`, `/api/categorias-equipamento`, `/api/familias-equipamento`, `/api/linhas-produto`).
+
 ### Adicionado
 - Entidade **Equipamento** como fonte única de identidade (nome, nome original,
   SKU, ANVISA + registro/validade, fabricante, família, armazenamento base).
