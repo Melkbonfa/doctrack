@@ -29,6 +29,10 @@ _IC_EQUIP = ('<path d="M14 3v4a1 1 0 0 0 1 1h4"/>'
 _IC_REAG = ('<path d="M9 3h6"/>'
             '<path d="M10 3v6.5L5.2 18a2 2 0 0 0 1.7 3h10.2a2 2 0 0 0 1.7-3L14 9.5V3"/>'
             '<path d="M8 14h8"/>')
+_IC_EQUIP_MOD = ('<rect x="4" y="4" width="16" height="16" rx="2"/>'
+                 '<path d="M9 9h6v6H9z"/><path d="M9 2v2"/><path d="M15 2v2"/>'
+                 '<path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/>'
+                 '<path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/>')
 
 
 AREAS = [
@@ -40,6 +44,7 @@ AREAS = [
         "home": "/hub/pde",
         "icon": _IC_EQUIP,
         "modulos": [
+            {"label": "Equipamentos", "url": "/equipamentos", "role": None, "module": "equip", "icon": _IC_EQUIP_MOD},
             {"label": "Documentos", "url": "/", "role": None, "module": "docs", "icon": _IC_DOCS},
             {"label": "Projetos", "url": "/projetos", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
         ],

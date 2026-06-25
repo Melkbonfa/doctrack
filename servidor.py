@@ -358,6 +358,11 @@ def index():
 def entregaveis_page():
     return render_template("entregaveis.html", asset_v=_static_version())
 
+@app.route("/equipamentos")
+def equipamentos_page():
+    # Módulo Equipamentos (área PDE). Acesso validado no front (token + áreas).
+    return render_template("equipamentos.html", asset_v=_static_version())
+
 @app.route("/hub")
 def hub_page():
     from areas import AREAS
@@ -631,6 +636,20 @@ def update_equipamento(equip_id):
                    campo=",".join(mudou), antigo=nome_antigo if "nome" in mudou else "",
                    novo="", ip=get_client_ip())
     return jsonify({"mensagem": "Equipamento atualizado", "equipamento": equip.to_dict()}), 200
+
+@app.route("/api/equipamentos/<int:equip_id>", methods=["DELETE"])
+@jwt_required()
+@require_role("admin", "gestor")
+def delete_equipamento(equip_id):
+    caller = get_jwt_identity()
+    equip = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    equip.ativo = False                       # soft delete (reversível no banco)
+    equip.updated_em = datetime.now()
+    db.session.commit()
+    log_action(caller, "DELETE", entidade=f"Equipamento: {equip.nome}", campo="ativo", novo="False", ip=get_client_ip())
+    return jsonify({"mensagem": "Equipamento excluído"}), 200
 
 @app.route("/api/equipamentos/export", methods=["GET"])
 @jwt_required()
