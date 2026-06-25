@@ -27,14 +27,28 @@ STATUS_MAP = {
     "Manuais": STATUS_FABRICANTE,
 }
 
-TIPOS_DOC_FABRICANTE = ["Manual_ES", "Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
+# Tipos de documento por setor. Cada equipamento tem 1 documento de cada tipo.
+TIPOS_DOC_PRE = ["IT", "Checklist"]
+TIPOS_DOC_FABRICANTE = [
+    "Manual_Usuario", "Manual_ES", "Manual_Servico",
+    "Spare_Parts", "Dossie", "Guia_Instalacao", "QIQOQD",
+]
+TIPOS_DOC_TODOS = TIPOS_DOC_PRE + TIPOS_DOC_FABRICANTE
+
+# setor (pipeline de status) de cada tipo de documento
+SETOR_DO_TIPO = {t: "PRE" for t in TIPOS_DOC_PRE}
+SETOR_DO_TIPO.update({t: "Manuais" for t in TIPOS_DOC_FABRICANTE})
 
 TIPOS_DOC_LABELS = {
-    "Manual_ES": "Manual ES",
-    "Manual_Servico": "Manual de Serviço",
-    "Manual_Usuario": "Manual do Usuário",
-    "QIQOQD": "QI/QO/QD",
-    "Spare_Parts": "Spare Parts",
+    "IT":              "Instrução de Trabalho",
+    "Checklist":       "Checklist",
+    "Manual_Usuario":  "Manual do Usuário PT",
+    "Manual_ES":       "Manual do Usuário ES",
+    "Manual_Servico":  "Manual de Serviço",
+    "Spare_Parts":     "Spare Parts",
+    "Dossie":          "Dossiê",
+    "Guia_Instalacao": "Guia de Instalação",
+    "QIQOQD":          "QI/QO/QD",
 }
 
 ACOES_AUDIT = [
@@ -161,6 +175,10 @@ class Documento(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
     setor           = db.Column(db.String(30), nullable=False, index=True)
     equipamento     = db.Column(db.String(200), nullable=False, default="")
+    # Vínculo com a entidade Equipamento (identidade compartilhada). Nullable
+    # durante a transição; backfill no startup preenche para os docs existentes.
+    equipamento_id  = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                                nullable=True, index=True)
     sku             = db.Column(db.String(50), default="")
     codigo_doc      = db.Column(db.String(50), default="")
     documento       = db.Column(db.String(300), nullable=False, default="")
@@ -182,6 +200,9 @@ class Documento(db.Model):
     responsaveis = db.relationship(
         "Responsavel", back_populates="documento", cascade="all, delete-orphan"
     )
+    # Identidade do equipamento (fonte única). joined evita N+1 ao serializar listas.
+    equipamento_rel = db.relationship("Equipamento", foreign_keys=[equipamento_id],
+                                      lazy="joined")
 
     @property
     def status_global(self):
@@ -212,6 +233,11 @@ class Documento(db.Model):
             "id":               self.id,
             "setor":            self.setor or "",
             "equipamento":      self.equipamento or "",
+            "equipamento_id":   self.equipamento_id,
+            # Identidade vinda da entidade Equipamento (vazio se ainda não vinculado)
+            "nome_original":    (self.equipamento_rel.nome_original if self.equipamento_rel else ""),
+            "anvisa":           (self.equipamento_rel.anvisa if self.equipamento_rel else ""),
+            "familia":          (self.equipamento_rel.familia if self.equipamento_rel else ""),
             "sku":              self.sku or "",
             "codigo_doc":       self.codigo_doc or "",
             "documento":        self.documento or "",
@@ -241,6 +267,44 @@ class Documento(db.Model):
         return {
             k: {"old": snapshot_anterior.get(k), "new": atual.get(k)}
             for k in atual if atual.get(k) != snapshot_anterior.get(k)
+        }
+
+
+# ── EQUIPAMENTO ───────────────────────────────────────────────────────────────
+# Fonte única da identidade do equipamento. Os documentos (9 por equipamento)
+# referenciam esta entidade via Documento.equipamento_id. Campos que descrevem o
+# equipamento (não o documento) moram aqui: nome original, ANVISA, família, etc.
+
+class Equipamento(db.Model):
+    __tablename__ = "equipamentos"
+
+    id                 = db.Column(db.Integer, primary_key=True)
+    nome               = db.Column(db.String(200), nullable=False, index=True)  # chave de junção
+    nome_original      = db.Column(db.String(300), default="")
+    sku                = db.Column(db.String(50), default="")
+    anvisa             = db.Column(db.String(60), default="")   # nº de registro ANVISA
+    anvisa_registro    = db.Column(db.String(40), default="")   # data (texto, padrão do projeto)
+    anvisa_validade    = db.Column(db.String(40), default="")   # data (texto)
+    fabricante         = db.Column(db.String(200), default="")
+    familia            = db.Column(db.String(120), default="")  # categoria p/ filtro no grid
+    armazenamento_base = db.Column(db.String(500), default="")
+    ativo              = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    criado_em          = db.Column(db.DateTime, default=datetime.now)
+    updated_em         = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "nome":               self.nome or "",
+            "nome_original":      self.nome_original or "",
+            "sku":                self.sku or "",
+            "anvisa":             self.anvisa or "",
+            "anvisa_registro":    self.anvisa_registro or "",
+            "anvisa_validade":    self.anvisa_validade or "",
+            "fabricante":         self.fabricante or "",
+            "familia":            self.familia or "",
+            "armazenamento_base": self.armazenamento_base or "",
+            "ativo":              bool(self.ativo),
         }
 
 
