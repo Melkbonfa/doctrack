@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — Taxonomia (Categorias · Famílias · Linhas) independentes</title>
+<style>
+  :root{
+    --bg:#0e1430;--surface:#1a2147;--surface2:#212a55;--line:#2c386b;
+    --t1:#eaf0ff;--t2:#aab4e0;--t3:#7b86bd;
+    --cyan:#22d3ee;--green:#34d399;--amber:#fbbf24;--red:#fb7185;--purple:#a78bfa;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--t1);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;padding:26px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  h1{font-size:22px;font-weight:700;margin:0;}
+  .sub{font-size:13px;color:var(--t3);margin:4px 0 20px;}
+  .muted{color:var(--t3);}
+  .btn{background:var(--surface2);border:1px solid var(--line);color:var(--t1);border-radius:8px;padding:7px 11px;font-size:13px;cursor:pointer;}
+  .btn.primary{background:linear-gradient(90deg,var(--cyan),#3b82f6);border:none;color:#06121f;font-weight:700;}
+  input{background:var(--surface2);border:1px solid var(--line);color:var(--t1);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;}
+  input:focus{outline:none;border-color:var(--cyan);}
+
+  .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .card h3{font-size:13px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:7px;}
+  .card h3::before{content:"";width:3px;height:13px;background:var(--accent,var(--cyan));border-radius:2px;}
+  .card .cap{font-size:11px;color:var(--t3);margin:0 0 14px;}
+
+  .item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;margin-bottom:5px;border:1px solid transparent;}
+  .item:hover{background:var(--surface2);}
+  .item input.nm{flex:1;background:none;border:1px solid transparent;color:var(--t1);font-size:13px;font-weight:600;padding:3px 6px;border-radius:6px;}
+  .item input.nm:hover{border-color:var(--line);}
+  .item input.nm:focus{outline:none;border-color:var(--cyan);background:var(--bg);}
+  .item .ct{font-size:11px;color:var(--t3);background:var(--bg);padding:2px 8px;border-radius:20px;white-space:nowrap;}
+  .item .del{color:var(--t3);border:none;background:none;cursor:pointer;font-size:13px;opacity:0;}
+  .item:hover .del{opacity:1;}
+  .item .del:hover{color:var(--red);}
+  .addline{display:flex;gap:6px;margin-top:10px;}
+  .addline input{flex:1;}
+  .addline button{padding:7px 12px;}
+  .note{font-size:11px;color:var(--t3);margin-top:14px;line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Taxonomia de produtos</h1>
+  <p class="sub">Listas independentes e editáveis. O vínculo de cada equipamento é escolhido no card (Lista de Equipamentos).</p>
+
+  <div class="cols">
+    <div class="card" style="--accent:var(--cyan)">
+      <h3>Categorias</h3>
+      <p class="cap">Tipo de equipamento.</p>
+      <div id="list-cat"></div>
+      <div class="addline"><input id="new-cat" placeholder="Nova categoria…"><button class="btn primary" onclick="add('cat')">+</button></div>
+    </div>
+
+    <div class="card" style="--accent:var(--purple)">
+      <h3>Famílias</h3>
+      <p class="cap">Independentes — uma família pode aparecer em qualquer categoria.</p>
+      <div id="list-fam"></div>
+      <div class="addline"><input id="new-fam" placeholder="Nova família…"><button class="btn primary" onclick="add('fam')">+</button></div>
+    </div>
+
+    <div class="card" style="--accent:var(--green)">
+      <h3>Linhas de produto</h3>
+      <p class="cap">Agrupador comercial.</p>
+      <div id="list-lin"></div>
+      <div class="addline"><input id="new-lin" placeholder="Nova linha…"><button class="btn primary" onclick="add('lin')">+</button></div>
+    </div>
+  </div>
+
+  <p class="note">Cada lista é independente das outras — escolher categoria não restringe as famílias disponíveis. O número à direita é quantos equipamentos usam aquele item (no app real, vem de <code>equipamentos</code>). Excluir um item em uso pede confirmação e desvincula dos equipamentos.</p>
+</div>
+
+<script>
+// usados[item] = nº de equipamentos que usam (apenas exemplo)
+const DATA={
+  cat:[['PCR',4],['Extração',3],['Centrífuga',5],['Banho Seco',2],['Eletroforese',6],['Fluorímetro',2],['Agitador',3]],
+  fam:[['AmpliGene',2],['Amplio',2],['Extracta',6],['Centricis',5],['L-Series',4],['DB',2],['Caleo',1],['LCH',6],['LCV',3],['Gelbot',3],['Fluo',2],['FlexVortex',3]],
+  lin:[['Termocicladores',4],['PCR Tempo Real',3],['Extração NA',5],['Workflow',3],['Bancada',8],['Banhos',4],['Quantificação',3]],
+};
+const TITLE={cat:'categoria',fam:'família',lin:'linha'};
+
+function render(kind){
+  document.getElementById('list-'+kind).innerHTML=DATA[kind].map((it,i)=>`
+    <div class="item">
+      <input class="nm" value="${it[0]}" onchange="rename('${kind}',${i},this.value)">
+      <span class="ct">${it[1]}</span>
+      <button class="del" title="Excluir" onclick="del('${kind}',${i})">🗑</button>
+    </div>`).join('') || '<p class="muted" style="font-size:12px">Lista vazia.</p>';
+}
+function add(kind){
+  const inp=document.getElementById('new-'+kind);const v=inp.value.trim();if(!v)return;
+  DATA[kind].push([v,0]);inp.value='';render(kind);
+}
+function rename(kind,i,v){if(v.trim())DATA[kind][i][0]=v.trim();}
+function del(kind,i){
+  const it=DATA[kind][i];
+  if(it[1]>0 && !confirm(`"${it[0]}" está em uso por ${it[1]} equipamento(s). Excluir e desvincular?`))return;
+  DATA[kind].splice(i,1);render(kind);
+}
+['cat','fam','lin'].forEach(render);
+</script>
+</body>
+</html>

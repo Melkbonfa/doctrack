@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mockup — Equipamentos: Categorias & Famílias (config editável)</title>
+<style>
+  :root{
+    --bg:#0e1430;--surface:#1a2147;--surface2:#212a55;--line:#2c386b;
+    --t1:#eaf0ff;--t2:#aab4e0;--t3:#7b86bd;
+    --cyan:#22d3ee;--green:#34d399;--amber:#fbbf24;--red:#fb7185;--purple:#a78bfa;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--t1);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;padding:26px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  h1{font-size:22px;font-weight:700;margin:0;}
+  .sub{font-size:13px;color:var(--t3);margin:4px 0 20px;}
+  .muted{color:var(--t3);}
+  .btn{background:var(--surface2);border:1px solid var(--line);color:var(--t1);border-radius:8px;padding:7px 11px;font-size:12px;cursor:pointer;}
+  .btn:hover{border-color:var(--cyan);}
+  .btn.primary{background:linear-gradient(90deg,var(--cyan),#3b82f6);border:none;color:#06121f;font-weight:700;}
+  .btn.icon{padding:4px 8px;font-size:12px;}
+  input,select{background:var(--surface2);border:1px solid var(--line);color:var(--t1);border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;}
+  input:focus,select:focus{outline:none;border-color:var(--cyan);}
+
+  .cols{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .card h3{font-size:13px;font-weight:600;margin:0 0 14px;display:flex;align-items:center;gap:7px;}
+  .card h3::before{content:"";width:3px;height:13px;background:var(--cyan);border-radius:2px;}
+
+  /* lista de categorias */
+  .catrow{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;cursor:pointer;margin-bottom:5px;border:1px solid transparent;}
+  .catrow:hover{background:var(--surface2);}
+  .catrow.sel{background:var(--surface2);border-color:var(--cyan);}
+  .catrow .nm{font-size:13px;font-weight:600;flex:1;}
+  .catrow .ct{font-size:11px;color:var(--t3);background:var(--bg);padding:2px 8px;border-radius:20px;}
+  .catrow .del{color:var(--t3);border:none;background:none;cursor:pointer;font-size:14px;opacity:0;}
+  .catrow:hover .del{opacity:1;}
+  .addline{display:flex;gap:6px;margin-top:10px;}
+  .addline input{flex:1;}
+
+  /* famílias chips */
+  .seclabel{font-size:10px;color:var(--cyan);letter-spacing:1px;text-transform:uppercase;margin:2px 0 10px;}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px;}
+  .fchip{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--line);border-radius:20px;padding:4px 6px 4px 11px;font-size:12px;}
+  .fchip .x{border:none;background:none;color:var(--t3);cursor:pointer;font-size:13px;line-height:1;}
+  .fchip .x:hover{color:var(--red);}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;}
+  th{text-align:left;color:var(--t3);font-weight:600;padding:7px 8px;border-bottom:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  td{padding:8px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  td select{width:100%;}
+  .eqnm{font-weight:600;}
+  .eqsku{font-size:11px;color:var(--t3);}
+  .hint{font-size:11px;color:var(--t3);margin-top:12px;}
+  .divider{height:1px;background:var(--line);margin:16px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Categorias &amp; Famílias</h1>
+  <p class="sub">Configuração da taxonomia dos equipamentos — tudo editável, sem mexer no código (como a aba “Modelos” do Projetos).</p>
+
+  <div class="cols">
+    <div class="card">
+      <h3>Categorias</h3>
+      <div id="catlist"></div>
+      <div class="addline">
+        <input id="newcat" placeholder="Nova categoria…">
+        <button class="btn primary" onclick="addCat()">+</button>
+      </div>
+    </div>
+
+    <div class="card" id="detail"></div>
+  </div>
+</div>
+
+<script>
+let CATS=[
+  {id:1,nome:'PCR',familias:['AmpliGene','Amplio']},
+  {id:2,nome:'Extração',familias:['Extracta']},
+  {id:3,nome:'Centrífuga',familias:['Centricis','L-Series']},
+  {id:4,nome:'Banho Seco',familias:['DB','Caleo']},
+  {id:5,nome:'Eletroforese',familias:['LCH','LCV','Gelbot']},
+  {id:6,nome:'Fluorímetro',familias:['Fluo']},
+  {id:7,nome:'Agitador',familias:['FlexVortex']},
+];
+let EQ=[
+  {id:1,nome:'AmpliGene Lite',sku:'01.000889',catId:1,fam:'AmpliGene'},
+  {id:2,nome:'AmpliGene Plus',sku:'01.000920',catId:1,fam:'AmpliGene'},
+  {id:3,nome:'Amplio 16',sku:'01.001205',catId:1,fam:'Amplio'},
+  {id:4,nome:'Amplio RX',sku:'01.000918',catId:1,fam:'Amplio'},
+  {id:5,nome:'Extracta 32',sku:'01.000162',catId:2,fam:'Extracta'},
+  {id:6,nome:'Extracta 96',sku:'01.000163',catId:2,fam:'Extracta'},
+  {id:7,nome:'Extracta Station 4800',sku:'01.000355',catId:2,fam:''},
+  {id:8,nome:'Centricis MF48',sku:'1.000408',catId:3,fam:'Centricis'},
+  {id:9,nome:'Centricis 260 R',sku:'1.000382',catId:3,fam:'Centricis'},
+  {id:10,nome:'L3024 110V',sku:'1.000500',catId:3,fam:'L-Series'},
+  {id:11,nome:'DB-HCS (220V)',sku:'1.000379',catId:4,fam:'DB'},
+  {id:12,nome:'Caleo',sku:'01.000301',catId:4,fam:'Caleo'},
+  {id:13,nome:'Fluo-200 Mini',sku:'01.000512',catId:6,fam:'Fluo'},
+  {id:14,nome:'FlexVortex 2',sku:'01.000777',catId:7,fam:'FlexVortex'},
+  {id:15,nome:'Gelbot 96',sku:'01.000654',catId:5,fam:'Gelbot'},
+];
+let sel=1, nextCat=8, nextEq=99;
+
+const catById=id=>CATS.find(c=>c.id===id);
+const countEq=id=>EQ.filter(e=>e.catId===id).length;
+
+function renderCats(){
+  document.getElementById('catlist').innerHTML=CATS.map(c=>`
+    <div class="catrow ${c.id===sel?'sel':''}" onclick="selectCat(${c.id})">
+      <span class="nm">${c.nome}</span>
+      <span class="ct">${countEq(c.id)}</span>
+      <button class="del" title="Excluir categoria" onclick="event.stopPropagation();delCat(${c.id})">🗑</button>
+    </div>`).join('');
+}
+
+function renderDetail(){
+  const c=catById(sel);
+  if(!c){document.getElementById('detail').innerHTML='<p class="muted">Selecione uma categoria.</p>';return;}
+  const eqs=EQ.filter(e=>e.catId===c.id);
+  const otherCats=CATS.filter(x=>x.id!==c.id);
+  document.getElementById('detail').innerHTML=`
+    <h3>
+      <input id="catname" value="${c.nome}" onchange="renameCat(${c.id},this.value)" style="font-size:14px;font-weight:700;width:240px">
+    </h3>
+
+    <div class="seclabel">Famílias desta categoria</div>
+    <div class="chips">
+      ${c.familias.map(f=>`<span class="fchip">${f}<button class="x" onclick="delFam(${c.id},'${f}')">×</button></span>`).join('') || '<span class="muted" style="font-size:12px">Sem famílias ainda.</span>'}
+    </div>
+    <div class="addline" style="max-width:280px">
+      <input id="newfam" placeholder="Nova família…">
+      <button class="btn" onclick="addFam(${c.id})">+ família</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="seclabel">Equipamentos nesta categoria (${eqs.length})</div>
+    <table>
+      <thead><tr><th>Equipamento</th><th style="width:170px">Família</th><th style="width:180px">Mover para categoria</th></tr></thead>
+      <tbody>
+        ${eqs.map(e=>`<tr>
+          <td><span class="eqnm">${e.nome}</span><br><span class="eqsku">SKU ${e.sku}</span></td>
+          <td><select onchange="setFam(${e.id},this.value)">
+            <option value="">— sem família —</option>
+            ${c.familias.map(f=>`<option ${e.fam===f?'selected':''}>${f}</option>`).join('')}
+          </select></td>
+          <td><select onchange="moveEq(${e.id},this.value)">
+            <option value="">(manter aqui)</option>
+            ${otherCats.map(x=>`<option value="${x.id}">${x.nome}</option>`).join('')}
+          </select></td>
+        </tr>`).join('') || '<tr><td colspan="3" class="muted">Nenhum equipamento nesta categoria.</td></tr>'}
+      </tbody>
+    </table>
+    <p class="hint">Mover um equipamento de categoria reseta a família (que pertence à categoria). No app real isso grava em <code>equipamentos.categoria_id</code> / <code>familia</code> e atualiza os filtros do dashboard.</p>`;
+}
+
+function render(){renderCats();renderDetail();}
+function selectCat(id){sel=id;render();}
+function addCat(){const v=document.getElementById('newcat').value.trim();if(!v)return;CATS.push({id:nextCat++,nome:v,familias:[]});document.getElementById('newcat').value='';sel=nextCat-1;render();}
+function renameCat(id,v){const c=catById(id);if(c&&v.trim())c.nome=v.trim();renderCats();}
+function delCat(id){if(countEq(id)>0){alert('Mova os equipamentos antes de excluir esta categoria.');return;}CATS=CATS.filter(c=>c.id!==id);if(sel===id)sel=CATS[0]?CATS[0].id:null;render();}
+function addFam(id){const c=catById(id);const v=document.getElementById('newfam').value.trim();if(!c||!v)return;if(!c.familias.includes(v))c.familias.push(v);render();}
+function delFam(id,f){const c=catById(id);if(!c)return;c.familias=c.familias.filter(x=>x!==f);EQ.forEach(e=>{if(e.catId===id&&e.fam===f)e.fam='';});render();}
+function setFam(eqId,f){const e=EQ.find(x=>x.id===eqId);if(e)e.fam=f;}
+function moveEq(eqId,catId){if(!catId)return;const e=EQ.find(x=>x.id===eqId);if(e){e.catId=+catId;e.fam='';}render();}
+render();
+</script>
+</body>
+</html>

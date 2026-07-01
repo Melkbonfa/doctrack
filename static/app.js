@@ -1,5 +1,5 @@
 const API='/api';
-let allDocs=[],chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
+let allDocs=[],allEquip={},chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
 let _dashEquip='';   // equipamento selecionado no dashboard ('' = todos)
@@ -552,6 +552,7 @@ async function loadEnums(){
   try{const res=await apiFetch('/enums');if(res&&res.ok)_enums=await res.json()}catch(e){}
 }
 async function loadData(){
+  await loadEquipamentos();
   try{
     const res=await apiFetch('/data');
     if(res&&res.ok){
@@ -562,6 +563,14 @@ async function loadData(){
     }
   }catch(e){}
   allDocs=[];_lastKpis=null;
+}
+// Identidade dos equipamentos (mapa por nome), fonte única de nome_original/ANVISA/família.
+async function loadEquipamentos(){
+  allEquip={};
+  try{
+    const res=await apiFetch('/equipamentos');
+    if(res&&res.ok){(await res.json()).forEach(e=>{ allEquip[(e.nome||'').trim()] = e; });}
+  }catch(e){}
 }
 async function refreshAll(){await loadData();renderDashboard();renderDocs();showToast('Dados atualizados','success');
   document.getElementById('sync-label').textContent='Atualizado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -915,40 +924,52 @@ function groupByEquip(){
   allDocs.forEach(d => {
     const key = (d.equipamento || '—').trim();
     if(!groups[key]){
-      groups[key] = { equipamento: key, sku:'', fabricante:'', pre:null, manuais:[] };
+      groups[key] = { equipamento:key, sku:'', fabricante:'', pre:null, manuais:[],
+                      byTipo:{}, docs:[], equip:allEquip[key]||null };
     }
     const g = groups[key];
+    g.docs.push(d);
+    if(d.tipo_doc && !g.byTipo[d.tipo_doc]) g.byTipo[d.tipo_doc] = d;
     if(d.sku && !g.sku) g.sku = d.sku;
     if(d.fabricante && !g.fabricante) g.fabricante = d.fabricante;
-    if(d.setor === 'PRE'){ if(!g.pre) g.pre = d; }
+    // IT é o documento PRE primário (usado nos KPIs de PRE)
+    if(d.setor === 'PRE'){ if(!g.pre || d.tipo_doc==='IT') g.pre = d; }
     else if(d.setor === 'Manuais'){ g.manuais.push(d); }
+  });
+  // Complementa identidade a partir da entidade Equipamento
+  Object.values(groups).forEach(g=>{
+    if(g.equip){ if(!g.sku) g.sku=g.equip.sku||''; if(!g.fabricante) g.fabricante=g.equip.fabricante||''; }
   });
   return Object.values(groups).sort((a,b)=>a.equipamento.localeCompare(b.equipamento));
 }
 
+// Documentos de equipamento (PRE + Manuais) do grupo
+function _equipDocs(g){ return g.docs.filter(d=>d.setor==='PRE'||d.setor==='Manuais'); }
+function _docFinalizado(d){
+  return (d.setor==='PRE' && d.status==='Homologado') || (d.setor==='Manuais' && d.status==='Concluído');
+}
 function equipManuaisOk(g){ return g.manuais.filter(d=>d.status==='Concluído').length; }
 
+// Cor do card = PIOR status entre os documentos do equipamento.
 function equipStatusColor(g){
-  const ok = equipManuaisOk(g), cnt = g.manuais.length;
-  const preElaborar = g.pre && g.pre.status === 'Elaborar';
-  const preHomolog  = g.pre && g.pre.status === 'Homologado';
-  if(preElaborar || (cnt>0 && ok===0)) return 'red';
-  if(preHomolog && cnt>0 && ok===cnt) return 'green';
+  const docs = _equipDocs(g);
+  if(!docs.length) return 'amber';
+  if(docs.some(d=>d.status==='Elaborar')) return 'red';   // algum não iniciado
+  if(docs.every(_docFinalizado)) return 'green';          // tudo finalizado
   return 'amber';
 }
 
 function equipMatchesChip(g, chip){
+  const docs = _equipDocs(g);
+  const color = equipStatusColor(g);
   const ok = equipManuaisOk(g), cnt = g.manuais.length;
-  const anyElaborar = (g.pre && g.pre.status==='Elaborar') || g.manuais.some(d=>d.status==='Elaborar');
-  const anyProgresso = (g.pre && ['Treinamento Piloto','Enviado para Homologação'].includes(g.pre.status)) || g.manuais.some(d=>d.status==='Em andamento');
-  const finalizado = (g.pre && g.pre.status==='Homologado') && cnt>0 && ok===cnt;
   switch(chip){
     case 'todos': return true;
-    case 'pendente': return anyElaborar;
-    case 'progresso': return anyProgresso && !anyElaborar;
-    case 'finalizado': return finalizado;
-    case 'pre-pendente': return g.pre && g.pre.status==='Elaborar';
-    case 'manuais-incompletos': return ok < (cnt || 5);
+    case 'pendente': return color==='red';
+    case 'progresso': return color==='amber';
+    case 'finalizado': return color==='green';
+    case 'pre-pendente': return docs.some(d=>d.setor==='PRE' && d.status==='Elaborar');
+    case 'manuais-incompletos': return cnt>0 && ok<cnt;
     default: return true;
   }
 }
@@ -979,7 +1000,9 @@ function renderGrid(){
   let filtered = groups.filter(g => equipMatchesChip(g, _equipChip));
   if(q){
     filtered = filtered.filter(g =>
-      [g.equipamento, g.sku, g.fabricante].join(' ').toLowerCase().includes(q)
+      [g.equipamento, g.sku, g.fabricante,
+       g.equip&&g.equip.nome_original, g.equip&&g.equip.anvisa, g.equip&&g.equip.familia]
+        .filter(Boolean).join(' ').toLowerCase().includes(q)
     );
   }
 
@@ -1000,20 +1023,32 @@ function renderGrid(){
 }
 
 // ═══ MODAL DE EQUIPAMENTO ═══
-let _equipCtx = null; // { equipamento, pre, manuais: {tipo: doc} }
+let _equipCtx = null; // { equipamento, equip, byTipo:{tipo:doc}, docs:[], sku, fabricante, g }
 
 // Wrapper mantido para o modal de usuário (e quaisquer outros modais simples)
 function openModal(id){ openBaseModal(id); }
 
 const _PRE_STATUS = ['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
 const _MAN_STATUS = ['Elaborar','Em andamento','Concluído'];
+const _PRE_TIPOS = [
+  ['IT','Instrução de Trabalho'],
+  ['Checklist','Checklist'],
+];
 const _MAN_TIPOS = [
-  ['Manual_ES','Manual ES'],
-  ['Manual_Usuario','Manual do Usuário'],
-  ['QIQOQD','QI/QO/QD'],
+  ['Manual_Usuario','Manual do Usuário PT'],
+  ['Manual_ES','Manual do Usuário ES'],
   ['Manual_Servico','Manual de Serviço'],
   ['Spare_Parts','Spare Parts'],
+  ['Dossie','Dossiê'],
+  ['Guia_Instalacao','Guia de Instalação'],
+  ['QIQOQD','QI/QO/QD'],
 ];
+const _TODOS_TIPOS = [..._PRE_TIPOS, ..._MAN_TIPOS];
+function _isPreTipo(t){ return _PRE_TIPOS.some(x=>x[0]===t); }
+function _tipoLabel(t){ const x=_TODOS_TIPOS.find(y=>y[0]===t); return x?x[1]:t; }
+function _statusDotColor(d){
+  return _docFinalizado(d) ? 'var(--green)' : (d.status==='Elaborar' ? 'var(--red)' : 'var(--amber)');
+}
 
 function _dateToInput(br){ // "dd/mm/yyyy" -> "yyyy-mm-dd"
   if(!br) return '';
@@ -1022,42 +1057,116 @@ function _dateToInput(br){ // "dd/mm/yyyy" -> "yyyy-mm-dd"
 }
 
 function switchEquipTab(tab){
-  document.querySelectorAll('.equip-modal-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-  document.getElementById('equip-panel-pre').classList.toggle('active', tab==='pre');
-  document.getElementById('equip-panel-manuais').classList.toggle('active', tab==='manuais');
+  document.querySelectorAll('#equip-tabs .equip-modal-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
 }
 
 function openEquipModal(equipName){
+  const g = groupByEquip().find(x=>x.equipamento===equipName) || null;
   const docs = allDocs.filter(d => (d.equipamento||'').trim() === equipName);
-  const pre = docs.find(d => d.setor==='PRE') || null;
-  const manuais = {};
-  docs.filter(d=>d.setor==='Manuais').forEach(d=>{ manuais[d.tipo_doc] = d; });
-  const fabricante = (docs.find(d=>d.fabricante)||{}).fabricante || '';
-  const sku = (docs.find(d=>d.sku)||{}).sku || '';
-  _equipCtx = { equipamento: equipName, pre, manuais, fabricante, sku };
+  const byTipo = {};
+  docs.forEach(d=>{ if(d.tipo_doc && !byTipo[d.tipo_doc]) byTipo[d.tipo_doc]=d; });
+  const equip = (g&&g.equip) || allEquip[equipName] || null;
+  const sku = (g&&g.sku) || (equip&&equip.sku) || '';
+  const fabricante = (g&&g.fabricante) || (equip&&equip.fabricante) || '';
+  const equip_id = (equip&&equip.id) || (docs.find(d=>d.equipamento_id)||{}).equipamento_id || null;
+  _equipCtx = { equipamento: equipName, equip, equip_id, byTipo, docs, sku, fabricante, g };
 
-  document.getElementById('equip-modal-title').textContent = equipName;
-  document.getElementById('equip-modal-sub').textContent = (sku?('SKU '+sku):'') + (fabricante?(' · '+fabricante):'');
-
-  // Botão de excluir equipamento: somente admin/gestor
   const delBtn = document.getElementById('btn-del-equip');
   if(delBtn) delBtn.style.display = (currentUser.role==='admin'||currentUser.role==='gestor') ? 'inline-flex' : 'none';
 
-  renderEquipPrePanel();
-  renderEquipManuaisPanel();
-  switchEquipTab('pre');
+  renderEquipHeader();
+  renderEquipModal();
+  switchEquipTab(_TODOS_TIPOS[0][0]);   // abre na aba "Instrução de Trabalho"
   openBaseModal('equip');
+}
+
+// Cabeçalho de identidade do equipamento (fonte: entidade Equipamento)
+function renderEquipHeader(){
+  const e = _equipCtx.equip || {};
+  const color = _equipCtx.g ? equipStatusColor(_equipCtx.g) : 'amber';
+  const dot = color==='green'?'var(--green)':color==='red'?'var(--red)':'var(--amber)';
+  const reg = (e.anvisa_registro||e.anvisa_validade)
+    ? `Registro ${e.anvisa_registro||'—'} · val. ${e.anvisa_validade||'—'}` : '';
+  const badges = [
+    _equipCtx.sku ? 'SKU '+_equipCtx.sku : '',
+    e.anvisa ? 'ANVISA '+e.anvisa : '',
+    reg,
+    _equipCtx.fabricante ? 'Fabricante '+_equipCtx.fabricante : '',
+    e.familia ? 'Família '+e.familia : '',
+  ].filter(Boolean).map(t=>`<span class="equip-id-badge">${esc(t)}</span>`).join('');
+  // Identidade é somente-leitura aqui: a fonte única é o módulo Equipamentos.
+  document.getElementById('equip-header').innerHTML = `
+    <div class="equip-id-name"><span class="equip-id-dot" style="background:${dot}" title="Pior status entre os documentos"></span>${esc(_equipCtx.equipamento)}</div>
+    ${e.nome_original?`<div class="equip-id-orig"><span>nome original:</span> ${esc(e.nome_original)}</div>`:''}
+    <div class="equip-id-badges">
+      ${badges}
+      ${_equipCtx.equip_id?`<a class="btn btn-ghost btn-sm" href="/equipamentos" title="Editar a identidade no módulo Equipamentos" style="text-decoration:none">↗ Abrir no módulo Equipamentos</a>`:''}
+    </div>
+    <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
+}
+
+// Abas (uma por tipo) + painéis
+function renderEquipModal(){
+  const tabsEl = document.getElementById('equip-tabs');
+  const panelsEl = document.getElementById('equip-panels');
+  tabsEl.innerHTML = _TODOS_TIPOS.map(([tipo,label])=>{
+    const d = _equipCtx.byTipo[tipo];
+    const col = d ? _statusDotColor(d) : 'var(--t4)';
+    return `<button type="button" class="equip-modal-tab" data-tab="${tipo}" onclick="switchEquipTab('${tipo}')"><span class="tab-dot" style="background:${col}"></span>${esc(label)}</button>`;
+  }).join('');
+  panelsEl.innerHTML = _TODOS_TIPOS.map(([tipo])=>
+    `<div class="equip-tab-panel" data-panel="${tipo}">${renderTipoPanel(tipo)}</div>`
+  ).join('');
+}
+
+// Painel de um tipo de documento
+function renderTipoPanel(tipo){
+  const label = _tipoLabel(tipo);
+  const d = _equipCtx.byTipo[tipo];
+  const isPre = _isPreTipo(tipo);
+  if(!d){
+    return `<div style="text-align:center;padding:24px;color:var(--t3)">
+      <p style="margin-bottom:12px">Este equipamento ainda não tem o documento "${esc(label)}".</p>
+      <button class="btn btn-primary btn-sm" type="button" onclick="createTipo('${tipo}')">Criar ${esc(label)}</button>
+    </div>`;
+  }
+  const statusOpts = (isPre?_PRE_STATUS:_MAN_STATUS)
+    .map(s=>`<option value="${esc(s)}" ${d.status===s?'selected':''}>${esc(s)}</option>`).join('');
+  const setorTag = `<span class="equip-tag">setor ${isPre?'PRE · 4 etapas':'Manuais · 3 etapas'}</span>`;
+  const datasPre = isPre ? `
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Data Treinamento Piloto</label><input class="form-input" type="date" id="et-treino-${tipo}" value="${_dateToInput(d.data_treinamento)}"></div>
+      <div class="form-group"><label class="form-label">Data Envio Homologação</label><input class="form-input" type="date" id="et-homol-${tipo}" value="${_dateToInput(d.data_homologacao)}"></div>
+    </div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="et-obstr-${tipo}" value="${esc(d.obs_treinamento)}"></div>
+      <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="et-obshm-${tipo}" value="${esc(d.obs_homologacao)}"></div>
+    </div>` : '';
+  return `
+    <div class="equip-panel-head"><span class="equip-panel-title">${esc(label)}</span>${setorTag}</div>
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="et-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
+      <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="et-resp-${tipo}" value="${esc(d.responsavel)}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="et-st-${tipo}">${statusOpts}</select></div>
+    ${datasPre}
+    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label>
+      <div class="armazenamento-row">
+        <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento)}">
+        <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('et-arm-${tipo}').value, '${esc(label)} — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
+      </div>
+    </div>
+    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" type="button" onclick="saveTipoDoc('${tipo}')">Salvar alterações</button></div>`;
 }
 
 async function deleteEquip(){
   if(!_equipCtx) return;
   if(!(currentUser.role==='admin'||currentUser.role==='gestor')){ showToast('Sem permissão','error'); return; }
   const nome = _equipCtx.equipamento;
-  const docs = [];
-  if(_equipCtx.pre) docs.push(_equipCtx.pre);
-  Object.values(_equipCtx.manuais).forEach(d=>docs.push(d));
+  const docs = _equipCtx.docs || [];
   if(!docs.length){ showToast('Nada para excluir','info'); return; }
-  const ok = await confirmModal('Excluir equipamento', `Excluir "${nome}" e todos os seus ${docs.length} documento(s) (IT/PRE e Manuais)? Esta ação pode ser revertida no banco (soft delete).`);
+  const ok = await confirmModal('Excluir equipamento', `Excluir "${nome}" e todos os seus ${docs.length} documento(s)? Esta ação pode ser revertida no banco (soft delete).`);
   if(!ok) return;
   try{
     for(const d of docs){
@@ -1068,144 +1177,45 @@ async function deleteEquip(){
   }catch(e){ showToast('Erro de rede','error'); }
 }
 
-function renderEquipPrePanel(){
-  const p = _equipCtx.pre;
-  const panel = document.getElementById('equip-panel-pre');
-  if(!p){
-    panel.innerHTML = `<div style="text-align:center;padding:24px;color:var(--t3)">
-      <p style="margin-bottom:12px">Este equipamento ainda não tem documento IT/PRE.</p>
-      <button class="btn btn-primary btn-sm" onclick="createPreDoc()">Criar documento IT/PRE</button>
-    </div>`;
-    return;
-  }
-  const statusOpts = _PRE_STATUS.map(s=>`<option value="${esc(s)}" ${p.status===s?'selected':''}>${esc(s)}</option>`).join('');
-  panel.innerHTML = `
-    <div class="g2">
-      <div class="form-group"><label class="form-label">Equipamento</label><input class="form-input" id="ep-equipamento" value="${esc(p.equipamento)}"></div>
-      <div class="form-group"><label class="form-label">SKU</label><input class="form-input" id="ep-sku" value="${esc(p.sku)}"></div>
-    </div>
-    <div class="g2">
-      <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="ep-codigo" value="${esc(p.codigo_doc)}"></div>
-      <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="ep-responsavel" value="${esc(p.responsavel)}"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="ep-status">${statusOpts}</select></div>
-    <div class="g2">
-      <div class="form-group"><label class="form-label">Data Treinamento Piloto</label><input class="form-input" type="date" id="ep-data_treinamento" value="${_dateToInput(p.data_treinamento)}"></div>
-      <div class="form-group"><label class="form-label">Data Envio Homologação</label><input class="form-input" type="date" id="ep-data_homologacao" value="${_dateToInput(p.data_homologacao)}"></div>
-    </div>
-    <div class="g2">
-      <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="ep-obs_treinamento" value="${esc(p.obs_treinamento)}"></div>
-      <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="ep-obs_homologacao" value="${esc(p.obs_homologacao)}"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label>
-      <div class="armazenamento-row">
-        <input class="form-input" id="ep-armazenamento" value="${esc(p.armazenamento)}">
-        <button type="button" class="btn btn-ghost btn-sm" title="Ver IT e checklists desta pasta" onclick="abrirArquivos(document.getElementById('ep-armazenamento').value, 'Documentos — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
-      </div>
-    </div>
-    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipPre()">Salvar alterações</button></div>
-  `;
-}
-
-function renderEquipManuaisPanel(){
-  const panel = document.getElementById('equip-panel-manuais');
-  const hasManuais = Object.keys(_equipCtx.manuais).length > 0;
-  if(!hasManuais){
-    panel.innerHTML = `<div style="text-align:center;padding:24px;color:var(--t3)">
-      <p style="margin-bottom:12px">Este equipamento ainda não tem documentos de Manuais.</p>
-      <button class="btn btn-primary btn-sm" onclick="createManuais()">Criar manuais para este equipamento</button>
-    </div>`;
-    return;
-  }
-  const rows = _MAN_TIPOS.map(([tipo, label]) => {
-    const d = _equipCtx.manuais[tipo];
-    if(!d) return '';
-    const statusOpts = _MAN_STATUS.map(s=>`<option value="${esc(s)}" ${d.status===s?'selected':''}>${esc(s)}</option>`).join('');
-    return `<div class="manual-row">
-      <div class="manual-row-head"><span class="manual-row-name">${esc(label)}</span></div>
-      <div class="form-group" style="margin-bottom:0"><label class="form-label">Status</label><select class="form-input" id="em-st-${tipo}">${statusOpts}</select></div>
-    </div>`;
-  }).join('');
-  panel.innerHTML = `
-    <div class="section-label-line">Dados do fabricante (compartilhados)</div>
-    <div class="g2">
-      <div class="form-group"><label class="form-label">Fabricante</label><input class="form-input" id="em-fabricante" value="${esc(_equipCtx.fabricante)}"></div>
-      <div class="form-group"><label class="form-label">Armazenamento base</label>
-        <div class="armazenamento-row">
-          <input class="form-input" id="em-armazenamento" value="${esc((Object.values(_equipCtx.manuais)[0]||{}).armazenamento||'')}">
-          <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('em-armazenamento').value, 'Manuais — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
-        </div>
-      </div>
-    </div>
-    <div class="section-label-line">Documentos por tipo</div>
-    ${rows}
-    <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" onclick="saveEquipManuais()">Salvar alterações</button></div>
-  `;
-}
-
 async function _patchDoc(id, payload){
   const res = await apiFetch(`/documentos/${id}`, {method:'PATCH', body:JSON.stringify(payload)});
   return res;
 }
 
-async function saveEquipPre(){
-  const p = _equipCtx.pre;
-  if(!p) return;
+// Salva um documento de um tipo específico
+async function saveTipoDoc(tipo){
+  const d = _equipCtx.byTipo[tipo];
+  if(!d) return;
+  const val = id => { const el=document.getElementById(id); return el?el.value:undefined; };
   const payload = {
-    equipamento: document.getElementById('ep-equipamento').value,
-    sku: document.getElementById('ep-sku').value,
-    codigo_doc: document.getElementById('ep-codigo').value,
-    responsavel: document.getElementById('ep-responsavel').value,
-    status: document.getElementById('ep-status').value,
-    data_treinamento: document.getElementById('ep-data_treinamento').value,
-    data_homologacao: document.getElementById('ep-data_homologacao').value,
-    obs_treinamento: document.getElementById('ep-obs_treinamento').value,
-    obs_homologacao: document.getElementById('ep-obs_homologacao').value,
-    armazenamento: document.getElementById('ep-armazenamento').value,
+    codigo_doc: val('et-cod-'+tipo),
+    responsavel: val('et-resp-'+tipo),
+    status: val('et-st-'+tipo),
+    armazenamento: val('et-arm-'+tipo),
   };
+  if(_isPreTipo(tipo)){
+    payload.data_treinamento = val('et-treino-'+tipo);
+    payload.data_homologacao = val('et-homol-'+tipo);
+    payload.obs_treinamento  = val('et-obstr-'+tipo);
+    payload.obs_homologacao  = val('et-obshm-'+tipo);
+  }
   try{
-    const res = await _patchDoc(p.id, payload);
-    if(res && res.ok){ showToast('IT/PRE salvo','success'); closeModal('equip'); await refreshAll(); }
+    const res = await _patchDoc(d.id, payload);
+    if(res && res.ok){ showToast(`${_tipoLabel(tipo)} salvo`,'success'); closeModal('equip'); await refreshAll(); }
     else { const e = await res.json().catch(()=>({})); showToast(e.erro||'Erro ao salvar','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
 }
 
-async function saveEquipManuais(){
-  const fabricante = document.getElementById('em-fabricante').value;
-  const armazenamento = document.getElementById('em-armazenamento').value;
-  const tipos = Object.keys(_equipCtx.manuais);
-  try{
-    for(const tipo of tipos){
-      const d = _equipCtx.manuais[tipo];
-      const payload = {
-        fabricante,
-        armazenamento,
-        status: document.getElementById('em-st-'+tipo).value,
-      };
-      const res = await _patchDoc(d.id, payload);
-      if(!res || !res.ok){ const e = res ? await res.json().catch(()=>({})) : {}; showToast(e.erro||'Erro ao salvar manuais','error'); return; }
-    }
-    showToast('Manuais salvos','success'); closeModal('equip'); await refreshAll();
-  }catch(e){ showToast('Erro de rede','error'); }
-}
-
-// Cria o documento IT/PRE para o equipamento aberto
-async function createPreDoc(){
-  const payload = { setor:'PRE', equipamento:_equipCtx.equipamento, documento:`IT/Checklist - ${_equipCtx.equipamento}`, sku:_equipCtx.sku };
+// Cria um tipo de documento ausente para o equipamento aberto
+async function createTipo(tipo){
+  const isPre = _isPreTipo(tipo);
+  const payload = { setor: isPre?'PRE':'Manuais', tipo_doc: tipo,
+    equipamento:_equipCtx.equipamento, sku:_equipCtx.sku, fabricante:_equipCtx.fabricante,
+    documento:`${_tipoLabel(tipo)} - ${_equipCtx.equipamento}` };
   try{
     const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
-    if(res && res.ok){ showToast('IT/PRE criado','success'); closeModal('equip'); await refreshAll(); }
-    else { showToast('Erro ao criar IT/PRE','error'); }
-  }catch(e){ showToast('Erro de rede','error'); }
-}
-
-// Cria os 5 manuais para o equipamento aberto (backend gera os 5 a partir de um POST Manuais)
-async function createManuais(){
-  const payload = { setor:'Manuais', equipamento:_equipCtx.equipamento, documento:`Manual ES - ${_equipCtx.equipamento}`, tipo_doc:'Manual_ES', sku:_equipCtx.sku, fabricante:_equipCtx.fabricante };
-  try{
-    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
-    if(res && res.ok){ showToast('Manuais criados','success'); closeModal('equip'); await refreshAll(); }
-    else { showToast('Erro ao criar manuais','error'); }
+    if(res && res.ok){ showToast(`${_tipoLabel(tipo)} criado`,'success'); await refreshAll(); openEquipModal(_equipCtx.equipamento); }
+    else { showToast('Erro ao criar documento','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
 }
 

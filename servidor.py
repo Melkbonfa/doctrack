@@ -43,6 +43,13 @@ BASE_DIR   = ASSET_DIR                                   # assets de leitura (js
 EXCEL_PATH = os.path.join(RUN_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
 DB_PATH    = os.path.join(RUN_DIR, "doctrack.db")
 
+# Versão da aplicação (lida do arquivo VERSION na raiz). Exposta em /api/version.
+try:
+    with open(os.path.join(ASSET_DIR, "VERSION"), encoding="utf-8") as _vf:
+        APP_VERSION = _vf.read().strip()
+except Exception:
+    APP_VERSION = "dev"
+
 # Raízes permitidas para visualizar/baixar arquivos dos equipamentos.
 # Configurável via DOCTRACK_FILE_ROOTS (separado por ';').
 # Inclui tanto a forma UNC (\\loccus-srv03\Projetos$\Engenharia) quanto a letra
@@ -71,8 +78,10 @@ app.config["JWT_TOKEN_LOCATION"]             = ["headers", "query_string"]
 app.config["JWT_QUERY_STRING_NAME"]          = "token"
 
 from models import (
-    db, bcrypt, User, Documento, AuditLog, RevokedToken, Responsavel,
-    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP, TIPOS_DOC_FABRICANTE, TIPOS_DOC_LABELS
+    db, bcrypt, User, Documento, Equipamento, AuditLog, RevokedToken, Responsavel,
+    CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
+    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, SETOR_DO_TIPO, TIPOS_DOC_LABELS
 )
 from auth import auth_bp, log_action
 from event_bus import publish_event, get_events_since, EventType
@@ -349,6 +358,11 @@ def index():
 def entregaveis_page():
     return render_template("entregaveis.html", asset_v=_static_version())
 
+@app.route("/equipamentos")
+def equipamentos_page():
+    # Módulo Equipamentos (área PDE). Acesso validado no front (token + áreas).
+    return render_template("equipamentos.html", asset_v=_static_version())
+
 @app.route("/hub")
 def hub_page():
     from areas import AREAS
@@ -400,7 +414,7 @@ def api_documentos():
     docs = [d.to_dict() for d in query.order_by(Documento.equipamento).all()]
     if q:
         def matches(d):
-            blob = " ".join(norm(str(d.get(f, ""))) for f in ("equipamento","documento","codigo_doc","sku","responsavel","armazenamento","tipo_doc","fabricante"))
+            blob = " ".join(norm(str(d.get(f, ""))) for f in ("equipamento","documento","codigo_doc","sku","responsavel","armazenamento","tipo_doc","fabricante","nome_original","anvisa","familia"))
             return q in blob
         docs = [d for d in docs if matches(d)]
     return jsonify(docs), 200
@@ -434,71 +448,80 @@ def create_documento():
         if existing:
             sku = existing.sku
 
-    if setor == "Manuais":
-        tipos_exigidos = ["Manual_ES", "Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
-        selected_tipo = data.get("tipo_doc", "")
-        
-        # O documento principal selecionado
-        doc = Documento(
-            setor=setor,
-            equipamento=equip,
-            sku=sku,
-            codigo_doc=data.get("codigo_doc", ""),
-            documento=data.get("documento", ""),
-            responsavel=data.get("responsavel", ""),
-            status=data.get("status", "Elaborar"),
-            tipo_doc=selected_tipo,
-            fabricante=data.get("fabricante", ""),
-            obs_treinamento=data.get("obs_treinamento", ""),
-            obs_homologacao=data.get("obs_homologacao", ""),
-            armazenamento=data.get("armazenamento", "")
-        )
-        db.session.add(doc)
-        
-        # Criar os outros 4
-        for t in tipos_exigidos:
-            if t != selected_tipo:
-                label = TIPOS_DOC_LABELS.get(t, t)
-                outro_doc = Documento(
-                    setor=setor,
-                    equipamento=equip,
-                    sku=sku,
-                    codigo_doc=data.get("codigo_doc", ""),
-                    documento=f"{label} - {equip}",
-                    responsavel=data.get("responsavel", ""),
-                    status="Elaborar",
-                    tipo_doc=t,
-                    fabricante=data.get("fabricante", ""),
-                    armazenamento=data.get("armazenamento", "")
-                )
-                db.session.add(outro_doc)
-        
-        db.session.commit()
-    else:
-        doc = Documento(
-            setor=setor,
-            equipamento=equip,
-            sku=sku,
-            codigo_doc=data.get("codigo_doc", ""),
-            documento=data.get("documento", ""),
-            responsavel=data.get("responsavel", ""),
-            status=data.get("status", "Elaborar"),
-            tipo_doc=data.get("tipo_doc", ""),
-            fabricante=data.get("fabricante", ""),
-            obs_treinamento=data.get("obs_treinamento", ""),
-            obs_homologacao=data.get("obs_homologacao", ""),
-            armazenamento=data.get("armazenamento", "")
-        )
-        
-        if data.get("data_treinamento"):
-            try: doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d")
-            except: pass
-        if data.get("data_homologacao"):
-            try: doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
-            except: pass
+    # get-or-create da entidade Equipamento (fonte única de identidade).
+    # Se o equipamento já existe, os documentos herdam a identidade DELE
+    # (SKU/fabricante), garantindo espelho; o payload só semeia um equip novo.
+    equip_obj = None
+    fab = data.get("fabricante", "")
+    if equip:
+        equip_obj = Equipamento.query.filter_by(nome=equip).first()
+        if not equip_obj:
+            equip_obj = Equipamento(
+                nome=equip, sku=sku,
+                fabricante=fab,
+                armazenamento_base=data.get("armazenamento", ""),
+            )
+            db.session.add(equip_obj)
+            db.session.flush()
+        else:
+            if sku and not equip_obj.sku:
+                equip_obj.sku = sku
+            # identidade canônica vem da entidade
+            sku = equip_obj.sku or sku
+            fab = equip_obj.fabricante or fab
+    equip_id = equip_obj.id if equip_obj else None
 
-        db.session.add(doc); db.session.commit()
-    
+    # Tipo selecionado (recebe os campos do payload); os demais nascem em branco.
+    tipos_setor = TIPOS_DOC_PRE if setor == "PRE" else TIPOS_DOC_FABRICANTE
+    selected_tipo = data.get("tipo_doc") or tipos_setor[0]
+    if selected_tipo not in TIPOS_DOC_TODOS:
+        selected_tipo = tipos_setor[0]
+
+    # Documentos já existentes deste equipamento (qualquer setor), por tipo.
+    existentes = {}
+    if equip:
+        for d in Documento.query.filter(
+            Documento.ativo == True, Documento.equipamento == equip
+        ).all():
+            existentes.setdefault(d.tipo_doc, d)
+
+    doc = existentes.get(selected_tipo)
+    # Cria os 9 tipos do equipamento que ainda não existem.
+    for t in TIPOS_DOC_TODOS:
+        if t in existentes:
+            continue
+        is_sel = (t == selected_tipo)
+        label = TIPOS_DOC_LABELS.get(t, t)
+        novo = Documento(
+            setor=SETOR_DO_TIPO[t],
+            equipamento=equip,
+            equipamento_id=equip_id,
+            sku=sku,
+            codigo_doc=data.get("codigo_doc", "") if is_sel else "",
+            documento=(data.get("documento") or f"{label} - {equip}") if is_sel else f"{label} - {equip}",
+            responsavel=data.get("responsavel", "") if is_sel else "",
+            status=data.get("status", "Elaborar") if is_sel else "Elaborar",
+            tipo_doc=t,
+            fabricante=fab,
+            obs_treinamento=data.get("obs_treinamento", "") if is_sel else "",
+            obs_homologacao=data.get("obs_homologacao", "") if is_sel else "",
+            armazenamento=data.get("armazenamento", "") if is_sel else (equip_obj.armazenamento_base if equip_obj else ""),
+        )
+        if is_sel:
+            if data.get("data_treinamento"):
+                try: novo.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d")
+                except: pass
+            if data.get("data_homologacao"):
+                try: novo.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
+                except: pass
+        db.session.add(novo)
+        if is_sel:
+            doc = novo
+
+    db.session.commit()
+    if doc is None:   # tipo selecionado já existia e nada foi criado
+        doc = existentes.get(selected_tipo) or next(iter(existentes.values()), None)
+
     log_action(caller, "CREATE", entidade=doc.documento, campo="setor", novo=setor, documento_id=doc.id, ip=get_client_ip())
     
     try:
@@ -507,6 +530,300 @@ def create_documento():
             user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
     except Exception: pass
     return jsonify({"mensagem": "Documento criado", "documento": doc.to_dict()}), 201
+
+# ── API — EQUIPAMENTOS (entidade central) ────────────────────────────────────
+@app.route("/api/equipamentos", methods=["GET"])
+@jwt_required()
+def api_equipamentos():
+    q = norm(request.args.get("q", ""))
+    query = Equipamento.query.filter(Equipamento.ativo == True)
+    for campo, col in (("categoria_id", Equipamento.categoria_id),
+                       ("familia_id", Equipamento.familia_id)):
+        val = request.args.get(campo)
+        if val:
+            query = query.filter(col == int(val))
+    if request.args.get("status"):
+        query = query.filter(Equipamento.status == request.args.get("status"))
+    bloq = request.args.get("bloqueado")
+    if bloq in ("0", "false", "nao"):
+        query = query.filter(Equipamento.bloqueado == False)
+    elif bloq in ("1", "true", "sim"):
+        query = query.filter(Equipamento.bloqueado == True)
+
+    equips = [e.to_dict() for e in query.order_by(Equipamento.nome).all()]
+    if q:
+        def matches(e):
+            blob = " ".join(norm(str(e.get(f, ""))) for f in
+                            ("nome", "nome_original", "nome_tecnico", "sku", "sku_importacao",
+                             "codigo_fabricante", "anvisa", "fabricante", "familia", "categoria"))
+            return q in blob
+        equips = [e for e in equips if matches(e)]
+    return jsonify(equips), 200
+
+@app.route("/api/equipamentos/<int:equip_id>", methods=["GET"])
+@jwt_required()
+def get_equipamento(equip_id):
+    equip = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    d = equip.to_dict()
+    d["docs_count"] = Documento.query.filter(Documento.ativo == True, Documento.equipamento_id == equip.id).count()
+    itens = EquipamentoItem.query.filter_by(equipamento_id=equip.id, ativo=True) \
+                                 .order_by(EquipamentoItem.ordem, EquipamentoItem.id).all()
+    d["consumiveis"] = [i.to_dict() for i in itens if i.tipo == "consumivel"]
+    d["acessorios"]  = [i.to_dict() for i in itens if i.tipo == "acessorio"]
+    return jsonify(d), 200
+
+@app.route("/api/equipamentos", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def create_equipamento():
+    caller = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Informe o nome do equipamento"}), 400
+    equip = Equipamento(nome=nome)
+    _aplicar_campos_equip(equip, data)
+    db.session.add(equip)
+    db.session.commit()
+    log_action(caller, "CREATE", entidade=f"Equipamento: {equip.nome}", campo="nome", novo=nome, ip=get_client_ip())
+    return jsonify({"mensagem": "Equipamento criado", "equipamento": equip.to_dict()}), 201
+
+_EQUIP_STR = ["nome", "nome_original", "nome_tecnico", "descricao",
+              "sku", "sku_importacao", "classificacao_reg",
+              "anvisa", "anvisa_registro", "anvisa_validade",
+              "fabricante", "codigo_fabricante", "status", "observacoes", "armazenamento_base"]
+_EQUIP_INT = ["categoria_id", "familia_id"]
+
+def _aplicar_campos_equip(equip, data):
+    """Aplica os campos do payload ao equipamento. Devolve a lista de campos mudados."""
+    mudou = []
+    for campo in _EQUIP_STR:
+        if campo in data:
+            novo = (data.get(campo) or "").strip()
+            if novo != (getattr(equip, campo) or ""):
+                setattr(equip, campo, novo); mudou.append(campo)
+    if "bloqueado" in data:
+        novo = bool(data.get("bloqueado"))
+        if novo != bool(equip.bloqueado):
+            equip.bloqueado = novo; mudou.append("bloqueado")
+    for campo in _EQUIP_INT:
+        if campo in data:
+            raw = data.get(campo)
+            novo = int(raw) if raw not in (None, "", 0, "0") else None
+            if novo != getattr(equip, campo):
+                setattr(equip, campo, novo); mudou.append(campo)
+    # Família precisa pertencer à categoria escolhida; senão zera.
+    if equip.familia_id:
+        fam = FamiliaEquipamento.query.get(equip.familia_id)
+        if not fam or (equip.categoria_id and fam.categoria_id != equip.categoria_id):
+            equip.familia_id = None
+    return mudou
+
+@app.route("/api/equipamentos/<int:equip_id>", methods=["PATCH", "PUT"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def update_equipamento(equip_id):
+    caller = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    equip = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+
+    nome_antigo, sku_antigo = equip.nome, equip.sku
+    mudou = _aplicar_campos_equip(equip, data)
+    # Identidade replicada nos documentos vinculados (fonte única = Equipamento).
+    # Casa por equipamento_id; nome/SKU/fabricante alimentam grouping, card e KPIs.
+    _prop = {}
+    if "nome" in mudou:       _prop[Documento.equipamento] = equip.nome
+    if "sku" in mudou:        _prop[Documento.sku] = equip.sku
+    if "fabricante" in mudou: _prop[Documento.fabricante] = equip.fabricante
+    if _prop:
+        Documento.query.filter(Documento.equipamento_id == equip.id).update(
+            _prop, synchronize_session=False)
+    if mudou:
+        equip.updated_em = datetime.now()
+        db.session.commit()
+        log_action(caller, "UPDATE", entidade=f"Equipamento: {equip.nome}",
+                   campo=",".join(mudou), antigo=nome_antigo if "nome" in mudou else "",
+                   novo="", ip=get_client_ip())
+    return jsonify({"mensagem": "Equipamento atualizado", "equipamento": equip.to_dict()}), 200
+
+@app.route("/api/equipamentos/<int:equip_id>", methods=["DELETE"])
+@jwt_required()
+@require_role("admin", "gestor")
+def delete_equipamento(equip_id):
+    caller = get_jwt_identity()
+    equip = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    equip.ativo = False                       # soft delete (reversível no banco)
+    equip.updated_em = datetime.now()
+    db.session.commit()
+    log_action(caller, "DELETE", entidade=f"Equipamento: {equip.nome}", campo="ativo", novo="False", ip=get_client_ip())
+    return jsonify({"mensagem": "Equipamento excluído"}), 200
+
+@app.route("/api/equipamentos/export", methods=["GET"])
+@jwt_required()
+def export_equipamentos():
+    import csv
+    equips = Equipamento.query.filter(Equipamento.ativo == True).order_by(Equipamento.nome).all()
+    cols = ["sku", "sku_importacao", "nome", "nome_tecnico",
+            "categoria", "familia", "status", "bloqueado",
+            "classificacao_reg", "anvisa", "fabricante", "codigo_fabricante"]
+    buf = io.StringIO(); w = csv.writer(buf, delimiter=";")
+    w.writerow(cols)
+    for e in equips:
+        d = e.to_dict(); w.writerow([d.get(c, "") for c in cols])
+    out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    return send_file(out, mimetype="text/csv", as_attachment=True, download_name="equipamentos.csv")
+
+@app.route("/api/equipamentos/import", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor")
+def import_equipamentos():
+    caller = get_jwt_identity()
+    dryrun = request.args.get("dryrun", "1") not in ("0", "false")
+    file_bytes = None
+    if "arquivo" in request.files:
+        file_bytes = request.files["arquivo"].read()
+    try:
+        from equipamentos_importer import importar_equipamentos
+        rel = importar_equipamentos(file_bytes=file_bytes, dryrun=dryrun)
+    except FileNotFoundError:
+        return jsonify({"erro": "Planilha mestra não encontrada. Faça upload do arquivo."}), 404
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao importar: {e}"}), 500
+    if rel.get("erro"):
+        return jsonify(rel), 400
+    if not dryrun:
+        log_action(caller, "REIMPORT", entidade="Equipamentos (planilha mestra)",
+                   campo="import", novo=f"criados={rel['a_criar']} atualizados={rel['a_atualizar']}",
+                   ip=get_client_ip())
+    return jsonify(rel), 200
+
+# ── API — TAXONOMIA (Categorias · Famílias · Linhas) ─────────────────────────
+@app.route("/api/equip-taxonomia", methods=["GET"])
+@jwt_required()
+def api_taxonomia():
+    cats = CategoriaEquipamento.query.filter_by(ativo=True).order_by(CategoriaEquipamento.nome).all()
+    def uso(model, attr, _id):
+        return Equipamento.query.filter(Equipamento.ativo == True, getattr(Equipamento, attr) == _id).count()
+    return jsonify({
+        "categorias": [{**c.to_dict(com_familias=True),
+                        "uso": uso(None, "categoria_id", c.id),
+                        "familias": [{**f.to_dict(), "uso": uso(None, "familia_id", f.id)} for f in c.familias if f.ativo]}
+                       for c in cats],
+    }), 200
+
+def _tax_uso(attr, _id):
+    return Equipamento.query.filter(getattr(Equipamento, attr) == _id).count()
+
+@app.route("/api/categorias-equipamento", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_categoria():
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if not nome: return jsonify({"erro": "Informe o nome"}), 400
+    c = CategoriaEquipamento(nome=nome); db.session.add(c); db.session.commit()
+    return jsonify(c.to_dict()), 201
+
+@app.route("/api/categorias-equipamento/<int:cid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_categoria(cid):
+    c = CategoriaEquipamento.query.get(cid)
+    if not c: return jsonify({"erro": "Não encontrada"}), 404
+    if request.method == "DELETE":
+        Equipamento.query.filter(Equipamento.categoria_id == cid).update(
+            {Equipamento.categoria_id: None, Equipamento.familia_id: None}, synchronize_session=False)
+        db.session.delete(c); db.session.commit()
+        return jsonify({"mensagem": "Categoria excluída"}), 200
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if nome: c.nome = nome; db.session.commit()
+    return jsonify(c.to_dict()), 200
+
+@app.route("/api/familias-equipamento", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_familia():
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip(); cid = data.get("categoria_id")
+    if not nome or not cid: return jsonify({"erro": "Informe nome e categoria"}), 400
+    f = FamiliaEquipamento(nome=nome, categoria_id=int(cid)); db.session.add(f); db.session.commit()
+    return jsonify(f.to_dict()), 201
+
+@app.route("/api/familias-equipamento/<int:fid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_familia(fid):
+    f = FamiliaEquipamento.query.get(fid)
+    if not f: return jsonify({"erro": "Não encontrada"}), 404
+    if request.method == "DELETE":
+        Equipamento.query.filter(Equipamento.familia_id == fid).update(
+            {Equipamento.familia_id: None}, synchronize_session=False)
+        db.session.delete(f); db.session.commit()
+        return jsonify({"mensagem": "Família excluída"}), 200
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if nome: f.nome = nome; db.session.commit()
+    return jsonify(f.to_dict()), 200
+
+# ── API — ITENS DO EQUIPAMENTO (Consumíveis · Acessórios) ────────────────────
+@app.route("/api/equipamentos/<int:equip_id>/itens", methods=["GET"])
+@jwt_required()
+def list_equip_itens(equip_id):
+    itens = EquipamentoItem.query.filter_by(equipamento_id=equip_id, ativo=True) \
+                                 .order_by(EquipamentoItem.ordem, EquipamentoItem.id).all()
+    return jsonify({
+        "consumiveis": [i.to_dict() for i in itens if i.tipo == "consumivel"],
+        "acessorios":  [i.to_dict() for i in itens if i.tipo == "acessorio"],
+    }), 200
+
+@app.route("/api/equipamentos/<int:equip_id>/itens", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_equip_item(equip_id):
+    caller = get_jwt_identity()
+    equip = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get("tipo") or "").strip()
+    if tipo not in ITEM_TIPOS:
+        return jsonify({"erro": "Tipo inválido (use consumivel ou acessorio)"}), 400
+    nome = (data.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Informe o nome do item"}), 400
+    item = EquipamentoItem(
+        equipamento_id=equip_id, tipo=tipo, nome=nome,
+        sku=(data.get("sku") or "").strip(),
+        sku_importacao=(data.get("sku_importacao") or "").strip())
+    db.session.add(item); db.session.commit()
+    log_action(caller, "UPDATE", entidade=f"Equipamento: {equip.nome}",
+               campo=f"{tipo}+", novo=nome, ip=get_client_ip())
+    return jsonify(item.to_dict()), 201
+
+@app.route("/api/equip-itens/<int:item_id>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_equip_item(item_id):
+    caller = get_jwt_identity()
+    item = EquipamentoItem.query.filter_by(id=item_id, ativo=True).first()
+    if not item:
+        return jsonify({"erro": "Item não encontrado"}), 404
+    equip = Equipamento.query.get(item.equipamento_id)
+    if request.method == "DELETE":
+        item.ativo = False; db.session.commit()
+        log_action(caller, "UPDATE", entidade=f"Equipamento: {equip.nome if equip else ''}",
+                   campo=f"{item.tipo}-", novo=item.nome, ip=get_client_ip())
+        return jsonify({"mensagem": "Item excluído"}), 200
+    data = request.get_json(silent=True) or {}
+    for campo in ("nome", "sku", "sku_importacao"):
+        if campo in data:
+            setattr(item, campo, (data.get(campo) or "").strip())
+    db.session.commit()
+    return jsonify(item.to_dict()), 200
 
 @app.route("/api/documentos/<int:doc_id>", methods=["PATCH", "PUT"])
 @jwt_required()
@@ -517,82 +834,28 @@ def update_documento(doc_id):
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
     
-    original_sku = doc.sku
-    original_equipamento = doc.equipamento
-    
-    if doc.setor == "Manuais":
-        campos_sync = ["equipamento", "sku", "fabricante", "armazenamento"]
-        has_changes = False
-        for campo in campos_sync:
-            if campo in data and str(getattr(doc, campo)) != str(data[campo]):
-                has_changes = True
-        
-        if has_changes:
-            novo_equip = data.get("equipamento", doc.equipamento)
-            novo_sku = data.get("sku", doc.sku)
-            novo_fab = data.get("fabricante", doc.fabricante)
-            novo_arm = data.get("armazenamento", doc.armazenamento)
-            
-            grupo_docs = Documento.query.filter_by(
-                setor="Manuais",
-                equipamento=original_equipamento,
-                sku=original_sku,
-                ativo=True
-            ).all()
-            
-            for gdoc in grupo_docs:
-                if gdoc.id != doc.id:
-                    gdoc.equipamento = novo_equip
-                    gdoc.sku = novo_sku
-                    gdoc.fabricante = novo_fab
-                    gdoc.armazenamento = novo_arm
-                    gdoc.updated_em = datetime.now()
-                    gdoc.version = (gdoc.version or 0) + 1
-                    log_action(caller, "UPDATE", entidade=gdoc.documento, campo="grupo_sync", antigo=f"{original_equipamento}|{original_sku}", novo=f"{novo_equip}|{novo_sku}", documento_id=gdoc.id, ip=get_client_ip())
+    # Identidade (equipamento / SKU / fabricante) é IMUTÁVEL pelo documento:
+    # a fonte única é a entidade Equipamento — editável só no módulo Equipamentos,
+    # que propaga para os documentos vinculados. Aqui só se editam campos do
+    # próprio documento (status, responsável, código, datas, obs, caminho).
+    CAMPOS_STR = ["codigo_doc", "documento", "responsavel", "status", "tipo_doc",
+                  "obs_treinamento", "obs_homologacao", "armazenamento"]
 
-    CAMPOS_STR = ["equipamento", "sku", "codigo_doc", "documento", "responsavel", "status", "tipo_doc", "fabricante", "obs_treinamento", "obs_homologacao", "armazenamento"]
-    
     for campo in CAMPOS_STR:
         if campo in data:
             antigo = getattr(doc, campo); novo = data[campo]
             if str(antigo) != str(novo):
                 log_action(caller, "UPDATE", entidade=doc.documento, campo=campo, antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
                 setattr(doc, campo, novo)
-                
+
     if "data_treinamento" in data:
-        try: 
+        try:
             doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d") if data["data_treinamento"] else None
         except: pass
     if "data_homologacao" in data:
-        try: 
+        try:
             doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d") if data["data_homologacao"] else None
         except: pass
-
-    # Propagação global do SKU para documentos ativos do mesmo equipamento
-    final_sku_str = str(doc.sku).strip() if doc.sku else ""
-    original_sku_str = str(original_sku).strip() if original_sku else ""
-    
-    if final_sku_str != original_sku_str:
-        equip_nome = doc.equipamento
-        if equip_nome and str(equip_nome).strip() != "P&D (Processos)":
-            outros_docs = Documento.query.filter(
-                Documento.ativo == True,
-                Documento.equipamento == equip_nome,
-                Documento.id != doc.id
-            ).all()
-            for odoc in outros_docs:
-                if odoc.sku != doc.sku:
-                    antigo_val = odoc.sku
-                    odoc.sku = doc.sku
-                    odoc.updated_em = datetime.now()
-                    odoc.version = (odoc.version or 0) + 1
-                    
-                    log_action(caller, "UPDATE", entidade=odoc.documento, campo="sku", antigo=antigo_val, novo=doc.sku, documento_id=odoc.id, ip=get_client_ip())
-                    try:
-                        publish_event(EventType.DOCUMENT_UPDATED,
-                            payload={"documento_id": odoc.id, "documento": odoc.to_dict(), "setor": odoc.setor, "equipamento": odoc.equipamento},
-                            user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
-                    except Exception: pass
 
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
@@ -880,14 +1143,25 @@ def api_metrics():
     docs = [d.to_dict() for d in Documento.query.filter(Documento.ativo == True).all()]
     return jsonify(compute_kpis(docs)), 200
 
+@app.route("/api/version")
+def api_version():
+    return jsonify({"version": APP_VERSION}), 200
+
 @app.route("/api/enums")
 @jwt_required()
 def api_enums():
+    familias = [f[0] for f in db.session.query(Equipamento.familia)
+                .filter(Equipamento.ativo == True, Equipamento.familia != "")
+                .distinct().order_by(Equipamento.familia).all()]
     return jsonify({
-        "setores": SETORES, 
+        "setores": SETORES,
         "status_map": STATUS_MAP,
+        "tipos_doc_pre": TIPOS_DOC_PRE,
         "tipos_doc_fabricante": TIPOS_DOC_FABRICANTE,
-        "tipos_doc_labels": TIPOS_DOC_LABELS
+        "tipos_doc_todos": TIPOS_DOC_TODOS,
+        "setor_do_tipo": SETOR_DO_TIPO,
+        "tipos_doc_labels": TIPOS_DOC_LABELS,
+        "familias": familias,
     }), 200
 
 def _filter_audit_dates(query):
@@ -1100,6 +1374,23 @@ def _sync_schema():
         "projeto_mensal": [
             ("custo_mes", "FLOAT DEFAULT 0"),
         ],
+        "documentos": [
+            ("equipamento_id", "INTEGER"),
+        ],
+        "equipamentos": [
+            ("nome_tecnico",      "VARCHAR(400) DEFAULT ''"),
+            ("descricao",         "TEXT DEFAULT ''"),
+            ("codigo_interno",    "VARCHAR(50) DEFAULT ''"),
+            ("sku_importacao",    "VARCHAR(50) DEFAULT ''"),
+            ("status",            "VARCHAR(40) DEFAULT 'Ativo'"),
+            ("bloqueado",         f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
+            ("observacoes",       "TEXT DEFAULT ''"),
+            ("categoria_id",      "INTEGER"),
+            ("familia_id",        "INTEGER"),
+            ("linha_id",          "INTEGER"),
+            ("classificacao_reg", "VARCHAR(20) DEFAULT ''"),
+            ("codigo_fabricante", "VARCHAR(80) DEFAULT ''"),
+        ],
     }
     adicionadas = set()
     for tabela, colunas in novas_colunas.items():
@@ -1198,6 +1489,87 @@ def _sync_schema():
                 print(f"[INFO] Schema: {n} itens de modelo de entregável semeados")
 
 
+def _backfill_equipamentos():
+    """Cria a entidade Equipamento, vincula os documentos e completa os 9 tipos
+    por equipamento. Idempotente — roda a cada boot e após o seed do Excel."""
+    # 1) PRE legado sem tipo_doc → IT (antes de contar os tipos existentes)
+    Documento.query.filter(
+        Documento.setor == "PRE",
+        Documento.ativo == True,
+        db.or_(Documento.tipo_doc == None, Documento.tipo_doc == ""),
+    ).update({Documento.tipo_doc: "IT"}, synchronize_session=False)
+    db.session.commit()
+
+    # 2) Agrupa os documentos de equipamento (PRE + Manuais) por nome.
+    #    PDE (processos) fica de fora — não é equipamento.
+    docs_equip = Documento.query.filter(
+        Documento.ativo == True,
+        Documento.setor.in_(["PRE", "Manuais"]),
+    ).all()
+    grupos = {}
+    for d in docs_equip:
+        nome = (d.equipamento or "").strip()
+        if nome:
+            grupos.setdefault(nome, []).append(d)
+
+    def _primeiro(docs, attr):
+        for d in docs:
+            v = getattr(d, attr, None)
+            if v:
+                return v
+        return ""
+
+    novos_equip = novos_docs = 0
+    for nome, docs in grupos.items():
+        equip = Equipamento.query.filter_by(nome=nome).first()
+        if not equip:
+            equip = Equipamento(
+                nome=nome,
+                sku=_primeiro(docs, "sku"),
+                fabricante=_primeiro(docs, "fabricante"),
+                armazenamento_base=_primeiro(docs, "armazenamento"),
+            )
+            db.session.add(equip)
+            db.session.flush()           # garante equip.id
+            novos_equip += 1
+
+        for d in docs:                   # vincula docs ao equipamento
+            if d.equipamento_id != equip.id:
+                d.equipamento_id = equip.id
+
+    db.session.flush()
+
+    # 3) Paridade total Equipamentos ↔ Documentos: TODO equipamento ativo —
+    #    inclusive os importados da planilha (sem documentos) — recebe os 9 tipos
+    #    faltantes, para aparecer também no módulo Documentos. Idempotente: só
+    #    cria o que falta (verifica os tipos já existentes por equipamento_id).
+    for equip in Equipamento.query.filter(Equipamento.ativo == True).all():
+        docs_do_equip = Documento.query.filter(
+            Documento.ativo == True, Documento.equipamento_id == equip.id).all()
+        tipos_existentes = {d.tipo_doc for d in docs_do_equip if d.tipo_doc}
+        for t in TIPOS_DOC_TODOS:
+            if t in tipos_existentes:
+                continue
+            label = TIPOS_DOC_LABELS.get(t, t)
+            db.session.add(Documento(
+                setor=SETOR_DO_TIPO[t],
+                equipamento=equip.nome,
+                equipamento_id=equip.id,
+                sku=equip.sku,
+                fabricante=equip.fabricante,
+                codigo_doc="",
+                documento=f"{label} - {equip.nome}",
+                tipo_doc=t,
+                status="Elaborar",
+                armazenamento=equip.armazenamento_base,
+            ))
+            novos_docs += 1
+
+    db.session.commit()
+    if novos_equip or novos_docs:
+        print(f"[INFO] Equipamentos: {novos_equip} criados; {novos_docs} documentos completados.")
+
+
 with app.app_context():
     try:
         db.create_all()
@@ -1206,45 +1578,13 @@ with app.app_context():
         from sqlalchemy import text
         db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
         db.session.commit()
-        
-        # Garante que todo equipamento em 'Manuais' tenha os 5 tipos de documentos
-        from models import Documento, TIPOS_DOC_LABELS
-        docs_manuais = Documento.query.filter_by(setor="Manuais", ativo=True).all()
-        equipamentos_grupos = {}
-        for d in docs_manuais:
-            key = (d.equipamento, d.sku)
-            if key not in equipamentos_grupos:
-                equipamentos_grupos[key] = []
-            equipamentos_grupos[key].append(d)
-        
-        tipos_exigidos = ["Manual_ES", "Manual_Servico", "Manual_Usuario", "QIQOQD", "Spare_Parts"]
-        
-        migrados_count = 0
-        for (eq, sku), docs in equipamentos_grupos.items():
-            tipos_existentes = {d.tipo_doc for d in docs}
-            ref_doc = docs[0]
-            for t in tipos_exigidos:
-                if t not in tipos_existentes:
-                    label = TIPOS_DOC_LABELS.get(t, t)
-                    novo_doc = Documento(
-                        setor="Manuais",
-                        equipamento=eq,
-                        sku=sku,
-                        fabricante=ref_doc.fabricante,
-                        codigo_doc=ref_doc.codigo_doc,
-                        documento=f"{label} - {eq}",
-                        tipo_doc=t,
-                        status="Elaborar",
-                        armazenamento=ref_doc.armazenamento
-                    )
-                    db.session.add(novo_doc)
-                    migrados_count += 1
-        if migrados_count > 0:
-            db.session.commit()
-            print(f"[INFO] Migração: Criados {migrados_count} documentos de manuais ausentes.")
-        
+
         if User.query.count() == 0:
             init_db()
+
+        # Reestruturação: entidade Equipamento + 9 tipos por equipamento.
+        # Após o seed, para cobrir também instalações novas. Idempotente.
+        _backfill_equipamentos()
 
         # PDR: na primeira subida as tabelas pdr_* já foram criadas por create_all();
         # importa a Lista Mestra de Reagentes (versionada em pdr/data/) se estiver vazia.
