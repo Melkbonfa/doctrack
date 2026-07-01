@@ -286,10 +286,12 @@ class Equipamento(db.Model):
     codigo_interno     = db.Column(db.String(50), default="")
     sku                = db.Column(db.String(50), default="")   # SKU de Venda (chave de junção)
     sku_importacao     = db.Column(db.String(50), default="")   # SKU de Importação
+    classificacao_reg  = db.Column(db.String(20), default="")   # "RUO" | "IVD" | "" (nem todo equip. tem registro ANVISA)
     anvisa             = db.Column(db.String(60), default="")   # nº de registro ANVISA
     anvisa_registro    = db.Column(db.String(40), default="")   # data (texto, padrão do projeto)
     anvisa_validade    = db.Column(db.String(40), default="")   # data (texto)
     fabricante         = db.Column(db.String(200), default="")
+    codigo_fabricante  = db.Column(db.String(80), default="")   # código interno do fabricante (part number)
     familia            = db.Column(db.String(120), default="")  # LEGADO (texto); migrar p/ familia_id
     status             = db.Column(db.String(40), default="Ativo")  # Ativo/Obsoleto/Descontinuado
     bloqueado          = db.Column(db.Boolean, default=False, nullable=False, index=True)
@@ -317,10 +319,12 @@ class Equipamento(db.Model):
             "codigo_interno":     self.codigo_interno or "",
             "sku":                self.sku or "",
             "sku_importacao":     self.sku_importacao or "",
+            "classificacao_reg":  self.classificacao_reg or "",
             "anvisa":             self.anvisa or "",
             "anvisa_registro":    self.anvisa_registro or "",
             "anvisa_validade":    self.anvisa_validade or "",
             "fabricante":         self.fabricante or "",
+            "codigo_fabricante":  self.codigo_fabricante or "",
             "status":             self.status or "Ativo",
             "bloqueado":          bool(self.bloqueado),
             "observacoes":        self.observacoes or "",
@@ -329,8 +333,6 @@ class Equipamento(db.Model):
             "categoria":          (self.categoria_rel.nome if self.categoria_rel else ""),
             "familia_id":         self.familia_id,
             "familia":            (self.familia_rel.nome if self.familia_rel else (self.familia or "")),
-            "linha_id":           self.linha_id,
-            "linha":              (self.linha_rel.nome if self.linha_rel else ""),
             "ativo":              bool(self.ativo),
         }
 
@@ -379,6 +381,37 @@ class LinhaProduto(db.Model):
 
     def to_dict(self):
         return {"id": self.id, "nome": self.nome or "", "ordem": self.ordem or 0, "ativo": bool(self.ativo)}
+
+
+# ── ITENS DO EQUIPAMENTO (consumíveis e acessórios) ──────────────────────────
+# Cada equipamento tem N consumíveis e N acessórios. Item mínimo: nome + SKUs.
+
+ITEM_TIPOS = ["consumivel", "acessorio"]
+
+class EquipamentoItem(db.Model):
+    __tablename__ = "equip_itens"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                               nullable=False, index=True)
+    tipo           = db.Column(db.String(20), nullable=False, index=True)  # "consumivel" | "acessorio"
+    nome           = db.Column(db.String(200), nullable=False, default="")
+    sku            = db.Column(db.String(50), default="")   # SKU de Venda
+    sku_importacao = db.Column(db.String(50), default="")   # SKU de Importação
+    ordem          = db.Column(db.Integer, default=0)
+    ativo          = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "equipamento_id": self.equipamento_id,
+            "tipo":           self.tipo or "",
+            "nome":           self.nome or "",
+            "sku":            self.sku or "",
+            "sku_importacao": self.sku_importacao or "",
+            "ordem":          self.ordem or 0,
+        }
 
 
 # ── RESPONSAVEL ───────────────────────────────────────────────────────────────

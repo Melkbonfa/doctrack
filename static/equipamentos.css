@@ -38,4 +38,50 @@
 .eq-fchip button{border:none;background:none;color:var(--t3);cursor:pointer;font-size:14px;line-height:1;}
 .eq-fchip button:hover{color:var(--red);}
 
-@media (max-width:900px){ .eq-cat-cols{grid-template-columns:1fr;} }
+/* ficha somente-leitura */
+.vw-hero{display:flex;align-items:center;gap:16px;padding:4px 2px 16px;margin-bottom:16px;border-bottom:1px solid var(--border-soft);}
+.vw-ring{position:relative;width:58px;height:58px;font-size:13px;font-weight:800;flex:0 0 auto;}
+.vw-ring::after{inset:5px;}
+.vw-hero-main{min-width:0;flex:1;}
+.vw-name{font-size:21px;font-weight:800;color:var(--t1);line-height:1.15;letter-spacing:-.01em;}
+.vw-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}
+.vw-chip{font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--bg-elevated);color:var(--t2);border:1px solid var(--border-dim);}
+.vw-chip.mono{font-family:var(--font-mono);letter-spacing:-.02em;}
+.vw-chip.cat{background:rgba(34,211,238,.12);color:var(--cyan);border-color:rgba(34,211,238,.25);}
+.vw-chip.cls{background:rgba(167,139,250,.14);color:#c4b5fd;border-color:rgba(167,139,250,.3);}
+.vw-chip.ok{background:rgba(16,185,129,.14);color:#34d399;border-color:rgba(16,185,129,.3);}
+.vw-chip.warn{background:rgba(245,158,11,.14);color:#fbbf24;border-color:rgba(245,158,11,.3);}
+.vw-chip.bloq{background:rgba(244,63,94,.14);color:#fb7185;border-color:rgba(244,63,94,.3);}
+
+.vw-body{display:flex;flex-direction:column;gap:12px;max-height:62vh;overflow-y:auto;overflow-x:hidden;padding-right:8px;margin-right:-4px;scrollbar-width:thin;scrollbar-color:var(--border-mid) var(--bg-void);}
+.vw-body::-webkit-scrollbar{width:8px;}
+.vw-body::-webkit-scrollbar-track{background:var(--bg-void);border-radius:4px;}
+.vw-body::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:4px;}
+.vw-body::-webkit-scrollbar-thumb:hover{background:var(--cyan);}
+.vw-sec{background:var(--bg-elevated);border:1px solid var(--border-dim);border-radius:12px;padding:14px 16px;min-width:0;}
+.vw-sec-title{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--cyan);margin-bottom:12px;}
+.vw-sec-count{font-size:10px;font-weight:700;color:var(--t3);background:var(--bg-card);border-radius:20px;padding:1px 8px;}
+.vw-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 18px;}
+.vw-field{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.vw-field.wide{grid-column:1/-1;}
+.vw-flabel{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--t3);}
+.vw-fval{font-size:14px;color:var(--t1);overflow-wrap:anywhere;line-height:1.35;user-select:text;}
+.vw-fval.empty{color:var(--t4);}
+.vw-obs{font-size:13px;color:var(--t1);white-space:pre-wrap;line-height:1.5;user-select:text;}
+.vw-empty{font-size:12px;color:var(--t4);padding:6px 2px;}
+.vw-two{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.vw-itbl{width:100%;min-width:0;table-layout:fixed;border-collapse:collapse;font-size:12.5px;}
+.vw-itbl td{overflow-wrap:anywhere;}
+.vw-itbl th{text-align:left;color:var(--t3);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:0 8px 6px;border-bottom:1px solid var(--border-soft);}
+.vw-itbl td{padding:7px 8px;color:var(--t1);border-bottom:1px solid var(--border-dim);user-select:text;}
+.vw-itbl tr:last-child td{border-bottom:none;}
+
+/* itens (consumíveis/acessórios) na ficha de edição */
+.eq-itens{display:flex;flex-direction:column;gap:6px;}
+.eq-item-row{display:grid;grid-template-columns:1.6fr 1fr 1fr 34px;gap:8px;align-items:center;}
+.eq-item-head{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--t3);padding:0 2px;}
+.eq-item-row .form-input{padding:6px 8px;font-size:12px;}
+.eq-item-add{margin-top:8px;padding-top:10px;border-top:1px solid var(--border-dim);}
+.eq-item-add .btn{padding:6px 10px;}
+
+@media (max-width:900px){ .eq-cat-cols{grid-template-columns:1fr;} .vw-two{grid-template-columns:1fr;} }

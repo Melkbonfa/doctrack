@@ -38,18 +38,25 @@ function donutGrad(ctx,hex){ const g=ctx.createLinearGradient(0,0,0,160); g.addC
 let EQUIP=[], DOCS_BY_EQ={}, TAX={categorias:[],linhas:[]}, selCatId=null;
 
 // ── completude (ICE) ───────────────────────────────────────────────────────
-const CAD = ["sku","sku_importacao","nome_tecnico","codigo_interno","fabricante","categoria_id","familia_id","linha_id"];
+const CAD = ["sku","sku_importacao","nome_tecnico","fabricante","categoria_id","familia_id"];
 const REG = ["anvisa","anvisa_registro","anvisa_validade"];
 const NDOC = 9;
 const CAD_LABEL = {sku:"SKU de Venda",sku_importacao:"SKU de Importação",nome_tecnico:"Nome técnico",
-  codigo_interno:"Código interno",fabricante:"Fabricante",categoria_id:"Categoria",familia_id:"Família",linha_id:"Linha"};
-const REG_LABEL = {anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",anvisa_validade:"Validade ANVISA"};
+  fabricante:"Fabricante",categoria_id:"Categoria",familia_id:"Família"};
+const REG_LABEL = {classificacao_reg:"Classificação (RUO/IVD)",anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",anvisa_validade:"Validade ANVISA"};
 function preenchido(e,f){ const v=e[f]; return f.endsWith("_id") ? !!v : !!(v&&String(v).trim()); }
 function docFinal(d){ return (d.setor==="PRE"&&d.status==="Homologado")||(d.setor==="Manuais"&&d.status==="Concluído"); }
 function docsFinais(eqId){ return (DOCS_BY_EQ[eqId]||[]).filter(docFinal).length; }
+// Campos regulatórios exigidos dependem da classificação: RUO (uso em pesquisa)
+// não tem registro ANVISA → basta a classificação; IVD/sem classe exige ANVISA.
+function regFields(e){
+  return e.classificacao_reg==="RUO" ? ["classificacao_reg"]
+                                     : ["classificacao_reg","anvisa","anvisa_registro","anvisa_validade"];
+}
 function scores(e){
   const cad = Math.round(CAD.filter(f=>preenchido(e,f)).length/CAD.length*100);
-  const reg = Math.round(REG.filter(f=>preenchido(e,f)).length/REG.length*100);
+  const rf  = regFields(e);
+  const reg = Math.round(rf.filter(f=>preenchido(e,f)).length/rf.length*100);
   const doc = Math.round(Math.min(NDOC, docsFinais(e.id))/NDOC*100);
   return {cad,reg,doc,ice:Math.round((cad+reg+doc)/3)};
 }
@@ -151,7 +158,7 @@ function renderDashboard(){
 
   // bar horizontal: lacunas mais comuns
   const gaps={}; S.forEach(o=>{ CAD.forEach(f=>{ if(!preenchido(o.e,f)) gaps[CAD_LABEL[f]]=(gaps[CAD_LABEL[f]]||0)+1; });
-    REG.forEach(f=>{ if(!preenchido(o.e,f)) gaps[REG_LABEL[f]]=(gaps[REG_LABEL[f]]||0)+1; });
+    regFields(o.e).forEach(f=>{ if(!preenchido(o.e,f)) gaps[REG_LABEL[f]]=(gaps[REG_LABEL[f]]||0)+1; });
     const falt=NDOC-Math.min(NDOC,docsFinais(o.e.id)); if(falt) gaps["Docs não finalizados"]=(gaps["Docs não finalizados"]||0)+falt; });
   const top=Object.entries(gaps).sort((a,b)=>b[1]-a[1]).slice(0,6);
   if(chartInstances.gaps) chartInstances.gaps.destroy();
@@ -165,7 +172,7 @@ function renderDashboard(){
   // tabela worklist
   const rank=[...S].sort((a,b)=>a.s.ice-b.s.ice).slice(0,10);
   const mini=v=>`<span class="mono" style="color:${cor(v)}">${v}%</span>`;
-  document.getElementById("dash-table").innerHTML=rank.map(o=>`<tr onclick="abrirFicha(${o.e.id})" style="cursor:pointer"><td class="bold">${esc(o.e.nome)}</td><td class="mono">${esc(o.e.sku||"—")}</td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="sg-badge ${o.s.ice>=85?'sg-finalizado':o.s.ice>=50?'sg-progresso':'sg-pendente'}">${o.s.ice}%</span></td></tr>`).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
+  document.getElementById("dash-table").innerHTML=rank.map(o=>`<tr onclick="openView(${o.e.id})" style="cursor:pointer"><td class="bold">${esc(o.e.nome)}</td><td class="mono">${esc(o.e.sku||"—")}</td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="sg-badge ${o.s.ice>=85?'sg-finalizado':o.s.ice>=50?'sg-progresso':'sg-pendente'}">${o.s.ice}%</span></td></tr>`).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }
 
 // ══ LISTA ══════════════════════════════════════════════════════════════════
@@ -177,7 +184,7 @@ function renderLista(){
   document.getElementById("eq-badge").textContent=list.length+" equip.";
   document.getElementById("eq-grid").innerHTML=list.map(e=>{
     const s=scores(e), f=faixa(s.ice);
-    return `<div class="equip-card st-${f==='completo'?'green':f==='parcial'?'amber':'red'}" onclick="abrirFicha(${e.id})">
+    return `<div class="equip-card st-${f==='completo'?'green':f==='parcial'?'amber':'red'}" onclick="openView(${e.id})">
       <div class="eq-ring" style="background:conic-gradient(${FCOLOR[f]} ${s.ice*3.6}deg, var(--bg-elevated) 0)"><span>${s.ice}%</span></div>
       <div class="equip-card-name" style="padding-right:46px">${esc(e.nome)}</div>
       <div class="equip-card-sku">${e.sku?esc(e.sku):'<span class="muted">sem SKU</span>'}</div>
@@ -187,14 +194,17 @@ function renderLista(){
 }
 
 // ══ FICHA ══════════════════════════════════════════════════════════════════
-let fichaId=null, fichaTab="geral";
+let fichaId=null, fichaTab="geral", FICHA_ITENS={consumivel:[],acessorio:[]};
 function _eqById(id){ return EQUIP.find(e=>e.id===id) || null; }
 function famsDe(catId){ const c=TAX.categorias.find(x=>String(x.id)===String(catId)); return c?(c.familias||[]):[]; }
 
-function abrirFicha(id){
-  fichaId=id; fichaTab="geral";
-  const e = id ? _eqById(id) : {id:null,nome:"",status:"Ativo",categoria_id:null,familia_id:null,linha_id:null};
+async function abrirFicha(id){
+  fichaId=id; fichaTab="geral"; FICHA_ITENS={consumivel:[],acessorio:[]};
+  const e = id ? _eqById(id) : {id:null,nome:"",status:"Ativo",categoria_id:null,familia_id:null};
   const s = id ? scores(e) : {cad:0,reg:0,doc:0,ice:0};
+  if(id){ try{ const det=await api("/api/equipamentos/"+id);
+      FICHA_ITENS={consumivel:det.consumiveis||[], acessorio:det.acessorios||[]}; }catch(_){}
+  }
   document.getElementById("eq-ficha-del").style.display = (id&&podeGerir)?"inline-flex":"none";
   document.getElementById("eq-ficha-save").style.display = podeEditar?"inline-flex":"none";
   document.getElementById("eq-ficha-head").innerHTML = `
@@ -203,10 +213,11 @@ function abrirFicha(id){
       <div class="eq-fsub">${e.sku?("SKU "+esc(e.sku)+" · "):""}ICE ${s.ice}% · ${esc(e.status||"Ativo")}</div></div>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('eq')" aria-label="Fechar" style="padding:4px 10px">✕</button>
     </div>`;
-  const tabs=[["geral","Geral"],["tecnico","Técnico"],["reg","Regulatório"],["docs","Documentos"],["hist","Histórico"]];
+  const tabs=[["geral","Geral"],["tecnico","Técnico"],["reg","Regulatório"],["consumivel","Consumíveis"],["acessorio","Acessórios"],["hist","Histórico"]];
   document.getElementById("eq-ficha-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===fichaTab?'active':''}" onclick="fichaSwitch('${k}')">${l}</button>`).join("");
   document.getElementById("eq-ficha-panels").innerHTML=tabs.map(([k])=>`<div class="equip-tab-panel ${k===fichaTab?'active':''}" data-panel="${k}">${painelFicha(k,e)}</div>`).join("");
   onCatChange(true);
+  fichaRegToggle();
   openBaseModal("eq");
 }
 function fichaSwitch(k){
@@ -218,14 +229,12 @@ function fld(label,id,v,ph){ return `<div class="form-group"><label class="form-
 function painelFicha(k,e){
   if(k==="geral"){
     const catOpts='<option value="">—</option>'+TAX.categorias.map(c=>`<option value="${c.id}" ${String(e.categoria_id)===String(c.id)?'selected':''}>${esc(c.nome)}</option>`).join("");
-    const linOpts='<option value="">—</option>'+TAX.linhas.map(l=>`<option value="${l.id}" ${String(e.linha_id)===String(l.id)?'selected':''}>${esc(l.nome)}</option>`).join("");
     const stOpts=["Ativo","Obsoleto","Descontinuado"].map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join("");
-    return `<div class="g3">${fld("Código interno","f-codigo_interno",e.codigo_interno)}${fld("SKU de Venda","f-sku",e.sku)}${fld("SKU de Importação","f-sku_importacao",e.sku_importacao)}</div>
+    return `<div class="g2">${fld("SKU de Venda","f-sku",e.sku)}${fld("SKU de Importação","f-sku_importacao",e.sku_importacao)}</div>
       <div class="g2">${fld("Nome comercial","f-nome",e.nome)}${fld("Nome técnico","f-nome_tecnico",e.nome_tecnico)}</div>
-      <div class="g3">
+      <div class="g2">
         <div class="form-group"><label class="form-label">Categoria</label><select class="form-input" id="f-categoria_id" onchange="onCatChange()">${catOpts}</select></div>
         <div class="form-group"><label class="form-label">Família</label><select class="form-input" id="f-familia_id"></select></div>
-        <div class="form-group"><label class="form-label">Linha de produto</label><select class="form-input" id="f-linha_id">${linOpts}</select></div>
       </div>
       <div class="g2">
         <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="f-status">${stOpts}</select></div>
@@ -234,17 +243,82 @@ function painelFicha(k,e){
       <div class="form-group"><label class="form-label">Descrição (descritivo)</label><textarea class="form-input" id="f-descricao" rows="3" placeholder="Aplicação, princípio, diferenciais…">${esc(e.descricao||"")}</textarea></div>
       <div class="form-group"><label class="form-label">Observações (internas)</label><textarea class="form-input" id="f-observacoes" rows="2">${esc(e.observacoes||"")}</textarea></div>`;
   }
-  if(k==="tecnico") return `<div class="g2">${fld("Fabricante","f-fabricante",e.fabricante)}${fld("Armazenamento base","f-armazenamento_base",e.armazenamento_base)}</div><p class="muted" style="font-size:12px">Campos técnicos avançados (modelo, tecnologia, aplicação) crescem por fase.</p>`;
-  if(k==="reg") return `<div class="form-group">${fld("Registro ANVISA (nº)","f-anvisa",e.anvisa)}</div><div class="g2"><div class="form-group"><label class="form-label">Data de registro</label><input class="form-input" type="date" id="f-anvisa_registro" value="${esc(e.anvisa_registro||"")}"></div><div class="form-group"><label class="form-label">Validade</label><input class="form-input" type="date" id="f-anvisa_validade" value="${esc(e.anvisa_validade||"")}"></div></div><p class="muted" style="font-size:12px">Classe de risco, situação e alertas de vencimento entram na Fase 3.</p>`;
-  if(k==="docs"){
-    if(!e.id) return '<p class="muted">Salve o equipamento para vincular documentos.</p>';
-    const docs=DOCS_BY_EQ[e.id]||[];
-    if(!docs.length) return '<p class="muted">Nenhum documento vinculado ainda. Crie-os no módulo de Documentos.</p>';
-    const stc=s=>(s==="Homologado"||s==="Concluído")?"#10b981":s==="Elaborar"?"#f43f5e":"#f59e0b";
-    return `<div class="eq-doclist">${docs.map(d=>`<div class="eq-docrow"><span class="eq-docdot" style="background:${stc(d.status)}"></span>${esc(d.tipo_doc_label||d.tipo_doc||d.documento)}<span class="muted" style="margin-left:auto;font-size:11px">${esc(d.status)}</span></div>`).join("")}</div><p class="muted" style="font-size:11px;margin-top:8px">${docsFinais(e.id)}/${NDOC} finalizados.</p>`;
+  if(k==="tecnico") return `<div class="g2">${fld("Fabricante","f-fabricante",e.fabricante)}${fld("Código do fabricante","f-codigo_fabricante",e.codigo_fabricante)}</div>
+      <div class="g2">${fld("Nome original","f-nome_original",e.nome_original)}${fld("Armazenamento base","f-armazenamento_base",e.armazenamento_base)}</div>
+      <p class="muted" style="font-size:12px">Campos técnicos avançados (modelo, tecnologia, aplicação) crescem por fase.</p>`;
+  if(k==="reg"){
+    const clOpts=["","RUO","IVD"].map(v=>`<option value="${v}" ${e.classificacao_reg===v?'selected':''}>${v||"— não definido —"}</option>`).join("");
+    return `<div class="g2">
+        <div class="form-group"><label class="form-label">Classificação regulatória</label><select class="form-input" id="f-classificacao_reg" onchange="fichaRegToggle()">${clOpts}</select></div>
+        ${fld("Registro ANVISA (nº)","f-anvisa",e.anvisa)}
+      </div>
+      <div class="g2"><div class="form-group"><label class="form-label">Data de registro</label><input class="form-input" type="date" id="f-anvisa_registro" value="${esc(e.anvisa_registro||"")}"></div><div class="form-group"><label class="form-label">Validade</label><input class="form-input" type="date" id="f-anvisa_validade" value="${esc(e.anvisa_validade||"")}"></div></div>
+      <p class="muted" style="font-size:12px" id="reg-hint">RUO (uso em pesquisa) não exige registro ANVISA. Classe de risco e alertas de vencimento entram na Fase 3.</p>`;
   }
+  if(k==="consumivel"||k==="acessorio") return painelItens(k,e);
   return '<p class="muted">Auditoria de alterações deste equipamento — integra com o log na Fase 3.</p>';
 }
+// ── itens (consumíveis / acessórios) na ficha ────────────────────────────────
+function painelItens(tipo,e){
+  const label=tipo==="consumivel"?"consumível":"acessório";
+  if(!e.id) return `<p class="muted">Salve o equipamento primeiro para cadastrar ${label}s.</p>`;
+  return `<div class="eq-itens">
+    <div class="eq-item-row eq-item-head"><span>Item</span><span>SKU de Venda</span><span>SKU de Importação</span><span></span></div>
+    <div id="itens-body-${tipo}">${itensBody(tipo)}</div>
+    ${podeEditar?`<div class="eq-item-row eq-item-add">
+      <input class="form-input" id="ni-${tipo}-nome" placeholder="Nome do ${label}…">
+      <input class="form-input" id="ni-${tipo}-sku" placeholder="SKU venda">
+      <input class="form-input" id="ni-${tipo}-imp" placeholder="SKU import.">
+      <button class="btn btn-primary btn-sm" onclick="addItem('${tipo}')">+</button>
+    </div>`:""}
+  </div>`;
+}
+function itensBody(tipo){
+  const list=FICHA_ITENS[tipo]||[], label=tipo==="consumivel"?"consumível":"acessório";
+  return list.map(it=>itemRow(tipo,it)).join("")||`<p class="muted" style="font-size:12px;padding:8px 2px">Nenhum ${label} cadastrado.</p>`;
+}
+function itemRow(tipo,it){
+  const ro=podeEditar?"":"disabled";
+  return `<div class="eq-item-row" data-id="${it.id}">
+    <input class="form-input" value="${esc(it.nome)}" ${ro} onchange="patchItem(${it.id},'nome',this.value)">
+    <input class="form-input" value="${esc(it.sku)}" ${ro} onchange="patchItem(${it.id},'sku',this.value)">
+    <input class="form-input" value="${esc(it.sku_importacao)}" ${ro} onchange="patchItem(${it.id},'sku_importacao',this.value)">
+    ${podeEditar?`<button class="eq-tdel" title="Excluir" onclick="delItem('${tipo}',${it.id})">🗑</button>`:"<span></span>"}
+  </div>`;
+}
+function refreshItens(tipo){
+  const body=document.getElementById("itens-body-"+tipo); if(body) body.innerHTML=itensBody(tipo);
+  ["nome","sku","imp"].forEach(s=>{ const el=document.getElementById("ni-"+tipo+"-"+s); if(el) el.value=""; });
+}
+async function addItem(tipo){
+  const nome=val("ni-"+tipo+"-nome").trim();
+  if(!nome){ toast("Informe o nome do item",true); return; }
+  try{ const it=await api("/api/equipamentos/"+fichaId+"/itens",{method:"POST",
+        body:JSON.stringify({tipo,nome,sku:val("ni-"+tipo+"-sku"),sku_importacao:val("ni-"+tipo+"-imp")})});
+    (FICHA_ITENS[tipo]||=[]).push(it); refreshItens(tipo); toast("Item adicionado"); }
+  catch(e){ toast(e.message,true); }
+}
+async function patchItem(id,campo,valor){
+  try{ await api("/api/equip-itens/"+id,{method:"PATCH",body:JSON.stringify({[campo]:valor})});
+    for(const t of ["consumivel","acessorio"]){ const it=(FICHA_ITENS[t]||[]).find(x=>x.id===id); if(it) it[campo]=(valor||"").trim(); }
+  }catch(e){ toast(e.message,true); }
+}
+async function delItem(tipo,id){
+  if(!confirm("Excluir este item?")) return;
+  try{ await api("/api/equip-itens/"+id,{method:"DELETE"});
+    FICHA_ITENS[tipo]=(FICHA_ITENS[tipo]||[]).filter(x=>x.id!==id); refreshItens(tipo); toast("Item excluído"); }
+  catch(e){ toast(e.message,true); }
+}
+function fichaRegToggle(){
+  const ruo=val("f-classificacao_reg")==="RUO";
+  ["f-anvisa","f-anvisa_registro","f-anvisa_validade"].forEach(id=>{ const el=document.getElementById(id);
+    if(el){ el.disabled=ruo; el.style.opacity=ruo?.5:1; } });
+  const hint=document.getElementById("reg-hint");
+  if(hint) hint.textContent=ruo
+    ? "RUO (uso em pesquisa): sem registro ANVISA — campos de ANVISA desabilitados."
+    : "IVD/registrado: preencha o registro ANVISA. Classe de risco e alertas de vencimento entram na Fase 3.";
+}
+
 function onCatChange(keepFam){
   const sel=document.getElementById("f-categoria_id"); if(!sel) return;
   const fams=famsDe(sel.value);
@@ -256,12 +330,14 @@ async function salvarFicha(){
   const nome=val("f-nome").trim();
   if(!nome){ toast("Informe o nome comercial", true); return; }
   const payload={ nome,
-    codigo_interno:val("f-codigo_interno"), sku:val("f-sku"), sku_importacao:val("f-sku_importacao"),
-    nome_tecnico:val("f-nome_tecnico"), descricao:val("f-descricao"), observacoes:val("f-observacoes"),
+    sku:val("f-sku"), sku_importacao:val("f-sku_importacao"),
+    nome_tecnico:val("f-nome_tecnico"), nome_original:val("f-nome_original"),
+    descricao:val("f-descricao"), observacoes:val("f-observacoes"),
     status:val("f-status"), bloqueado:document.getElementById("f-bloqueado").checked,
-    fabricante:val("f-fabricante"), armazenamento_base:val("f-armazenamento_base"),
+    fabricante:val("f-fabricante"), codigo_fabricante:val("f-codigo_fabricante"),
+    armazenamento_base:val("f-armazenamento_base"), classificacao_reg:val("f-classificacao_reg"),
     anvisa:val("f-anvisa"), anvisa_registro:val("f-anvisa_registro"), anvisa_validade:val("f-anvisa_validade"),
-    categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null, linha_id:val("f-linha_id")||null };
+    categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null };
   try{
     if(fichaId) await api("/api/equipamentos/"+fichaId,{method:"PATCH",body:JSON.stringify(payload)});
     else await api("/api/equipamentos",{method:"POST",body:JSON.stringify(payload)});
@@ -276,15 +352,101 @@ async function excluirEquip(){
   catch(e){ toast(e.message,true); }
 }
 
+// ══ FICHA (somente leitura, fácil de ler/copiar) ════════════════════════════
+let viewEq=null;
+async function openView(id){
+  let e=_eqById(id);
+  try{ e=await api("/api/equipamentos/"+id); }catch(_){ if(!e){ toast("Erro ao abrir a ficha",true); return; } }
+  viewEq=e;
+  const s=scores(e), f=faixa(s.ice);
+  document.getElementById("eqview-body").innerHTML=renderView(e,s,f);
+  document.getElementById("eqview-edit").style.display=podeEditar?"inline-flex":"none";
+  openBaseModal("eqview");
+}
+function viewEdit(){ const id=viewEq&&viewEq.id; closeModal("eqview"); if(id) abrirFicha(id); }
+function vfield(label,v,wide){
+  const has=v&&String(v).trim();
+  return `<div class="vw-field${wide?' wide':''}"><span class="vw-flabel">${label}</span><span class="vw-fval${has?'':' empty'}">${has?esc(v):"—"}</span></div>`;
+}
+function vsection(title,inner,count){
+  return `<div class="vw-sec"><div class="vw-sec-title">${title}${count!=null?`<span class="vw-sec-count">${count}</span>`:""}</div>${inner}</div>`;
+}
+function vfields(items){ return `<div class="vw-fields">${items.join("")}</div>`; }
+function vitens(list,label){
+  if(!list||!list.length) return `<div class="vw-empty">Nenhum ${label} cadastrado.</div>`;
+  return `<table class="vw-itbl"><thead><tr><th>Item</th><th>SKU de Venda</th><th>SKU de Importação</th></tr></thead><tbody>${list.map(it=>`<tr><td>${esc(it.nome)}</td><td class="mono">${it.sku?esc(it.sku):'—'}</td><td class="mono">${it.sku_importacao?esc(it.sku_importacao):'—'}</td></tr>`).join("")}</tbody></table>`;
+}
+function vchip(txt,cls){ return `<span class="vw-chip${cls?" "+cls:""}">${esc(txt)}</span>`; }
+function renderView(e,s,f){
+  const chips=[];
+  if(e.sku) chips.push(vchip("SKU "+e.sku,"mono"));
+  if(e.categoria) chips.push(vchip(e.categoria,"cat"));
+  if(e.familia) chips.push(vchip(e.familia,"cat"));
+  if(e.classificacao_reg) chips.push(vchip(e.classificacao_reg,"cls"));
+  const stCls=e.status==="Ativo"?"ok":"warn";
+  chips.push(vchip(e.status||"Ativo",stCls));
+  if(ehBloqueado(e)) chips.push(vchip("Bloqueado","bloq"));
+  return `
+  <div class="vw-hero">
+    <div class="eq-ring vw-ring" style="background:conic-gradient(${FCOLOR[f]} ${s.ice*3.6}deg, var(--bg-elevated) 0)"><span>${s.ice}%</span></div>
+    <div class="vw-hero-main">
+      <div class="vw-name">${esc(e.nome||"—")}</div>
+      <div class="vw-chips">${chips.join("")}</div>
+    </div>
+  </div>
+  <div class="vw-body">
+    ${vsection("Identificação", vfields([
+        vfield("Nome comercial",e.nome),
+        vfield("SKU de Venda",e.sku),
+        vfield("SKU de Importação",e.sku_importacao),
+        vfield("Nome técnico",e.nome_tecnico,true),
+        vfield("Nome original",e.nome_original,true),
+        vfield("Categoria",e.categoria),
+        vfield("Família",e.familia),
+        vfield("Descrição",e.descricao,true),
+      ]))}
+    ${vsection("Técnico", vfields([
+        vfield("Fabricante",e.fabricante),
+        vfield("Código do fabricante",e.codigo_fabricante),
+        vfield("Armazenamento base",e.armazenamento_base,true),
+      ]))}
+    ${vsection("Regulatório", vfields([
+        vfield("Classificação",e.classificacao_reg),
+        vfield("Registro ANVISA",e.anvisa),
+        vfield("Data de registro",e.anvisa_registro),
+        vfield("Validade",e.anvisa_validade),
+      ]))}
+    <div class="vw-two">
+      ${vsection("Consumíveis", vitens(e.consumiveis,"consumível"), (e.consumiveis||[]).length)}
+      ${vsection("Acessórios", vitens(e.acessorios,"acessório"), (e.acessorios||[]).length)}
+    </div>
+    ${e.observacoes&&e.observacoes.trim()?vsection("Observações internas", `<div class="vw-obs">${esc(e.observacoes)}</div>`):""}
+  </div>`;
+}
+function copiarFicha(){
+  const e=viewEq; if(!e) return;
+  const L=[e.nome||""]; const add=(k,v)=>{ if(v&&String(v).trim()) L.push(k+": "+v); };
+  add("Nome técnico",e.nome_tecnico); add("Nome original",e.nome_original);
+  add("SKU de Venda",e.sku); add("SKU de Importação",e.sku_importacao);
+  add("Categoria",e.categoria); add("Família",e.familia);
+  add("Fabricante",e.fabricante); add("Código do fabricante",e.codigo_fabricante);
+  add("Armazenamento base",e.armazenamento_base);
+  add("Classificação",e.classificacao_reg); add("Registro ANVISA",e.anvisa);
+  add("Data de registro",e.anvisa_registro); add("Validade",e.anvisa_validade);
+  add("Descrição",e.descricao); add("Observações",e.observacoes);
+  const bloco=(arr,t)=>{ if(arr&&arr.length){ L.push(""); L.push(t+":"); arr.forEach(it=>L.push("  - "+it.nome+(it.sku?(" | Venda: "+it.sku):"")+(it.sku_importacao?(" | Import.: "+it.sku_importacao):""))); } };
+  bloco(e.consumiveis,"Consumíveis"); bloco(e.acessorios,"Acessórios");
+  const txt=L.join("\n");
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(()=>toast("Ficha copiada")).catch(()=>toast("Falha ao copiar",true)); }
+  else { const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); try{ document.execCommand("copy"); toast("Ficha copiada"); }catch(_){ toast("Falha ao copiar",true); } document.body.removeChild(ta); }
+}
+
 // ══ CATEGORIAS ═════════════════════════════════════════════════════════════
 function renderCategorias(){
   const cl=document.getElementById("cat-list");
   cl.innerHTML=TAX.categorias.map(c=>`<div class="eq-trow ${c.id===selCatId?'sel':''}" onclick="selCat(${c.id})">
     <input class="eq-tname" value="${esc(c.nome)}" onclick="event.stopPropagation()" onchange="renCategoria(${c.id},this.value)">
     <span class="eq-tct">${c.uso||0}</span>${podeEditar?`<button class="eq-tdel" onclick="event.stopPropagation();delCategoria(${c.id})">🗑</button>`:""}</div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma categoria.</p>';
-  document.getElementById("lin-list").innerHTML=TAX.linhas.map(l=>`<div class="eq-trow">
-    <input class="eq-tname" value="${esc(l.nome)}" onchange="renLinha(${l.id},this.value)">
-    <span class="eq-tct">${l.uso||0}</span>${podeEditar?`<button class="eq-tdel" onclick="delLinha(${l.id})">🗑</button>`:""}</div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma linha.</p>';
   renderCatDetail();
 }
 function selCat(id){ selCatId=id; renderCategorias(); }
@@ -305,10 +467,6 @@ async function delCategoria(id){ const c=TAX.categorias.find(x=>x.id===id); if(c
 async function addFamilia(cid){ const nome=val("fam-new").trim(); if(!nome) return;
   try{ await api("/api/familias-equipamento",{method:"POST",body:JSON.stringify({nome,categoria_id:cid})}); await reloadTax(); }catch(e){ toast(e.message,true); } }
 async function delFamilia(id){ try{ await api("/api/familias-equipamento/"+id,{method:"DELETE"}); await reloadTax(); }catch(e){ toast(e.message,true); } }
-async function addLinha(){ const nome=val("lin-new").trim(); if(!nome) return;
-  try{ await api("/api/linhas-produto",{method:"POST",body:JSON.stringify({nome})}); document.getElementById("lin-new").value=""; await reloadTax(); }catch(e){ toast(e.message,true); } }
-async function renLinha(id,nome){ if(!nome.trim())return; try{ await api("/api/linhas-produto/"+id,{method:"PATCH",body:JSON.stringify({nome})}); await reloadTax(); }catch(e){ toast(e.message,true); } }
-async function delLinha(id){ try{ await api("/api/linhas-produto/"+id,{method:"DELETE"}); await reloadTax(); }catch(e){ toast(e.message,true); } }
 async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); preencherSelects(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
 
 // ══ IMPORTAÇÃO / EXPORT ════════════════════════════════════════════════════
