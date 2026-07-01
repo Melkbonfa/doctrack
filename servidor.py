@@ -1537,19 +1537,28 @@ def _backfill_equipamentos():
             if d.equipamento_id != equip.id:
                 d.equipamento_id = equip.id
 
-        tipos_existentes = {d.tipo_doc for d in docs if d.tipo_doc}
-        for t in TIPOS_DOC_TODOS:        # completa os tipos faltantes (9 no total)
+    db.session.flush()
+
+    # 3) Paridade total Equipamentos ↔ Documentos: TODO equipamento ativo —
+    #    inclusive os importados da planilha (sem documentos) — recebe os 9 tipos
+    #    faltantes, para aparecer também no módulo Documentos. Idempotente: só
+    #    cria o que falta (verifica os tipos já existentes por equipamento_id).
+    for equip in Equipamento.query.filter(Equipamento.ativo == True).all():
+        docs_do_equip = Documento.query.filter(
+            Documento.ativo == True, Documento.equipamento_id == equip.id).all()
+        tipos_existentes = {d.tipo_doc for d in docs_do_equip if d.tipo_doc}
+        for t in TIPOS_DOC_TODOS:
             if t in tipos_existentes:
                 continue
             label = TIPOS_DOC_LABELS.get(t, t)
             db.session.add(Documento(
                 setor=SETOR_DO_TIPO[t],
-                equipamento=nome,
+                equipamento=equip.nome,
                 equipamento_id=equip.id,
                 sku=equip.sku,
                 fabricante=equip.fabricante,
                 codigo_doc="",
-                documento=f"{label} - {nome}",
+                documento=f"{label} - {equip.nome}",
                 tipo_doc=t,
                 status="Elaborar",
                 armazenamento=equip.armazenamento_base,
