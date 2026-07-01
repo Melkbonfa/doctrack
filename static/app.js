@@ -1095,60 +1095,15 @@ function renderEquipHeader(){
     _equipCtx.fabricante ? 'Fabricante '+_equipCtx.fabricante : '',
     e.familia ? 'Família '+e.familia : '',
   ].filter(Boolean).map(t=>`<span class="equip-id-badge">${esc(t)}</span>`).join('');
-  const canEdit = ['admin','gestor','tecnico'].includes(currentUser.role) && _equipCtx.equip_id;
+  // Identidade é somente-leitura aqui: a fonte única é o módulo Equipamentos.
   document.getElementById('equip-header').innerHTML = `
     <div class="equip-id-name"><span class="equip-id-dot" style="background:${dot}" title="Pior status entre os documentos"></span>${esc(_equipCtx.equipamento)}</div>
     ${e.nome_original?`<div class="equip-id-orig"><span>nome original:</span> ${esc(e.nome_original)}</div>`:''}
     <div class="equip-id-badges">
       ${badges}
-      ${canEdit?`<button class="btn btn-ghost btn-sm" type="button" onclick="openEquipIdentidade()">✎ Editar identidade</button>`:''}
-    </div>`;
-}
-
-// Formulário inline de edição da identidade do equipamento
-function openEquipIdentidade(){
-  const e = _equipCtx.equip || {};
-  document.getElementById('equip-header').innerHTML = `
-    <div class="equip-id-edit">
-      <div class="section-label-line">Identidade do equipamento</div>
-      <div class="g2">
-        <div class="form-group"><label class="form-label">Nome original</label><input class="form-input" id="eqid-nome_original" value="${esc(e.nome_original||'')}"></div>
-        <div class="form-group"><label class="form-label">SKU</label><input class="form-input" id="eqid-sku" value="${esc(e.sku||_equipCtx.sku||'')}"></div>
-      </div>
-      <div class="g2">
-        <div class="form-group"><label class="form-label">ANVISA (nº)</label><input class="form-input" id="eqid-anvisa" value="${esc(e.anvisa||'')}"></div>
-        <div class="form-group"><label class="form-label">Família / categoria</label><input class="form-input" id="eqid-familia" value="${esc(e.familia||'')}"></div>
-      </div>
-      <div class="g2">
-        <div class="form-group"><label class="form-label">Registro ANVISA</label><input class="form-input" type="date" id="eqid-anvisa_registro" value="${esc(e.anvisa_registro||'')}"></div>
-        <div class="form-group"><label class="form-label">Validade ANVISA</label><input class="form-input" type="date" id="eqid-anvisa_validade" value="${esc(e.anvisa_validade||'')}"></div>
-      </div>
-      <div class="g2">
-        <div class="form-group"><label class="form-label">Fabricante</label><input class="form-input" id="eqid-fabricante" value="${esc(e.fabricante||_equipCtx.fabricante||'')}"></div>
-        <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="eqid-armazenamento_base" value="${esc(e.armazenamento_base||'')}"></div>
-      </div>
-      <div class="modal-footer" style="margin-top:4px">
-        <button class="btn btn-ghost btn-sm" type="button" onclick="renderEquipHeader()">Cancelar</button>
-        <button class="btn btn-primary btn-sm" type="button" onclick="saveEquipIdentidade()">Salvar identidade</button>
-      </div>
-    </div>`;
-}
-
-async function saveEquipIdentidade(){
-  const id = _equipCtx.equip_id;
-  if(!id){ showToast('Equipamento sem identidade vinculada','error'); return; }
-  const v = elId => { const el=document.getElementById(elId); return el?el.value.trim():''; };
-  const payload = {
-    nome_original:v('eqid-nome_original'), sku:v('eqid-sku'),
-    anvisa:v('eqid-anvisa'), familia:v('eqid-familia'),
-    anvisa_registro:v('eqid-anvisa_registro'), anvisa_validade:v('eqid-anvisa_validade'),
-    fabricante:v('eqid-fabricante'), armazenamento_base:v('eqid-armazenamento_base'),
-  };
-  try{
-    const res = await apiFetch(`/equipamentos/${id}`, {method:'PATCH', body:JSON.stringify(payload)});
-    if(res && res.ok){ showToast('Identidade salva','success'); closeModal('equip'); await refreshAll(); }
-    else { const e = await res.json().catch(()=>({})); showToast(e.erro||'Erro ao salvar','error'); }
-  }catch(e){ showToast('Erro de rede','error'); }
+      ${_equipCtx.equip_id?`<a class="btn btn-ghost btn-sm" href="/equipamentos" title="Editar a identidade no módulo Equipamentos" style="text-decoration:none">↗ Abrir no módulo Equipamentos</a>`:''}
+    </div>
+    <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
 }
 
 // Abas (uma por tipo) + painéis
