@@ -574,6 +574,24 @@ def get_equipamento(equip_id):
     d["acessorios"]  = [i.to_dict() for i in itens if i.tipo == "acessorio"]
     return jsonify(d), 200
 
+def _ensure_docs_for_equip(equip):
+    """Garante os 9 tipos de documento do equipamento (paridade com o módulo
+    Documentos). Cria só os que faltam. Retorna quantos criou. Idempotente."""
+    existentes = {d.tipo_doc for d in Documento.query.filter(
+        Documento.ativo == True, Documento.equipamento_id == equip.id).all() if d.tipo_doc}
+    n = 0
+    for t in TIPOS_DOC_TODOS:
+        if t in existentes:
+            continue
+        label = TIPOS_DOC_LABELS.get(t, t)
+        db.session.add(Documento(
+            setor=SETOR_DO_TIPO[t], equipamento=equip.nome, equipamento_id=equip.id,
+            sku=equip.sku, fabricante=equip.fabricante, codigo_doc="",
+            documento=f"{label} - {equip.nome}", tipo_doc=t, status="Elaborar",
+            armazenamento=equip.armazenamento_base))
+        n += 1
+    return n
+
 @app.route("/api/equipamentos", methods=["POST"])
 @jwt_required()
 @require_role("admin", "gestor", "tecnico")
@@ -587,6 +605,9 @@ def create_equipamento():
     _aplicar_campos_equip(equip, data)
     db.session.add(equip)
     db.session.commit()
+    # Paridade: o novo equipamento já nasce com seus 9 documentos no módulo Documentos.
+    if _ensure_docs_for_equip(equip):
+        db.session.commit()
     log_action(caller, "CREATE", entidade=f"Equipamento: {equip.nome}", campo="nome", novo=nome, ip=get_client_ip())
     return jsonify({"mensagem": "Equipamento criado", "equipamento": equip.to_dict()}), 201
 
@@ -660,9 +681,16 @@ def delete_equipamento(equip_id):
         return jsonify({"erro": "Equipamento não encontrado"}), 404
     equip.ativo = False                       # soft delete (reversível no banco)
     equip.updated_em = datetime.now()
+    # Paridade: excluir o equipamento também remove (soft) seus documentos, para
+    # não sobrar card órfão no módulo Documentos nem o backfill recriá-los.
+    ndocs = Documento.query.filter(
+        Documento.equipamento_id == equip.id, Documento.ativo == True).update(
+        {Documento.ativo: False, Documento.deleted_at: datetime.now()},
+        synchronize_session=False)
     db.session.commit()
-    log_action(caller, "DELETE", entidade=f"Equipamento: {equip.nome}", campo="ativo", novo="False", ip=get_client_ip())
-    return jsonify({"mensagem": "Equipamento excluído"}), 200
+    log_action(caller, "DELETE", entidade=f"Equipamento: {equip.nome}",
+               campo="ativo", novo=f"False (+{ndocs} docs)", ip=get_client_ip())
+    return jsonify({"mensagem": "Equipamento excluído", "docs_removidos": ndocs}), 200
 
 @app.route("/api/equipamentos/export", methods=["GET"])
 @jwt_required()
@@ -1533,9 +1561,9 @@ def _backfill_equipamentos():
             db.session.flush()           # garante equip.id
             novos_equip += 1
 
-        for d in docs:                   # vincula docs ao equipamento
-            if d.equipamento_id != equip.id:
-                d.equipamento_id = equip.id
+        for d in docs:                   # vincula só documentos ainda soltos
+            if not d.equipamento_id:     # (não reatribui já vinculados — evita
+                d.equipamento_id = equip.id  #  "pingar" entre entidades homônimas)
 
     db.session.flush()
 
@@ -1544,26 +1572,7 @@ def _backfill_equipamentos():
     #    faltantes, para aparecer também no módulo Documentos. Idempotente: só
     #    cria o que falta (verifica os tipos já existentes por equipamento_id).
     for equip in Equipamento.query.filter(Equipamento.ativo == True).all():
-        docs_do_equip = Documento.query.filter(
-            Documento.ativo == True, Documento.equipamento_id == equip.id).all()
-        tipos_existentes = {d.tipo_doc for d in docs_do_equip if d.tipo_doc}
-        for t in TIPOS_DOC_TODOS:
-            if t in tipos_existentes:
-                continue
-            label = TIPOS_DOC_LABELS.get(t, t)
-            db.session.add(Documento(
-                setor=SETOR_DO_TIPO[t],
-                equipamento=equip.nome,
-                equipamento_id=equip.id,
-                sku=equip.sku,
-                fabricante=equip.fabricante,
-                codigo_doc="",
-                documento=f"{label} - {equip.nome}",
-                tipo_doc=t,
-                status="Elaborar",
-                armazenamento=equip.armazenamento_base,
-            ))
-            novos_docs += 1
+        novos_docs += _ensure_docs_for_equip(equip)
 
     db.session.commit()
     if novos_equip or novos_docs:
