@@ -1,5 +1,5 @@
 const API='/api';
-let allDocs=[],allEquip={},chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
+let allDocs=[],allEquip={},allEquipById={},chartInstances={},currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
 let _dashEquip='';   // equipamento selecionado no dashboard ('' = todos)
@@ -564,12 +564,16 @@ async function loadData(){
   }catch(e){}
   allDocs=[];_lastKpis=null;
 }
-// Identidade dos equipamentos (mapa por nome), fonte única de nome_original/ANVISA/família.
+// Identidade dos equipamentos (mapas por nome e por id), fonte única de
+// nome_original/ANVISA/família. O mapa por id é a chave da sincronização.
 async function loadEquipamentos(){
-  allEquip={};
+  allEquip={}; allEquipById={};
   try{
     const res=await apiFetch('/equipamentos');
-    if(res&&res.ok){(await res.json()).forEach(e=>{ allEquip[(e.nome||'').trim()] = e; });}
+    if(res&&res.ok){(await res.json()).forEach(e=>{
+      allEquip[(e.nome||'').trim()] = e;
+      allEquipById[e.id] = e;
+    });}
   }catch(e){}
 }
 async function refreshAll(){await loadData();renderDashboard();renderDocs();showToast('Dados atualizados','success');
@@ -918,14 +922,19 @@ function _ajustarDocxNaPagina(body){
 // ═══ DOCS — GRADE DE EQUIPAMENTOS ═══
 let _equipChip = 'todos';
 
-// Agrupa allDocs por nome de equipamento (PRE + Manuais juntos)
+// Agrupa allDocs por EQUIPAMENTO (entidade). A chave é o equipamento_id — assim
+// dois produtos distintos com o mesmo nome viram cards separados e ficam alinhados
+// com o módulo Equipamentos. Documentos sem vínculo (ex.: PDE) caem por nome.
 function groupByEquip(){
   const groups = {};
   allDocs.forEach(d => {
-    const key = (d.equipamento || '—').trim();
+    const key = d.equipamento_id ? ('id:'+d.equipamento_id) : ('nome:'+(d.equipamento || '—').trim());
     if(!groups[key]){
-      groups[key] = { equipamento:key, sku:'', fabricante:'', pre:null, manuais:[],
-                      byTipo:{}, docs:[], equip:allEquip[key]||null };
+      const eq = d.equipamento_id ? (allEquipById[d.equipamento_id]||null) : (allEquip[(d.equipamento||'').trim()]||null);
+      groups[key] = { key, id:d.equipamento_id||null,
+                      equipamento:(eq&&eq.nome)||(d.equipamento||'—').trim(),
+                      sku:'', fabricante:'', pre:null, manuais:[],
+                      byTipo:{}, docs:[], equip:eq };
     }
     const g = groups[key];
     g.docs.push(d);
@@ -936,9 +945,14 @@ function groupByEquip(){
     if(d.setor === 'PRE'){ if(!g.pre || d.tipo_doc==='IT') g.pre = d; }
     else if(d.setor === 'Manuais'){ g.manuais.push(d); }
   });
-  // Complementa identidade a partir da entidade Equipamento
+  // Identidade vem da entidade Equipamento (fonte única) — sobrepõe valores que
+  // possam estar defasados nas colunas dos documentos (nome/SKU/fabricante).
   Object.values(groups).forEach(g=>{
-    if(g.equip){ if(!g.sku) g.sku=g.equip.sku||''; if(!g.fabricante) g.fabricante=g.equip.fabricante||''; }
+    if(g.equip){
+      g.sku = g.equip.sku || g.sku;
+      g.fabricante = g.equip.fabricante || g.fabricante;
+      g.equipamento = g.equip.nome || g.equipamento;
+    }
   });
   return Object.values(groups).sort((a,b)=>a.equipamento.localeCompare(b.equipamento));
 }
@@ -1015,7 +1029,7 @@ function renderGrid(){
   }
   grid.innerHTML = filtered.map(g => {
     const color = equipStatusColor(g);
-    return `<div class="equip-card st-${color}" data-equip="${esc(g.equipamento)}" onclick="openEquipModal('${esc(g.equipamento).replace(/'/g,"\\'")}')">
+    return `<div class="equip-card st-${color}" data-equip="${esc(g.key)}" onclick="openEquipModal('${esc(g.key).replace(/'/g,"\\'")}')">
       <div class="equip-card-name">${esc(g.equipamento)}</div>
       <div class="equip-card-sku">${g.sku?esc(g.sku):'<span class="muted">sem SKU</span>'}</div>
     </div>`;
@@ -1061,16 +1075,19 @@ function switchEquipTab(tab){
   document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
 }
 
-function openEquipModal(equipName){
-  const g = groupByEquip().find(x=>x.equipamento===equipName) || null;
-  const docs = allDocs.filter(d => (d.equipamento||'').trim() === equipName);
+function openEquipModal(key){
+  // `key` é a chave do grupo ('id:<n>' ou 'nome:<nome>'). Retrocompat: se vier um
+  // nome puro (chamadas antigas), tenta casar por nome.
+  const groups = groupByEquip();
+  const g = groups.find(x=>x.key===key) || groups.find(x=>x.equipamento===key) || null;
+  const docs = g ? g.docs.slice() : [];
   const byTipo = {};
   docs.forEach(d=>{ if(d.tipo_doc && !byTipo[d.tipo_doc]) byTipo[d.tipo_doc]=d; });
-  const equip = (g&&g.equip) || allEquip[equipName] || null;
+  const equip = (g&&g.equip) || null;
   const sku = (g&&g.sku) || (equip&&equip.sku) || '';
   const fabricante = (g&&g.fabricante) || (equip&&equip.fabricante) || '';
-  const equip_id = (equip&&equip.id) || (docs.find(d=>d.equipamento_id)||{}).equipamento_id || null;
-  _equipCtx = { equipamento: equipName, equip, equip_id, byTipo, docs, sku, fabricante, g };
+  const equip_id = (g&&g.id) || (equip&&equip.id) || null;
+  _equipCtx = { equipamento: (g&&g.equipamento)||'', equip, equip_id, byTipo, docs, sku, fabricante, g };
 
   const delBtn = document.getElementById('btn-del-equip');
   if(delBtn) delBtn.style.display = (currentUser.role==='admin'||currentUser.role==='gestor') ? 'inline-flex' : 'none';
@@ -1164,14 +1181,22 @@ async function deleteEquip(){
   if(!_equipCtx) return;
   if(!(currentUser.role==='admin'||currentUser.role==='gestor')){ showToast('Sem permissão','error'); return; }
   const nome = _equipCtx.equipamento;
+  const eid = _equipCtx.equip_id;
   const docs = _equipCtx.docs || [];
-  if(!docs.length){ showToast('Nada para excluir','info'); return; }
-  const ok = await confirmModal('Excluir equipamento', `Excluir "${nome}" e todos os seus ${docs.length} documento(s)? Esta ação pode ser revertida no banco (soft delete).`);
+  if(!eid && !docs.length){ showToast('Nada para excluir','info'); return; }
+  const ok = await confirmModal('Excluir equipamento', `Excluir "${nome}" e todos os seus documentos? Remove o equipamento dos dois módulos (Equipamentos e Documentos). Pode ser revertido no banco (soft delete).`);
   if(!ok) return;
   try{
-    for(const d of docs){
-      const res = await apiFetch(`/documentos/${d.id}`, {method:'DELETE'});
+    if(eid){
+      // Exclui a entidade Equipamento — o backend remove os documentos em cascata
+      // e evita que o backfill recrie os 9 tipos no próximo boot.
+      const res = await apiFetch(`/equipamentos/${eid}`, {method:'DELETE'});
       if(!res || !res.ok){ const e = res ? await res.json().catch(()=>({})) : {}; showToast(e.erro||'Erro ao excluir','error'); return; }
+    } else {
+      for(const d of docs){
+        const res = await apiFetch(`/documentos/${d.id}`, {method:'DELETE'});
+        if(!res || !res.ok){ const e = res ? await res.json().catch(()=>({})) : {}; showToast(e.erro||'Erro ao excluir','error'); return; }
+      }
     }
     showToast('Equipamento excluído','success'); closeModal('equip'); await refreshAll();
   }catch(e){ showToast('Erro de rede','error'); }
@@ -1212,9 +1237,10 @@ async function createTipo(tipo){
   const payload = { setor: isPre?'PRE':'Manuais', tipo_doc: tipo,
     equipamento:_equipCtx.equipamento, sku:_equipCtx.sku, fabricante:_equipCtx.fabricante,
     documento:`${_tipoLabel(tipo)} - ${_equipCtx.equipamento}` };
+  const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
     const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
-    if(res && res.ok){ showToast(`${_tipoLabel(tipo)} criado`,'success'); await refreshAll(); openEquipModal(_equipCtx.equipamento); }
+    if(res && res.ok){ showToast(`${_tipoLabel(tipo)} criado`,'success'); await refreshAll(); openEquipModal(reopenKey); }
     else { showToast('Erro ao criar documento','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
 }

@@ -194,12 +194,13 @@ function renderLista(){
 }
 
 // ══ FICHA ══════════════════════════════════════════════════════════════════
-let fichaId=null, fichaTab="geral", FICHA_ITENS={consumivel:[],acessorio:[]};
+let fichaId=null, fichaTab="geral", FICHA_ITENS={consumivel:[],acessorio:[]}, fichaFromView=false;
 function _eqById(id){ return EQUIP.find(e=>e.id===id) || null; }
 function famsDe(catId){ const c=TAX.categorias.find(x=>String(x.id)===String(catId)); return c?(c.familias||[]):[]; }
 
-async function abrirFicha(id){
+async function abrirFicha(id, fromView){
   fichaId=id; fichaTab="geral"; FICHA_ITENS={consumivel:[],acessorio:[]};
+  fichaFromView=!!(fromView&&id);
   const e = id ? _eqById(id) : {id:null,nome:"",status:"Ativo",categoria_id:null,familia_id:null};
   const s = id ? scores(e) : {cad:0,reg:0,doc:0,ice:0};
   if(id){ try{ const det=await api("/api/equipamentos/"+id);
@@ -211,7 +212,7 @@ async function abrirFicha(id){
     <div class="eq-fhead">
       <div><div class="eq-fname"><span class="eq-fdot" style="background:${FCOLOR[faixa(s.ice)]}"></span>${esc(e.nome||"Novo equipamento")}</div>
       <div class="eq-fsub">${e.sku?("SKU "+esc(e.sku)+" · "):""}ICE ${s.ice}% · ${esc(e.status||"Ativo")}</div></div>
-      <button class="btn btn-ghost btn-sm" onclick="closeModal('eq')" aria-label="Fechar" style="padding:4px 10px">✕</button>
+      <button class="btn btn-ghost btn-sm" onclick="fecharFicha()" aria-label="Fechar" style="padding:4px 10px">✕</button>
     </div>`;
   const tabs=[["geral","Geral"],["tecnico","Técnico"],["reg","Regulatório"],["consumivel","Consumíveis"],["acessorio","Acessórios"],["hist","Histórico"]];
   document.getElementById("eq-ficha-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===fichaTab?'active':''}" onclick="fichaSwitch('${k}')">${l}</button>`).join("");
@@ -341,14 +342,17 @@ async function salvarFicha(){
   try{
     if(fichaId) await api("/api/equipamentos/"+fichaId,{method:"PATCH",body:JSON.stringify(payload)});
     else await api("/api/equipamentos",{method:"POST",body:JSON.stringify(payload)});
-    toast("Equipamento salvo"); closeModal("eq"); await loadAll();
+    toast("Equipamento salvo"); closeModal("eq");
+    const volta=fichaFromView&&fichaId; fichaFromView=false;
+    await loadAll();
+    if(volta) openView(fichaId);
   }catch(e){ toast(e.message,true); }
 }
 async function excluirEquip(){
   if(!fichaId) return;
   if(!confirm("Excluir este equipamento? (pode ser revertido no banco)")) return;
   try{ await api("/api/equipamentos/"+fichaId,{method:"DELETE"}); toast("Equipamento excluído");
-    closeModal("eq"); await loadAll(); }
+    fichaFromView=false; closeModal("eq"); await loadAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -363,7 +367,12 @@ async function openView(id){
   document.getElementById("eqview-edit").style.display=podeEditar?"inline-flex":"none";
   openBaseModal("eqview");
 }
-function viewEdit(){ const id=viewEq&&viewEq.id; closeModal("eqview"); if(id) abrirFicha(id); }
+function viewEdit(){ const id=viewEq&&viewEq.id; closeModal("eqview"); if(id) abrirFicha(id,true); }
+function fecharFicha(){
+  const volta=fichaFromView&&fichaId; fichaFromView=false;
+  closeModal("eq");
+  if(volta) openView(fichaId);
+}
 function vfield(label,v,wide){
   const has=v&&String(v).trim();
   return `<div class="vw-field${wide?' wide':''}"><span class="vw-flabel">${label}</span><span class="vw-fval${has?'':' empty'}">${has?esc(v):"—"}</span></div>`;
@@ -495,8 +504,8 @@ async function exportarCSV(){
 // ── modais + nav wiring ──────────────────────────────────────────────────────
 function openBaseModal(id){ const m=document.getElementById("modal-"+id); if(m){ m.classList.add("open"); m.setAttribute("aria-hidden","false"); } }
 function closeModal(id){ const m=document.getElementById("modal-"+id); if(m){ m.classList.remove("open"); m.setAttribute("aria-hidden","true"); } }
-document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{ if(e.target===m) closeModal(m.id.replace("modal-","")); }));
-document.addEventListener("keydown",e=>{ if(e.key==="Escape") document.querySelectorAll(".modal-overlay.open").forEach(m=>closeModal(m.id.replace("modal-",""))); });
+document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{ if(e.target!==m) return; if(m.id==="modal-eq") return; closeModal(m.id.replace("modal-","")); }));
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") document.querySelectorAll(".modal-overlay.open").forEach(m=>{ if(m.id==="modal-eq") fecharFicha(); else closeModal(m.id.replace("modal-","")); }); });
 document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.addEventListener("click",()=>navigate(el.dataset.page)));
 const _st=document.getElementById("sidebar-toggle"), _sb=document.getElementById("sidebar-backdrop"), _sn=document.getElementById("sidebar-nav");
 function toggleSidebar(f){ const open=f!==undefined?f:!_sn.classList.contains("open"); _sn.classList.toggle("open",open); _sb.classList.toggle("open",open); }

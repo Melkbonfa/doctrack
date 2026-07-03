@@ -84,6 +84,16 @@ def _carregar_df(path=None, file_bytes=None):
     return pd.read_excel(path or DEFAULT_MASTER, header=0)
 
 
+import re as _re
+_SKU_RE = _re.compile(r"^\s*0*(\d+)\.(\d+)\s*$")
+
+def _norm_sku(sku):
+    """Normaliza SKU de Venda 'NN.NNNNNN' ignorando zeros à esquerda ('01.000404'
+    e '1.000404' viram a mesma chave). SKU não-padrão retorna None (não casa)."""
+    m = _SKU_RE.match(sku or "")
+    return f"{m.group(1)}.{m.group(2)}" if m else None
+
+
 def importar_equipamentos(path=None, file_bytes=None, dryrun=True):
     """Importa/atualiza equipamentos a partir da planilha. Devolve um relatório.
 
@@ -110,6 +120,14 @@ def importar_equipamentos(path=None, file_bytes=None, dryrun=True):
     ).all():
         sem_sku.setdefault(_norm(e.nome), e)
 
+    # Casamento por SKU NORMALIZADO (ignora zero à esquerda) — evita duplicar quando
+    # o SKU só difere no formato ('01.000404' vs '1.000404').
+    por_sku_norm = {}
+    for e in Equipamento.query.filter(Equipamento.ativo == True).all():
+        k = _norm_sku(e.sku)
+        if k:
+            por_sku_norm.setdefault(k, e)
+
     for i, row in df.iterrows():
         nome_master = _s(row.get(c_eq))
         sku_venda   = _s(row.get(c_venda))
@@ -128,7 +146,8 @@ def importar_equipamentos(path=None, file_bytes=None, dryrun=True):
         bloq    = (_s(row.get(c_bloq)).upper() == "SIM") if c_bloq else False
         nome, desc, nome_tec, status = derivar_nome(nome_master)
 
-        eq = Equipamento.query.filter_by(sku=sku_venda).first()
+        # 1) casa por SKU normalizado (pega variações de zero à esquerda)
+        eq = por_sku_norm.get(_norm_sku(sku_venda)) or Equipamento.query.filter_by(sku=sku_venda).first()
         por_nome = False
         if not eq:
             cand = sem_sku.get(_norm(nome))               # casa por nome (existente sem SKU)
