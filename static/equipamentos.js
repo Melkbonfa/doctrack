@@ -71,10 +71,12 @@ function navigate(page){
   document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active", el.dataset.page===page));
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   const el=document.getElementById("page-"+page); if(el) el.classList.add("active");
-  document.getElementById("breadcrumb-current").textContent={dashboard:"Dashboard",lista:"Equipamentos",cat:"Categorias"}[page]||"";
+  document.getElementById("breadcrumb-current").textContent={dashboard:"Dashboard",lista:"Equipamentos",cat:"Categorias",consumiveis:"Consumíveis","tipos-cons":"Tipos de consumível"}[page]||"";
   if(page==="dashboard") renderDashboard();
   if(page==="lista") renderLista();
   if(page==="cat") renderCategorias();
+  if(page==="consumiveis" && typeof renderConsumiveis==="function") renderConsumiveis();
+  if(page==="tipos-cons" && typeof renderTiposCons==="function") renderTiposCons();
 }
 
 // ── carga ──────────────────────────────────────────────────────────────────

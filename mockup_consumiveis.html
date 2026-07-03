@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consumíveis — DocTrack (teste)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="static/style.css">
+<link rel="stylesheet" href="static/equipamentos.css">
+<style>
+/* revela o shell (o app real faz isso via JS depois do login) */
+#app{display:block !important;}
+/* extras só deste protótipo — mesmas variáveis do app */
+.cons-card{background:var(--bg-card);border:1px solid var(--border-soft);border-radius:var(--r2);border-top:3px solid var(--border-mid);padding:14px 15px;cursor:pointer;display:flex;flex-direction:column;gap:9px;text-align:left;align-items:stretch;min-height:0;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;}
+.cons-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md);border-color:var(--border-mid);}
+.cons-card.pend{border-top-color:var(--amber);}
+.cons-card-name{font-size:14px;font-weight:700;color:var(--t1);line-height:1.3;}
+.cons-card-sku{font-family:var(--font-mono);font-size:11.5px;color:var(--t3);}
+.cons-card-sku .muted{font-family:var(--font-body);font-style:italic;color:var(--t4);}
+.cons-card-foot{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--cyan);margin-top:2px;}
+.cons-topline{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.forn-b{font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap;border:1px solid transparent;}
+.forn-E{background:rgba(16,185,129,.14);color:#34d399;border-color:rgba(16,185,129,.3);}
+.forn-P{background:rgba(34,211,238,.12);color:var(--cyan-lt);border-color:rgba(34,211,238,.25);}
+.forn-N{background:rgba(120,132,201,.14);color:var(--t3);border-color:var(--border-dim);}
+.forn-Q{background:var(--bg-elevated);color:var(--t4);border-color:var(--border-dim);}
+.seg{display:inline-flex;border:1px solid var(--border-soft);border-radius:var(--r-pill);overflow:hidden;}
+.seg button{border:none;background:transparent;color:var(--t3);padding:7px 15px;font-size:12px;cursor:pointer;font-family:var(--font-body);}
+.seg button.on{background:var(--cyan-brand);color:#fff;font-weight:600;}
+.eqrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-dim);}
+.eqrow:last-child{border-bottom:none;}
+.eqrow-name{font-size:13px;color:var(--t1);}
+.link-add{display:flex;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-dim);}
+.link-add .filter-sel{padding:7px 10px;font-size:12px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menu">☰</button>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <nav class="sidebar" id="sidebar-nav" aria-label="Navegação principal">
+    <div class="sidebar-brand">
+      <div class="brand-row">
+        <div class="brand-icon"><svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg></div>
+        <div class="brand-name">DocTrack</div>
+      </div>
+      <div class="brand-version">P&D EQUIPAMENTOS</div>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar" id="nav-avatar">M</div>
+      <div><div class="user-name">Melk</div><div class="user-role">ADMIN</div></div>
+    </div>
+
+    <span class="nav-section-label">Visão</span>
+    <button type="button" class="nav-item">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
+      Dashboard
+    </button>
+
+    <span class="nav-section-label">Equipamentos</span>
+    <button type="button" class="nav-item">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M9 9h6v6H9z" stroke="currentColor" stroke-width="1.5"/></svg>
+      Todos os equipamentos
+    </button>
+    <button type="button" class="nav-item active">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="18" cy="17" r="3" stroke="currentColor" stroke-width="1.6"/></svg>
+      Consumíveis
+    </button>
+
+    <span class="nav-section-label">Configuração</span>
+    <button type="button" class="nav-item">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Tipos de consumível
+    </button>
+
+    <div class="sidebar-footer">
+      <div class="sync-row"><div class="sync-dot"></div><span class="sync-text">Protótipo (dados reais das planilhas)</span></div>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="toggleTheme()">Alternar tema</button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="breadcrumb"><span>DocTrack</span><span style="color:var(--t4)">/</span><span>Equipamentos</span><span style="color:var(--t4)">/</span><span class="current">Consumíveis</span></div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
+        <div class="user-avatar" style="width:32px;height:32px;font-size:12px">M</div>
+      </div>
+    </div>
+
+    <main class="content" id="main-content" tabindex="-1">
+      <div class="page active">
+        <div class="page-header">
+          <div><div class="page-title">Consumíveis</div><div class="page-sub">Catálogo global — cada consumível listado uma vez, com os equipamentos compatíveis</div></div>
+          <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+            <span class="filter-count" id="cons-badge">—</span>
+            <button class="btn btn-ghost btn-sm" onclick="mockAcao('Exportar CSV do catálogo')">Exportar CSV</button>
+            <button class="btn btn-ghost btn-sm" onclick="mockAcao('Importar planilha (prévia + aplicar)')">Importar planilha</button>
+            <button class="btn btn-primary btn-sm" onclick="abrirNovo()">+ Novo consumível</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="equip-toolbar">
+            <div class="filter-bar" style="margin:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <div class="seg">
+                <button id="seg-cons" class="on" onclick="setView('cons')">Por consumível</button>
+                <button id="seg-eq" onclick="setView('eq')">Por equipamento</button>
+              </div>
+              <div class="search-wrap" id="wrap-busca">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input class="search-input" id="busca" placeholder="Buscar nome ou SKU..." oninput="render()">
+              </div>
+              <select class="filter-sel" id="f-tipo" onchange="render()"><option value="">Tipo: todos</option></select>
+              <select class="filter-sel" id="f-eq" onchange="render()" style="display:none;min-width:220px"></select>
+              <label class="filter-count" id="lbl-pend" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="f-pend" onchange="render()"> só sem SKU</label>
+            </div>
+          </div>
+          <div class="equip-grid" id="grid" style="grid-template-columns:repeat(auto-fill,minmax(215px,1fr))"></div>
+          <div id="eqview"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL: ficha do consumível (leitura) -->
+<div class="modal-overlay" id="modal-view" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal" style="width:720px;max-width:96vw">
+    <div id="view-hero"></div>
+    <div class="equip-modal-tabs" id="view-tabs" role="tablist"></div>
+    <div id="view-panels"></div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-ghost btn-sm" onclick="mockAcao('Copiar ficha')" type="button">📋 Copiar ficha</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-ghost" onclick="fechar('view')">Fechar</button>
+        <button class="btn btn-primary" onclick="mockAcao('Editar dados do consumível')">Editar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: novo consumível (cadastro manual) -->
+<div class="modal-overlay" id="modal-novo" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal" style="width:560px;max-width:96vw">
+    <div class="modal-title">Novo consumível</div>
+    <div class="modal-sub">Cadastro manual — para o que não vem nas planilhas</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Nome</label><input class="form-input" id="n-nome" placeholder="Ex.: Tip box 200ul"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">SKU de venda</label><input class="form-input" id="n-sku" placeholder="01.000000"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Tipo</label><select class="form-input" id="n-tipo"></select></div>
+      <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Especificações (opcional)</label><input class="form-input" id="n-spec" placeholder="Ex.: 200µL · com filtro · estéril"></div>
+    </div>
+    <div class="modal-footer" style="justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="fechar('novo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNovo()">Salvar consumível</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" style="display:none"></div>
+
+<script>
+const DATA=[{"n":"Deepwell 2,2mL V","s":"01.000865","t":"Placa deepwell","p":0,"e":[["Extracta Assist","P"],["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"],["Puncher","P"],["Extracta 768","E"]]},{"n":"Deepwell 2,2mL U","s":"01.000879","t":"Placa deepwell","p":0,"e":[["Extracta Assist","P"],["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"],["Puncher","P"]]},{"n":"Placa PCR 0,1mL saia COMPLETA","s":"01.000790","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"],["FlexSeal","P"],["Liquo","P"],["Extracta Station 4800","P"],["Puncher","P"]]},{"n":"Placa PCR 0,2mL SEM saia","s":"01.000876","t":"Placa PCR","p":0,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Assist","P"],["Librarian 240_340","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"],["Extracta Station 4800","P"],["Puncher","P"]]},{"n":"Deepwell 1,3mL U","s":"01.000852","t":"Placa deepwell","p":0,"e":[["Extracta Assist","P"],["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"],["Extracta Prep","P"],["Liquo","P"],["Puncher","P"]]},{"n":"Microtubo 2,0mL","s":"01.000726","t":"Tampa","p":0,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Puncher","P"],["Amplio Station 6400","P"]]},{"n":"Microtubo 2,0mL COM saia","s":"01.000738","t":"Tampa","p":0,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Puncher","P"],["Amplio Station 6400","P"]]},{"n":"Placa PCR 0,2mL MEIA saia (BORDA ELEV)","s":"01.000814","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["Librarian 240_340","P"],["Extracta Prep","P"],["Liquo","P"],["Extracta Station 4800","P"],["Puncher","P"]]},{"n":"Tip box 200ul","s":"01.001367","t":"Ponteira","p":0,"e":[["Extracta Assist","E"],["Librarian 100","E"],["Librarian 120","E"],["Librarian 240_340","E"],["Extracta Prep","E"]]},{"n":"Tubo 1,5mL","s":"","t":"Tubo","p":1,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","N"],["Extracta Prep","N"],["Extracta Station 4800","P"]]},{"n":"Tubo 2,0mL","s":"","t":"Tubo","p":1,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","N"],["Extracta Prep","N"],["Extracta Station 4800","P"]]},{"n":"Amplio MasterMix qPCR 2x MDx","s":"01.000739","t":"MasterMix / Reagente","p":0,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"Amplio MasterMix qPCR 2x MDx (No UDG)","s":"01.000882","t":"MasterMix / Reagente","p":0,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"Amplio MasterMix qPCR 2x MDx UltraFast","s":"01.000884","t":"MasterMix / Reagente","p":0,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"Amplio MasterMix RT-qPCR 2x MDx UltraFast","s":"01.000887","t":"MasterMix / Reagente","p":0,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"Amplio MasterMix RT-qPCR 4x MDx Fast","s":"01.000791","t":"MasterMix / Reagente","p":0,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Prep","P"],["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"Kit de amplificação","s":"","t":"Kit de extração","p":1,"e":[["Amplio Rx (LifeReal)","P"],["Extracta Prep","N"],["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"Placa PCR 384 saia COMPL. Branca ABI","s":"01.001419","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Placa PCR 384 saia COMPL. Branca ROCHE","s":"01.001421","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Placa PCR 384 saia COMPL. Preta ABI","s":"01.001409","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Placa PCR 384 saia COMPL. Preta ROCHE","s":"01.000725","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Placa PCR 384 saia COMPL. Transparente ABI","s":"01.001411","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Placa PCR 384 saia COMPL. Transparente ROCHE","s":"01.001407","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["FlexSeal","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Tip box 50ul","s":"01.001369","t":"Ponteira","p":0,"e":[["Librarian 100","E"],["Librarian 120","E"],["Librarian 240_340","E"],["Extracta Prep","E"]]},{"n":"FluorQuant Kit - BR dsDNA","s":"01.000172","t":"Kit de extração","p":0,"e":[["Librarian 120","P"],["Librarian 240_340","P"],["FluorQuant","P"]]},{"n":"FluorQuant Kit - HS dsDNA","s":"01.000171","t":"Kit de extração","p":0,"e":[["Librarian 120","P"],["Librarian 240_340","P"],["FluorQuant","P"]]},{"n":"Kit para biblioteca NGS","s":"","t":"Kit de extração","p":1,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","N"]]},{"n":"Librarian Beads – NGS Clean-Up e Size Selection (100ML)","s":"01.001219","t":"MasterMix / Reagente","p":0,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"]]},{"n":"Librarian Beads – NGS Clean-Up e Size Selection (5ML)","s":"01.001211","t":"MasterMix / Reagente","p":0,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"]]},{"n":"Librarian Beads – NGS Clean-Up e Size Selection (60ML)","s":"01.001218","t":"MasterMix / Reagente","p":0,"e":[["Librarian 100","P"],["Librarian 120","P"],["Librarian 240_340","P"]]},{"n":"Placa ELISA branca","s":"01.001377","t":"Placa","p":0,"e":[["Extracta Assist","P"],["Liquo","P"],["Puncher","P"]]},{"n":"Placa ELISA fundo PLANO","s":"","t":"Placa","p":1,"e":[["Extracta Assist","P"],["LMR Multimodal","N"],["Puncher","P"]]},{"n":"Placa ELISA fundo U","s":"","t":"Placa","p":1,"e":[["Extracta Assist","P"],["LMR Multimodal","N"],["Puncher","P"]]},{"n":"Placa ELISA fundo V","s":"","t":"Placa","p":1,"e":[["Extracta Assist","P"],["LMR Multimodal","N"],["Puncher","P"]]},{"n":"Placa ELISA preta","s":"01.000983","t":"Placa","p":0,"e":[["Extracta Assist","P"],["Liquo","P"],["Puncher","P"]]},{"n":"Placa PCR 0,1mL MEIA saia","s":"01.000732","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["Liquo","P"],["Puncher","P"]]},{"n":"Placa PCR 384 saia COMPL. poços quadrados 120uL","s":"01.000731","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"Placa PCR 384 saia COMPL. poços quadrados 240uL","s":"01.000729","t":"Placa PCR","p":0,"e":[["Extracta Assist","P"],["Extracta Prep","P"],["Liquo","P"]]},{"n":"(sem cadastro ainda)","s":"","t":"Tip comb / tira","p":1,"e":[["Librarian 100","E"],["Librarian 120","E"]]},{"n":"Reservatório para reangentes 60mL","s":"04.002586","t":"Reservatório","p":0,"e":[["Librarian 100","E"],["Librarian 120","E"]]},{"n":"Tip box 20ul","s":"01.001370","t":"Ponteira","p":0,"e":[["Extracta Assist","E"],["Extracta Prep","E"]]},{"n":"Tira de 8 tubos PCR 0,2mL","s":"","t":"Tip comb / tira","p":1,"e":[["Extracta Station 4800","P"],["Amplio16","P"]]},{"n":"6/12/24/48/384/1536-well","s":"","t":"Placa deepwell","p":1,"e":[["Liquo","P"]]},{"n":"Azul de tripan","s":"","t":"MasterMix / Reagente","p":1,"e":[["PixCell","E"]]},{"n":"Cartucho 2mL / Cartucho 8mL / Cartucho 15mL","s":"","t":"Cartucho","p":1,"e":[["Extracta Station 1600","E"]]},{"n":"Cartão FTA","s":"","t":"Tampa","p":1,"e":[["Puncher","P"]]},{"n":"Deepwell 0,5mL","s":"","t":"Placa deepwell","p":1,"e":[["FlexSeal","P"]]},{"n":"Deepwell 2,2mL U (auto)","s":"","t":"Placa deepwell","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Extracta Kit PU16","s":"","t":"Kit de extração","p":1,"e":[["Extracta Station 4800","E"]]},{"n":"Filme de alumínio em rolo 78mm x 110m","s":"01.001397","t":"Filme de vedação","p":0,"e":[["FlexSeal","E"]]},{"n":"Filme de alumínio em rolo 78mm x 210m","s":"01.001398","t":"Filme de vedação","p":0,"e":[["FlexSeal","E"]]},{"n":"Filme de alumínio em rolo 78mm x 220m","s":"01.001399","t":"Filme de vedação","p":0,"e":[["FlexSeal","E"]]},{"n":"Filme de alumínio em rolo 78mm x 250m","s":"01.001400","t":"Filme de vedação","p":0,"e":[["FlexSeal","E"]]},{"n":"Filme de alumínio em rolo 78mm x 80m","s":"01.001396","t":"Filme de vedação","p":0,"e":[["FlexSeal","E"]]},{"n":"L-Film","s":"01.000745","t":"Outro","p":0,"e":[["Amplio Rx (LifeReal)","P"]]},{"n":"Lâmina descartável","s":"01.000961","t":"Lâmina","p":0,"e":[["PixCell","E"]]},{"n":"Placa para eluição","s":"","t":"Placa","p":1,"e":[["Extracta 768","E"]]},{"n":"Placa PCR 0,1mL SEM saia","s":"","t":"Placa PCR","p":1,"e":[["Amplio Rx (LifeReal)","P"]]},{"n":"Rack tips 1000uL","s":"14.000024","t":"Ponteira","p":0,"e":[["Extracta Station 4800","E"]]},{"n":"Rack tips 200uL","s":"14.001685","t":"Ponteira","p":0,"e":[["Extracta Station 4800","E"]]},{"n":"Rack tips 50uL","s":"14.001688","t":"Ponteira","p":0,"e":[["Extracta Station 4800","E"]]},{"n":"RESERVATÓRIO 300ML - FUNDO V (96 calhas)","s":"01.001404","t":"Reservatório","p":0,"e":[["Extracta Assist","P"]]},{"n":"Reservatório para reangentes 100mL","s":"04.002585","t":"Reservatório","p":0,"e":[["Extracta Station 4800","E"]]},{"n":"Reservatório para reangentes 120mL","s":"04.002584","t":"Reservatório","p":0,"e":[["Librarian 240_340","E"]]},{"n":"Ponteira 1000ul (Extracta Assist 1000)","s":"01.001368","t":"Ponteira","p":0,"e":[["Extracta Assist","E"]]},{"n":"Tampa de vedação (Station 1600)","s":"","t":"Cartucho","p":1,"e":[["Extracta Station 1600","E"]]},{"n":"Tampa para tira de PCR","s":"","t":"Tip comb / tira","p":1,"e":[["Amplio16","P"]]},{"n":"Tampas PCR automação","s":"","t":"Tip comb / tira","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Tip rack 1000ul","s":"","t":"Ponteira","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Tip rack 200ul","s":"","t":"Ponteira","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Tip rack 50ul","s":"","t":"Ponteira","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Tira de encapsulamento magnético 96","s":"01.000880","t":"Ponteira","p":0,"e":[["Extracta 768","E"]]},{"n":"Tiras automação","s":"","t":"Tip comb / tira","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Tiras PCR8-0,2","s":"","t":"Tip comb / tira","p":1,"e":[["Amplio Station 6400","E"]]},{"n":"Tubo 10mL","s":"","t":"Tubo","p":1,"e":[["Amplio Station 6400","P"]]},{"n":"Tubo 5mL","s":"","t":"Tubo","p":1,"e":[["Amplio Station 6400","P"]]},{"n":"Tubo de sangue 5mL","s":"","t":"Tubo","p":1,"e":[["Amplio Station 6400","P"]]},{"n":"Tubo PCR 0,2mL","s":"","t":"MasterMix / Reagente","p":1,"e":[["Amplio16","P"]]}];
+
+const FORN={E:"exclusivo Loccus",P:"pode fornecer",N:"não fornecido",Q:"não informado"};
+const FKEY={E:"E",P:"P",N:"N","?":"Q"};
+let view="cons", selEq="";
+DATA.forEach((c,i)=>c.i=i);
+const esc=s=>{const d=document.createElement("div");d.textContent=s==null?"":s;return d.innerHTML;};
+const $=id=>document.getElementById(id);
+function eqIndex(){const m={};DATA.forEach(c=>c.e.forEach(([eq,f])=>{(m[eq]=m[eq]||[]).push([c.i,f]);}));return m;}
+const TYPES=[...new Set(DATA.map(c=>c.t))].sort();
+
+$("f-tipo").innerHTML='<option value="">Tipo: todos</option>'+TYPES.map(t=>`<option>${esc(t)}</option>`).join("");
+$("n-tipo").innerHTML=TYPES.map(t=>`<option>${esc(t)}</option>`).join("");
+function refreshEqSelect(){const m=eqIndex();const names=Object.keys(m).sort();if(!selEq)selEq=names[0];$("f-eq").innerHTML=names.map(e=>`<option ${e===selEq?"selected":""}>${esc(e)} (${m[e].length})</option>`.replace(/ \(\d+\)(?=<\/option>)/,x=>x)).join("");}
+
+function fbadge(f){const k=FKEY[f]||"Q";return `<span class="forn-b forn-${k}">${FORN[k]}</span>`;}
+function pchip(){return `<span class="eq-chip" style="background:rgba(245,158,11,.14);color:#fbbf24">sem SKU</span>`;}
+
+function setView(v){view=v;$("seg-cons").classList.toggle("on",v==="cons");$("seg-eq").classList.toggle("on",v==="eq");
+  $("wrap-busca").style.display=v==="cons"?"":"none";$("f-tipo").style.display=v==="cons"?"":"none";$("lbl-pend").style.display=v==="cons"?"flex":"none";
+  $("f-eq").style.display=v==="eq"?"":"none";$("grid").style.display=v==="cons"?"grid":"none";$("eqview").style.display=v==="eq"?"block":"none";
+  if(v==="eq")refreshEqSelect();render();}
+
+function render(){
+  if(view==="cons"){
+    const q=$("busca").value.trim().toLowerCase(),tf=$("f-tipo").value,pd=$("f-pend").checked;
+    const rows=DATA.filter(c=>(!tf||c.t===tf)&&(!pd||c.p)&&(!q||c.n.toLowerCase().includes(q)||(c.s||"").toLowerCase().includes(q)));
+    $("cons-badge").textContent=rows.length+" itens";
+    $("grid").innerHTML=rows.map(c=>`<div class="cons-card ${c.p?'pend':''}" onclick="abrirView(${c.i})">
+      <div class="cons-topline"><span class="eq-chip">${esc(c.t)}</span>${c.p?pchip():""}</div>
+      <div class="cons-card-name">${esc(c.n)}</div>
+      <div class="cons-card-sku">${c.s?esc(c.s):'<span class="muted">sem SKU</span>'}</div>
+      <div class="cons-card-foot">🔗 ${c.e.length} equipamento${c.e.length>1?'s':''} compatíve${c.e.length>1?'is':'l'}</div>
+    </div>`).join("")||'<div style="grid-column:1/-1;text-align:center;color:var(--t4);padding:32px">Nada encontrado</div>';
+  }else{
+    selEq=($("f-eq").value||"").replace(/ \(\d+\)$/,"");
+    const m=eqIndex();const list=(m[selEq]||[]).slice().sort((a,b)=>DATA[a[0]].n.localeCompare(DATA[b[0]].n));
+    $("cons-badge").textContent=list.length+" consumíveis";
+    $("eqview").innerHTML=`<div style="padding:4px 2px 12px;margin-bottom:6px;border-bottom:1px solid var(--border-soft)">
+      <div style="font-size:16px;font-weight:700;color:var(--t1)">${esc(selEq)}</div>
+      <div style="font-size:12px;color:var(--t3);margin-top:2px">Consumíveis compatíveis (a mesma tabela de vínculo, lida pelo lado do equipamento)</div></div>`+
+      list.map(([i,f])=>{const c=DATA[i];return `<div class="eqrow" onclick="abrirView(${i})" style="cursor:pointer">
+        <div><div class="eqrow-name">${esc(c.n)}</div><div class="cons-card-sku">${esc(c.t)}${c.s?' · '+esc(c.s):' · sem SKU'}</div></div>
+        ${fbadge(f)}</div>`;}).join("");
+  }
+}
+
+// helpers do read-view (mesmos do módulo Equipamentos)
+function vfield(label,v,wide){const has=v&&String(v).trim();return `<div class="vw-field${wide?' wide':''}"><span class="vw-flabel">${label}</span><span class="vw-fval${has?'':' empty'}">${has?esc(v):"—"}</span></div>`;}
+function vsection(title,inner,count){return `<div class="vw-sec"><div class="vw-sec-title">${title}${count!=null?`<span class="vw-sec-count">${count}</span>`:""}</div>${inner}</div>`;}
+function vfields(items){return `<div class="vw-fields">${items.join("")}</div>`;}
+function vchip(txt,cls){return `<span class="vw-chip${cls?" "+cls:""}">${esc(txt)}</span>`;}
+
+// especificações do consumível — planilha não traz os campos físicos; inferimos
+// valores plausíveis por tipo/nome só para o protótipo (ilustrativo).
+function especs(c){
+  const n=(c.n||"").toLowerCase(),t=c.t;
+  const loccus=/^(01|04|14)\./.test(c.s||"")||c.e.some(x=>x[1]==="E");
+  const o={fab:c.fab||(loccus?"Loccus":""),si:c.si||"",d:c.d||"",mat:c.mat||"",est:c.est||"",poc:c.poc||"",dim:c.dim||""};
+  const isPlaca=t==="Placa PCR"||t==="Placa"||t==="Placa deepwell";
+  if(!o.mat){ if(t==="Ponteira"||isPlaca||t==="Tubo"||t==="Tampa") o.mat="Polipropileno (PP)"; else if(t==="Filme de vedação") o.mat="Alumínio"; else if(t==="Lâmina") o.mat="Acrílico óptico"; }
+  if(!o.poc&&isPlaca) o.poc=/1536/.test(n)?"1536":/384/.test(n)?"384":"96";
+  if(!o.dim&&isPlaca) o.dim="127,76 × 85,48 mm (padrão SBS)";
+  if(!o.est){ if(t==="Ponteira") o.est="Estéril · livre de DNase/RNase"; else if(t==="Placa PCR"||t==="Placa deepwell") o.est="Livre de DNase/RNase"; }
+  if(!o.d){ const dd={"Ponteira":"Ponteira para pipetagem automatizada","Placa PCR":"Placa para reação de PCR/qPCR","Placa deepwell":"Placa de poços profundos para extração","Placa":"Placa para ensaio/leitura","Filme de vedação":"Filme de vedação térmica para placas","MasterMix / Reagente":"Reagente / master mix para amplificação","Kit de extração":"Kit de extração de ácidos nucleicos","Lâmina":"Lâmina descartável para leitura","Reservatório":"Reservatório de reagentes","Cartucho":"Cartucho de extração","Tampa":"Tampa / vedação","Tubo":"Tubo para amostra/reagente","Tip comb / tira":"Tira de encapsulamento / tip comb"}; o.d=dd[t]||""; }
+  return o;
+}
+
+function vPanel(k,c){
+  const x=especs(c);
+  if(k==="geral") return `<div class="vw-body">${vsection("Identificação e cadastro", vfields([
+      vfield("Fabricante",x.fab),
+      vfield("SKU de venda",c.s),
+      vfield("SKU de importação",x.si),
+      vfield("Tipo",c.t),
+      vfield("Esterilidade",x.est),
+      vfield("Situação",c.p?"Pendente de cadastro (sem SKU)":"Cadastrado"),
+      vfield("Descrição",x.d,true),
+  ]))}</div>`;
+  if(k==="espec") return `<div class="vw-body">${vsection("Especificações físicas", vfields([
+      vfield("Material",x.mat),
+      vfield("Poços",x.poc),
+      vfield("Dimensões",x.dim,true),
+  ]))}<p class="vw-empty">Campos físicos preenchidos por tipo neste protótipo — no app viriam do cadastro/planilha.</p></div>`;
+  const eqs=c.e.slice().sort((a,b)=>a[0].localeCompare(b[0]));
+  const jaTem=new Set(c.e.map(z=>z[0]));
+  const todos=[...new Set(DATA.flatMap(z=>z.e.map(y=>y[0])))].sort().filter(e=>!jaTem.has(e));
+  return `<div class="vw-body">${vsection("Compatível com",
+    `<table class="vw-itbl"><thead><tr><th>Equipamento</th><th style="width:150px">Fornecimento</th></tr></thead><tbody>${eqs.map(([eq,f])=>`<tr><td>${esc(eq)}</td><td>${fbadge(f)}</td></tr>`).join("")}</tbody></table>
+     <div class="link-add"><select class="filter-sel" id="add-eq" style="flex:1">${todos.map(e=>`<option>${esc(e)}</option>`).join("")||'<option value="">— todos já vinculados —</option>'}</select>
+     <select class="filter-sel" id="add-forn"><option value="E">exclusivo Loccus</option><option value="P" selected>pode fornecer</option><option value="N">não fornecido</option></select>
+     <button class="btn btn-primary btn-sm" onclick="vincular(${c.i})">+ vincular</button></div>`, eqs.length)}</div>`;
+}
+
+let curCons=null,vTab="geral";
+function abrirView(i,keepTab){
+  curCons=i; if(!keepTab) vTab="geral"; const c=DATA[i]; const x=especs(c);
+  const chips=[vchip(c.t,"cat")]; if(c.s) chips.push(vchip("SKU "+c.s,"mono")); if(x.mat) chips.push(vchip(x.mat));
+  chips.push(c.p?vchip("pendente de cadastro","warn"):vchip("cadastrado","ok"));
+  $("view-hero").innerHTML=`<div class="vw-hero"><div class="vw-hero-main"><div class="vw-name">${esc(c.n)}</div><div class="vw-chips">${chips.join("")}</div></div></div>`;
+  const tabs=[["geral","Geral"],["espec","Especificações"],["compat","Compatibilidade ("+c.e.length+")"]];
+  $("view-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===vTab?'active':''}" onclick="switchVTab('${k}')">${esc(l)}</button>`).join("");
+  $("view-panels").innerHTML=vPanel(vTab,c);
+  abrir("view");
+}
+function switchVTab(k){vTab=k;const c=DATA[curCons];
+  document.querySelectorAll("#view-tabs .equip-modal-tab").forEach(b=>b.classList.toggle("active",(b.getAttribute("onclick")||"").includes("'"+k+"'")));
+  $("view-panels").innerHTML=vPanel(k,c);}
+function vincular(i){const eq=$("add-eq").value;if(!eq)return;const f=$("add-forn").value;DATA[i].e.push([eq,f]);toast("Equipamento vinculado: "+eq);vTab="compat";abrirView(i,true);render();}
+
+function abrirNovo(){$("n-nome").value="";$("n-sku").value="";$("n-spec").value="";abrir("novo");}
+function salvarNovo(){const nome=$("n-nome").value.trim();if(!nome){toast("Informe o nome",true);return;}
+  const sku=$("n-sku").value.trim();DATA.unshift({n:nome,s:sku,t:$("n-tipo").value,p:sku?0:1,e:[],i:-1});DATA.forEach((c,k)=>c.i=k);
+  fechar("novo");setView("cons");toast("Consumível cadastrado (vá na ficha para vincular equipamentos)");}
+
+function mockAcao(txt){toast('Protótipo: "'+txt+'" ligaria à API real');}
+function abrir(id){const m=$("modal-"+id);m.classList.add("open");m.setAttribute("aria-hidden","false");}
+function fechar(id){const m=$("modal-"+id);m.classList.remove("open");m.setAttribute("aria-hidden","true");}
+let toastT;function toast(msg,err){const t=$("toast");t.textContent=msg;t.style.display="block";t.style.borderColor=err?"var(--red)":"var(--border-mid)";clearTimeout(toastT);toastT=setTimeout(()=>t.style.display="none",2600);}
+function toggleTheme(){document.body.classList.toggle("theme-light");}
+document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)m.classList.remove("open");}));
+render();
+</script>
+</body>
+</html>

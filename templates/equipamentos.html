@@ -42,11 +42,19 @@
       <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M9 9h6v6H9z" stroke="currentColor" stroke-width="1.5"/></svg>
       Todos os equipamentos
     </button>
+    <button type="button" class="nav-item" data-page="consumiveis">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="18" cy="17" r="3" stroke="currentColor" stroke-width="1.6"/></svg>
+      Consumíveis
+    </button>
 
     <span class="nav-section-label">Configuração</span>
     <button type="button" class="nav-item" data-page="cat">
       <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       Categorias
+    </button>
+    <button type="button" class="nav-item" data-page="tipos-cons">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Tipos de consumível
     </button>
 
     <div class="sidebar-footer">
@@ -144,6 +152,49 @@
         </div>
       </div>
 
+      <!-- CONSUMÍVEIS -->
+      <div class="page" id="page-consumiveis">
+        <div class="page-header">
+          <div><div class="page-title">Consumíveis</div><div class="page-sub">Catálogo global — cada consumível listado uma vez, com os equipamentos compatíveis</div></div>
+          <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+            <span class="filter-count" id="cons-badge">—</span>
+            <button class="btn btn-ghost btn-sm" onclick="exportarConsCSV()">Exportar CSV</button>
+            <button class="btn btn-ghost btn-sm" id="btn-cons-import" onclick="abrirConsImport()" style="display:none">Importar descritivo</button>
+            <button class="btn btn-primary btn-sm" id="btn-cons-novo" onclick="abrirConsNovo()" style="display:none">+ Novo consumível</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="equip-toolbar">
+            <div class="filter-bar" style="margin:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <div class="cons-seg">
+                <button id="cseg-cons" class="on" onclick="consSetView('cons')">Por consumível</button>
+                <button id="cseg-eq" onclick="consSetView('eq')">Por equipamento</button>
+              </div>
+              <div class="search-wrap" id="cons-wrap-busca">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input class="search-input" id="cons-busca" placeholder="Buscar nome ou SKU..." oninput="renderConsGrid()">
+              </div>
+              <select class="filter-sel" id="cons-f-tipo" onchange="renderConsGrid()"><option value="">Tipo: todos</option></select>
+              <select class="filter-sel" id="cons-f-eq" onchange="renderConsGrid()" style="display:none;min-width:220px"></select>
+              <label class="filter-count" id="cons-lbl-pend" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="cons-f-pend" onchange="renderConsGrid()"> só sem SKU</label>
+            </div>
+          </div>
+          <div class="equip-grid" id="cons-grid" style="grid-template-columns:repeat(auto-fill,minmax(215px,1fr))"></div>
+          <div id="cons-eqview"></div>
+        </div>
+      </div>
+
+      <!-- TIPOS DE CONSUMÍVEL -->
+      <div class="page" id="page-tipos-cons">
+        <div class="page-header">
+          <div><div class="page-title">Tipos de consumível</div><div class="page-sub">O modelo de campos de cada tipo — a base do descritivo importável/exportável</div></div>
+        </div>
+        <div class="card">
+          <div id="tipos-cons-list"></div>
+          <div class="eq-addline" id="tipos-cons-add" style="display:none"><input class="form-input" id="tipo-cons-new" placeholder="Novo tipo de consumível…"><button class="btn btn-primary btn-sm" onclick="addTipoCons()">+</button></div>
+        </div>
+      </div>
+
     </main>
   </div>
 </div>
@@ -198,7 +249,68 @@
   </div>
 </div>
 
+<!-- MODAL: ficha do consumível (leitura + abas) -->
+<div class="modal-overlay" id="modal-consview" role="dialog" aria-modal="true" aria-label="Ficha do consumível" aria-hidden="true">
+  <div class="modal" style="width:720px;max-width:96vw">
+    <div id="consview-hero"></div>
+    <div class="equip-modal-tabs" id="consview-tabs" role="tablist"></div>
+    <div id="consview-panels"></div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="copiarConsFicha()" type="button">📋 Copiar</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportarDescritivo()" type="button">⬇ Exportar descritivo</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-ghost" onclick="closeModal('consview')">Fechar</button>
+        <button class="btn btn-primary" id="consview-edit" onclick="consViewEdit()" style="display:none">Editar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: novo/editar consumível -->
+<div class="modal-overlay" id="modal-consedit" role="dialog" aria-modal="true" aria-label="Consumível" aria-hidden="true">
+  <div class="modal" style="width:600px;max-width:96vw">
+    <div class="modal-title" id="consedit-title">Novo consumível</div>
+    <div class="modal-sub">Cadastro manual — os campos técnicos por tipo aparecem abaixo</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Nome</label><input class="form-input" id="ce-nome" placeholder="Ex.: Tip box 200ul"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">SKU de venda</label><input class="form-input" id="ce-sku" placeholder="01.000000"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">SKU de importação</label><input class="form-input" id="ce-sku_importacao" placeholder="—"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Tipo</label><select class="form-input" id="ce-tipo_id" onchange="consEditCamposDoTipo()"></select></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Fabricante</label><input class="form-input" id="ce-fabricante" placeholder="Ex.: Loccus"></div>
+      <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Descrição</label><textarea class="form-input" id="ce-descricao" rows="2"></textarea></div>
+    </div>
+    <div id="ce-campos" style="margin-top:14px"></div>
+    <div class="modal-footer" style="justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('consedit')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarConsumivel()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: importar descritivo -->
+<div class="modal-overlay" id="modal-consimport" role="dialog" aria-modal="true" aria-label="Importar descritivo" aria-hidden="true">
+  <div class="modal" style="width:640px;max-width:96vw">
+    <div class="modal-title">Importar descritivo</div>
+    <div class="modal-sub">Cole o JSON (um consumível ou uma lista). Veja a prévia antes de aplicar.</div>
+    <div class="form-group">
+      <label class="form-label">Descritivo (JSON)</label>
+      <textarea class="form-input" id="consimport-json" rows="8" style="font-family:var(--font-mono);font-size:12px" placeholder='{ "tipo": "Placa PCR", "nome": "...", "sku": "01.000000", "atributos": { "pocos": 96 }, "compatibilidade": [ { "equipamento": "Extracta Assist", "fornecimento": "pode_fornecer" } ] }'></textarea>
+    </div>
+    <div id="consimport-preview" class="muted" style="font-size:13px;margin:8px 0">—</div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('consimport')">Cancelar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="rodarConsImport(true)">Pré-visualizar</button>
+        <button class="btn btn-primary" id="btn-consimport-aplicar" onclick="rodarConsImport(false)" style="display:none">Aplicar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" style="display:none"></div>
 <script src="/static/equipamentos.js?v={{ asset_v }}"></script>
+<script src="/static/consumiveis.js?v={{ asset_v }}"></script>
 </body>
 </html>

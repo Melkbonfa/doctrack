@@ -84,6 +84,7 @@ app.config["JWT_QUERY_STRING_NAME"]          = "token"
 from models import (
     db, bcrypt, User, Documento, Equipamento, AuditLog, RevokedToken, Responsavel,
     CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
+    Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, SETOR_DO_TIPO, TIPOS_DOC_LABELS
 )
@@ -857,6 +858,349 @@ def edit_equip_item(item_id):
     db.session.commit()
     return jsonify(item.to_dict()), 200
 
+# ── API — CONSUMÍVEIS (catálogo + compatibilidade N:N + descritivo) ──────────
+import re as _re_cons
+_CONS_SKU_RE = _re_cons.compile(r"^\s*0*(\d+)\.(\d+)\s*$")
+
+def _cons_norm_sku(sku):
+    """SKU 'NN.NNNNNN' normalizado (ignora zeros à esquerda). Não-padrão → None."""
+    m = _CONS_SKU_RE.match(sku or "")
+    return f"{m.group(1)}.{m.group(2)}" if m else None
+
+def _cons_por_sku(sku):
+    """Consumível ativo cujo SKU normalizado casa (dedup por SKU de Venda)."""
+    k = _cons_norm_sku(sku)
+    if not k:
+        return None
+    for c in Consumivel.query.filter(Consumivel.ativo == True, Consumivel.sku != "").all():
+        if _cons_norm_sku(c.sku) == k:
+            return c
+    return None
+
+def _tipo_id_por_nome(nome):
+    if not nome:
+        return None
+    t = TipoConsumivel.query.filter(db.func.lower(TipoConsumivel.nome) == nome.strip().lower()).first()
+    return t.id if t else None
+
+@app.route("/api/tipos-consumivel", methods=["GET"])
+@jwt_required()
+def list_tipos_consumivel():
+    tipos = TipoConsumivel.query.filter_by(ativo=True).order_by(TipoConsumivel.ordem, TipoConsumivel.nome).all()
+    return jsonify([{**t.to_dict(),
+                     "uso": Consumivel.query.filter_by(tipo_id=t.id, ativo=True).count()}
+                    for t in tipos]), 200
+
+@app.route("/api/tipos-consumivel", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_tipo_consumivel():
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Informe o nome"}), 400
+    campos = data.get("campos")
+    t = TipoConsumivel(nome=nome, campos=json.dumps(campos if isinstance(campos, list) else [], ensure_ascii=False))
+    db.session.add(t); db.session.commit()
+    return jsonify(t.to_dict()), 201
+
+@app.route("/api/tipos-consumivel/<int:tid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_tipo_consumivel(tid):
+    t = TipoConsumivel.query.get(tid)
+    if not t:
+        return jsonify({"erro": "Tipo não encontrado"}), 404
+    if request.method == "DELETE":
+        Consumivel.query.filter(Consumivel.tipo_id == tid).update(
+            {Consumivel.tipo_id: None}, synchronize_session=False)
+        db.session.delete(t); db.session.commit()
+        return jsonify({"mensagem": "Tipo excluído"}), 200
+    data = request.get_json(silent=True) or {}
+    if "nome" in data:
+        nome = (data.get("nome") or "").strip()
+        if nome:
+            t.nome = nome
+    if "campos" in data and isinstance(data["campos"], list):
+        t.campos = json.dumps(data["campos"], ensure_ascii=False)
+    db.session.commit()
+    return jsonify(t.to_dict()), 200
+
+def _aplicar_campos_consumivel(c, data):
+    if "nome" in data:
+        c.nome = (data.get("nome") or "").strip()
+    for campo in ("sku", "sku_importacao", "fabricante", "descricao", "status"):
+        if campo in data:
+            setattr(c, campo, (data.get(campo) or "").strip())
+    if "tipo_id" in data:
+        c.tipo_id = data.get("tipo_id") or None
+    if "atributos" in data and isinstance(data["atributos"], dict):
+        c.atributos = json.dumps(data["atributos"], ensure_ascii=False)
+    c.pendente_sku = not bool((c.sku or "").strip())   # derivado: sem SKU → pendente
+
+@app.route("/api/consumiveis", methods=["GET"])
+@jwt_required()
+def list_consumiveis():
+    q = Consumivel.query.filter_by(ativo=True).order_by(Consumivel.nome).all()
+    return jsonify([c.to_dict() for c in q]), 200
+
+@app.route("/api/consumiveis/<int:cid>", methods=["GET"])
+@jwt_required()
+def get_consumivel(cid):
+    c = Consumivel.query.filter_by(id=cid, ativo=True).first()
+    if not c:
+        return jsonify({"erro": "Consumível não encontrado"}), 404
+    return jsonify(c.to_dict(com_equip=True)), 200
+
+@app.route("/api/consumiveis", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def create_consumivel():
+    caller = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Informe o nome do consumível"}), 400
+    c = Consumivel(nome=nome)
+    _aplicar_campos_consumivel(c, data)
+    db.session.add(c); db.session.commit()
+    log_action(caller, "CREATE", entidade=f"Consumível: {c.nome}", ip=get_client_ip())
+    return jsonify(c.to_dict()), 201
+
+@app.route("/api/consumiveis/<int:cid>", methods=["PATCH", "PUT"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def update_consumivel(cid):
+    caller = get_jwt_identity()
+    c = Consumivel.query.filter_by(id=cid, ativo=True).first()
+    if not c:
+        return jsonify({"erro": "Consumível não encontrado"}), 404
+    _aplicar_campos_consumivel(c, request.get_json(silent=True) or {})
+    db.session.commit()
+    log_action(caller, "UPDATE", entidade=f"Consumível: {c.nome}", ip=get_client_ip())
+    return jsonify(c.to_dict(com_equip=True)), 200
+
+@app.route("/api/consumiveis/<int:cid>", methods=["DELETE"])
+@jwt_required()
+@require_role("admin", "gestor")
+def delete_consumivel(cid):
+    caller = get_jwt_identity()
+    c = Consumivel.query.filter_by(id=cid, ativo=True).first()
+    if not c:
+        return jsonify({"erro": "Consumível não encontrado"}), 404
+    c.ativo = False; db.session.commit()
+    log_action(caller, "DELETE", entidade=f"Consumível: {c.nome}", ip=get_client_ip())
+    return jsonify({"mensagem": "Consumível excluído"}), 200
+
+def _upsert_vinculo(cid, equipamento_id, fornecimento="nao_informado", obrigatorio=False, observacao=""):
+    v = ConsumivelEquipamento.query.filter_by(consumivel_id=cid, equipamento_id=equipamento_id).first()
+    if v:
+        v.ativo = True
+        if fornecimento:
+            v.fornecimento = fornecimento
+        v.obrigatorio = bool(obrigatorio)
+        if observacao:
+            v.observacao = observacao
+    else:
+        v = ConsumivelEquipamento(consumivel_id=cid, equipamento_id=equipamento_id,
+                                  fornecimento=fornecimento or "nao_informado",
+                                  obrigatorio=bool(obrigatorio), observacao=observacao or "")
+        db.session.add(v)
+    return v
+
+@app.route("/api/consumiveis/<int:cid>/equipamentos", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def add_vinculo_consumivel(cid):
+    c = Consumivel.query.filter_by(id=cid, ativo=True).first()
+    if not c:
+        return jsonify({"erro": "Consumível não encontrado"}), 404
+    data = request.get_json(silent=True) or {}
+    eid = data.get("equipamento_id")
+    if not eid or not Equipamento.query.filter_by(id=eid, ativo=True).first():
+        return jsonify({"erro": "Equipamento inválido"}), 400
+    forn = data.get("fornecimento") or "nao_informado"
+    if forn not in FORNECIMENTO:
+        forn = "nao_informado"
+    v = _upsert_vinculo(cid, int(eid), forn, data.get("obrigatorio", False),
+                        (data.get("observacao") or "").strip())
+    db.session.commit()
+    return jsonify(v.to_dict_equip()), 201
+
+@app.route("/api/consumivel-equipamento/<int:vid>", methods=["PATCH", "DELETE"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def edit_vinculo_consumivel(vid):
+    v = ConsumivelEquipamento.query.filter_by(id=vid).first()
+    if not v:
+        return jsonify({"erro": "Vínculo não encontrado"}), 404
+    if request.method == "DELETE":
+        v.ativo = False; db.session.commit()
+        return jsonify({"mensagem": "Vínculo removido"}), 200
+    data = request.get_json(silent=True) or {}
+    if data.get("fornecimento") in FORNECIMENTO:
+        v.fornecimento = data["fornecimento"]
+    if "obrigatorio" in data:
+        v.obrigatorio = bool(data["obrigatorio"])
+    if "observacao" in data:
+        v.observacao = (data.get("observacao") or "").strip()
+    db.session.commit()
+    return jsonify(v.to_dict_equip()), 200
+
+@app.route("/api/equipamentos/<int:equip_id>/consumiveis", methods=["GET"])
+@jwt_required()
+def list_consumiveis_do_equip(equip_id):
+    vinc = ConsumivelEquipamento.query.filter_by(equipamento_id=equip_id, ativo=True).all()
+    vinc = [v for v in vinc if v.consumivel and v.consumivel.ativo]
+    vinc.sort(key=lambda v: (v.consumivel.nome or "").lower())
+    return jsonify([v.to_dict_cons() for v in vinc]), 200
+
+# ── descritivo (import/export do "layout" portável, round-trip) ──────────────
+def _consumivel_descritivo(c):
+    return {
+        "tipo": (c.tipo_rel.nome if c.tipo_rel else ""),
+        "nome": c.nome or "", "sku": c.sku or "", "sku_importacao": c.sku_importacao or "",
+        "fabricante": c.fabricante or "", "descricao": c.descricao or "",
+        "atributos": c.atributos_dict(),
+        "compatibilidade": [
+            {"equipamento": v.equipamento.nome if v.equipamento else "",
+             "sku": v.equipamento.sku if v.equipamento else "",
+             "fornecimento": v.fornecimento or "nao_informado"}
+            for v in (c.vinculos or []) if v.ativo
+        ],
+    }
+
+@app.route("/api/consumiveis/<int:cid>/descritivo", methods=["GET"])
+@jwt_required()
+def export_descritivo(cid):
+    c = Consumivel.query.filter_by(id=cid, ativo=True).first()
+    if not c:
+        return jsonify({"erro": "Consumível não encontrado"}), 404
+    return jsonify(_consumivel_descritivo(c)), 200
+
+@app.route("/api/tipos-consumivel/<int:tid>/descritivo-modelo", methods=["GET"])
+@jwt_required()
+def export_descritivo_modelo(tid):
+    t = TipoConsumivel.query.get(tid)
+    if not t:
+        return jsonify({"erro": "Tipo não encontrado"}), 404
+    return jsonify({
+        "tipo": t.nome, "nome": "", "sku": "", "sku_importacao": "",
+        "fabricante": "", "descricao": "",
+        "atributos": {campo["chave"]: "" for campo in t.campos_list()},
+        "compatibilidade": [],
+    }), 200
+
+def _processar_descritivo(item, dryrun):
+    """Importa 1 descritivo (dict). Dedup por SKU; campos fora do modelo do tipo
+    entram como 'extras' em atributos (híbrido). Devolve resumo."""
+    nome = (item.get("nome") or "").strip()
+    sku = (item.get("sku") or "").strip()
+    if not nome and not sku:
+        return {"acao": "ignorado", "motivo": "sem nome e sem SKU"}
+    tipo_nome = (item.get("tipo") or "").strip()
+    tipo_id = _tipo_id_por_nome(tipo_nome)
+    campos_chaves = set()
+    if tipo_id:
+        t = TipoConsumivel.query.get(tipo_id)
+        campos_chaves = {c["chave"] for c in (t.campos_list() if t else [])}
+    atributos = item.get("atributos") if isinstance(item.get("atributos"), dict) else {}
+    extras = [k for k in atributos.keys() if k not in campos_chaves] if campos_chaves else list(atributos.keys())
+    compat = item.get("compatibilidade") if isinstance(item.get("compatibilidade"), list) else []
+
+    existente = _cons_por_sku(sku) if sku else None
+    resumo = {"acao": "atualizar" if existente else "criar",
+              "nome": nome or (existente.nome if existente else ""),
+              "sku": sku, "tipo": tipo_nome, "extras": extras, "vinculos": len(compat)}
+    if dryrun:
+        return resumo
+
+    c = existente or Consumivel(nome=nome)
+    if nome:
+        c.nome = nome
+    if sku:
+        c.sku = sku
+    for campo in ("sku_importacao", "fabricante", "descricao"):
+        if item.get(campo):
+            setattr(c, campo, str(item.get(campo)).strip())
+    if tipo_id:
+        c.tipo_id = tipo_id
+    if atributos:
+        merged = c.atributos_dict(); merged.update(atributos)
+        c.atributos = json.dumps(merged, ensure_ascii=False)
+    c.pendente_sku = not bool((c.sku or "").strip())
+    if not existente:
+        db.session.add(c)
+    db.session.flush()   # garante c.id para os vínculos
+
+    for link in compat:
+        eq_nome = (link.get("equipamento") or "").strip()
+        eq_sku = (link.get("sku") or "").strip()
+        forn = link.get("fornecimento") or "nao_informado"
+        if forn not in FORNECIMENTO:
+            forn = "nao_informado"
+        eq = None
+        if eq_sku:
+            eq = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.sku == eq_sku).first()
+        if not eq and eq_nome:
+            eq = Equipamento.query.filter(Equipamento.ativo == True,
+                                          db.func.lower(Equipamento.nome) == eq_nome.lower()).first()
+        if eq:
+            _upsert_vinculo(c.id, eq.id, forn)
+        else:
+            resumo.setdefault("equip_nao_encontrado", []).append(eq_nome or eq_sku)
+    return resumo
+
+@app.route("/api/consumiveis/descritivo/import", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def import_descritivo():
+    caller = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    dryrun = bool(data.get("dryrun", True))
+    payload = data.get("descritivo")
+    if isinstance(payload, dict):
+        itens = [payload]
+    elif isinstance(payload, list):
+        itens = payload
+    else:
+        return jsonify({"erro": "Envie 'descritivo' como objeto ou lista"}), 400
+    resultados = []
+    try:
+        for it in itens:
+            if isinstance(it, dict):
+                resultados.append(_processar_descritivo(it, dryrun))
+        if not dryrun:
+            db.session.commit()
+            log_action(caller, "UPDATE", entidade="Consumíveis (descritivo)",
+                       novo=f"{len(resultados)} item(ns)", ip=get_client_ip())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Falha ao importar: {e}"}), 400
+    return jsonify({
+        "aplicado": not dryrun, "total": len(resultados),
+        "a_criar": sum(1 for r in resultados if r.get("acao") == "criar"),
+        "a_atualizar": sum(1 for r in resultados if r.get("acao") == "atualizar"),
+        "itens": resultados,
+    }), 200
+
+@app.route("/api/consumiveis/export", methods=["GET"])
+@jwt_required()
+def export_consumiveis_csv():
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Nome", "SKU de Venda", "SKU de Importação", "Tipo", "Fabricante",
+                "Pendente SKU", "Nº equipamentos", "Equipamentos"])
+    for c in Consumivel.query.filter_by(ativo=True).order_by(Consumivel.nome).all():
+        eqs = "; ".join(f"{v.equipamento.nome} ({v.fornecimento})"
+                        for v in (c.vinculos or []) if v.ativo and v.equipamento)
+        w.writerow([c.nome, c.sku, c.sku_importacao, (c.tipo_rel.nome if c.tipo_rel else ""),
+                    c.fabricante, "sim" if c.pendente_sku else "não",
+                    len([v for v in (c.vinculos or []) if v.ativo]), eqs])
+    out.seek(0)
+    return send_file(io.BytesIO(out.getvalue().encode("utf-8-sig")),
+                     mimetype="text/csv", as_attachment=True, download_name="consumiveis.csv")
+
 @app.route("/api/documentos/<int:doc_id>", methods=["PATCH", "PUT"])
 @jwt_required()
 @require_role("admin", "gestor", "tecnico")
@@ -1583,10 +1927,28 @@ def _backfill_equipamentos():
         print(f"[INFO] Equipamentos: {novos_equip} criados; {novos_docs} documentos completados.")
 
 
+def _seed_tipos_consumivel():
+    """Semeia os tipos de consumível + o modelo de campos de cada um (só quando
+    a tabela está vazia). As tabelas de consumíveis são criadas por create_all().
+    Idempotente."""
+    import json as _json
+    if TipoConsumivel.query.count() > 0:
+        return
+    n = 0
+    for ordem, (nome, campos) in enumerate(TIPOS_CONSUMIVEL_SEED.items()):
+        db.session.add(TipoConsumivel(nome=nome, ordem=ordem,
+                                      campos=_json.dumps(campos, ensure_ascii=False)))
+        n += 1
+    db.session.commit()
+    if n:
+        print(f"[INFO] Consumíveis: {n} tipos semeados com modelo de campos")
+
+
 with app.app_context():
     try:
         db.create_all()
         _sync_schema()
+        _seed_tipos_consumivel()
         # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
         from sqlalchemy import text
         db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
