@@ -6,7 +6,7 @@ instalar Python, Node, GTK, nem ter privilégios de administrador no servidor.
 ## Gerar o pacote (na sua máquina de desenvolvimento)
 
 ```powershell
-.\build_exe.ps1
+.\scripts\build_exe.ps1
 ```
 
 Saída: **`dist\DocTrack\`** — uma pasta contendo:
@@ -48,7 +48,7 @@ Sem essa regra, o app funciona normalmente em `localhost` no próprio servidor.
 - Iniciar com o login do usuário: coloque um atalho do `DocTrack.exe` na pasta
   **Inicializar** (`shell:startup`) do Windows.
 - Se houver admin disponível e quiser que rode como serviço/independente de login,
-  use o script `setup_windows_server.ps1` (PM2) — porém exige Node.js + admin.
+  use o script `scripts/setup_windows_server.ps1` (PM2) — porém exige Node.js + admin.
 
 ## Observações
 

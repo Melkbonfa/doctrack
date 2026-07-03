@@ -40,7 +40,11 @@ _cors_origins = [
 CORS(app, origins=_cors_origins, supports_credentials=True)
 
 BASE_DIR   = ASSET_DIR                                   # assets de leitura (js/html da raiz, files/)
-EXCEL_PATH = os.path.join(RUN_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
+# Planilha legada de seed: procura em data/ (layout do repositório) e na raiz
+# (layout do .exe empacotado, onde fica ao lado do executável).
+EXCEL_PATH = os.path.join(RUN_DIR, "data", "Lista_de_Documentos_IT_padronizada_1.xlsx")
+if not os.path.exists(EXCEL_PATH):
+    EXCEL_PATH = os.path.join(RUN_DIR, "Lista_de_Documentos_IT_padronizada_1.xlsx")
 DB_PATH    = os.path.join(RUN_DIR, "doctrack.db")
 
 # Versão da aplicação (lida do arquivo VERSION na raiz). Exposta em /api/version.

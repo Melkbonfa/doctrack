@@ -12,9 +12,10 @@ import pytest
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-32-chars-long")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:5000")
 
-# Adicionar raiz ao path
+# Adicionar raiz e scripts/ ao path (importar_entregaveis mora em scripts/)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(1, os.path.join(ROOT, "scripts"))
 
 
 @pytest.fixture
