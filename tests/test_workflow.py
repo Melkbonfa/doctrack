@@ -59,4 +59,6 @@ def test_patch_documento_campos_str(client, admin_token, auth_headers):
     assert res.status_code == 200
     data = res.get_json()["documento"]
     assert data["documento"] == "Manual Siemens v2"
-    assert data["sku"] == "SKU-B-NEW"
+    # SKU é identidade imutável pelo documento (canônica no Equipamento): o valor
+    # enviado no PATCH é ignorado, o SKU original permanece.
+    assert data["sku"] == "SKU-B"
