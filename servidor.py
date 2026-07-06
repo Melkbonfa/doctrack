@@ -1,7 +1,8 @@
 """
 servidor.py — DocTrack v4.0 Enterprise Backend
 """
-import os, sys, json, argparse, unicodedata, io, csv
+import os, sys, json, argparse, unicodedata, io, csv, zipfile
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, send_file
@@ -1195,6 +1196,90 @@ def import_descritivo():
         "a_atualizar": sum(1 for r in resultados if r.get("acao") == "atualizar"),
         "itens": resultados,
     }), 200
+
+# ── importar descritivo a partir de um Word (.docx) ───────────────────────────
+# Lê o "Descrição Técnica do Produto" (mesmo modelo do 01.000983) e devolve o item
+# JSON no formato que a rota /descritivo/import já consome (prévia → aplicar por SKU).
+# Só captura as 4 seções da ficha; as demais seções do Word são ignoradas.
+_DOCX_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_DESCR_IDENT = {
+    "titulo": ("col", "nome"), "codigo": ("d", "identificacao", "codigo"),
+    "area": ("d", "identificacao", "area"), "sku protheus": ("col", "sku"),
+    "fornecedor": ("col", "fabricante"), "origem": ("d", "identificacao", "origem"),
+    "criticidade": ("d", "identificacao", "criticidade"),
+}
+_DESCR_DESC = {
+    "nome comercial": ("d", "descricao", "nome_comercial"), "descricao": ("col", "descricao"),
+    "categoria": ("d", "descricao", "categoria"), "aplicacao": ("d", "descricao", "aplicacao"),
+}
+_DESCR_TECN = {
+    "material": ("d", "tecnicas", "material"), "dimensoes": ("d", "tecnicas", "dimensoes"),
+    "desempenho": ("d", "tecnicas", "desempenho"), "esterilidade": ("d", "tecnicas", "esterilidade"),
+    "compatibilidade": ("d", "tecnicas", "compatibilidade"),
+}
+_DESCR_EMB = {
+    "tipo primaria": ("d", "embalagem", "tipo_primaria"),
+    "tipo secundaria": ("d", "embalagem", "tipo_secundaria"),
+    "quantidade": ("d", "embalagem", "quantidade"),
+}
+_DESCR_SECOES = {
+    "identificacao": _DESCR_IDENT, "descricao do produto": _DESCR_DESC,
+    "caracteristicas tecnicas": _DESCR_TECN, "embalagem": _DESCR_EMB,
+}
+
+def _docx_paragrafos(data):
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+    root = ET.fromstring(xml)
+    out = []
+    for p in root.iter(_DOCX_W + "p"):   # inclui parágrafos dentro de tabelas
+        out.append("".join(t.text for t in p.iter(_DOCX_W + "t") if t.text))
+    return out
+
+def _descritivo_item_de_paragrafos(paras):
+    item = {}
+    d = {"identificacao": {}, "descricao": {}, "tecnicas": {}, "embalagem": {}}
+    atual = None
+    for raw in paras:
+        line = (raw or "").strip()
+        if not line:
+            continue
+        # cabeçalho de seção: linha toda em maiúsculas, sem ":" (ex.: "IDENTIFICAÇÃO")
+        if ":" not in line and line == line.upper() and any(ch.isalpha() for ch in line):
+            atual = _DESCR_SECOES.get(norm(line))   # None se não for uma das 4 seções
+            continue
+        if atual is None or ":" not in line:
+            continue
+        label, _, value = line.partition(":")
+        value = value.strip()
+        alvo = atual.get(norm(label))
+        if not alvo or not value:
+            continue
+        if alvo[0] == "col":
+            item[alvo[1]] = value
+        else:
+            d[alvo[1]][alvo[2]] = value
+    item["atributos"] = {"descritivo": d}
+    return item
+
+@app.route("/api/consumiveis/descritivo/import-docx", methods=["POST"])
+@jwt_required()
+@require_role("admin", "gestor", "tecnico")
+def import_descritivo_docx():
+    f = request.files.get("arquivo")
+    if not f:
+        return jsonify({"erro": "Envie o arquivo .docx no campo 'arquivo'"}), 400
+    if not (f.filename or "").lower().endswith(".docx"):
+        return jsonify({"erro": "Formato inválido: envie um arquivo .docx"}), 400
+    try:
+        paras = _docx_paragrafos(f.read())
+    except Exception as e:
+        return jsonify({"erro": f"Não foi possível ler o .docx: {e}"}), 400
+    item = _descritivo_item_de_paragrafos(paras)
+    if not (item.get("sku") or item.get("nome")):
+        return jsonify({"erro": "Não encontrei 'Título' nem 'SKU Protheus' no documento. "
+                                "Confira se o Word segue o modelo (seções em MAIÚSCULAS e 'Campo: valor')."}), 400
+    return jsonify({"item": item}), 200
 
 @app.route("/api/consumiveis/export", methods=["GET"])
 @jwt_required()

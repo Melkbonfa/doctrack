@@ -82,10 +82,42 @@ function cvPanel(k,c){
     const modelo=campos.map(cp=>{ let v=at[cp.chave]; if(cp.tipo_dado==="bool") v=(v===true||v==="true"||v==="sim")?"Sim":(v===false||v==="false"||v==="não"||v==="nao")?"Não":v;
       const un=cp.unidade&&v?(" "+cp.unidade):""; return vfield(cp.rotulo,(v!==undefined&&v!==null&&v!=="")?(v+un):"", cp.rotulo.length>16); });
     const chaves=new Set(campos.map(cp=>cp.chave));
-    const extras=Object.keys(at).filter(k2=>!chaves.has(k2)&&at[k2]!==""&&at[k2]!=null).map(k2=>vfield(k2,at[k2]));
+    const extras=Object.keys(at).filter(k2=>k2!=="descritivo"&&!chaves.has(k2)&&at[k2]!==""&&at[k2]!=null).map(k2=>vfield(k2,at[k2]));
     let html=`<div class="vw-body">`;
     html+=modelo.length?vsection("Especificações do tipo", vfields(modelo)):`<div class="vw-sec"><div class="vw-empty">Este tipo ainda não tem campos definidos (configure em Tipos de consumível).</div></div>`;
     if(extras.length) html+=vsection("Outros campos (extras deste item)", vfields(extras));
+    return html+`</div>`;
+  }
+  if(k==="descritivo"){
+    const d=(c.atributos&&c.atributos.descritivo)||{};
+    const id=d.identificacao||{}, ds=d.descricao||{}, tc=d.tecnicas||{}, em=d.embalagem||{};
+    let html=`<div class="vw-body">`;
+    html+=vsection("Identificação", vfields([
+      vfield("Código",id.codigo),
+      vfield("Área",id.area),
+      vfield("SKU Protheus",c.sku),
+      vfield("Fornecedor",c.fabricante),
+      vfield("Origem",id.origem),
+      vfield("Criticidade",id.criticidade),
+    ]));
+    html+=vsection("Descrição do produto", vfields([
+      vfield("Nome comercial",ds.nome_comercial),
+      vfield("Categoria",ds.categoria),
+      vfield("Aplicação",ds.aplicacao,true),
+      vfield("Descrição",c.descricao,true),
+    ]));
+    html+=vsection("Características técnicas", vfields([
+      vfield("Material",tc.material),
+      vfield("Dimensões",tc.dimensoes),
+      vfield("Esterilidade",tc.esterilidade),
+      vfield("Desempenho",tc.desempenho,true),
+      vfield("Compatibilidade",tc.compatibilidade,true),
+    ]));
+    html+=vsection("Embalagem", vfields([
+      vfield("Tipo primária",em.tipo_primaria),
+      vfield("Tipo secundária",em.tipo_secundaria),
+      vfield("Quantidade",em.quantidade),
+    ]));
     return html+`</div>`;
   }
   // compatibilidade
@@ -110,7 +142,7 @@ async function abrirConsView(id, keepTab){
   const chips=[]; if(c.tipo) chips.push(vchip(c.tipo,"cat")); if(c.sku) chips.push(vchip("SKU "+c.sku,"mono"));
   chips.push(c.pendente_sku?vchip("pendente de cadastro","warn"):vchip("cadastrado","ok"));
   document.getElementById("consview-hero").innerHTML=`<div class="vw-hero"><div class="vw-hero-main"><div class="vw-name">${esc(c.nome)}</div><div class="vw-chips">${chips.join("")}</div></div></div>`;
-  const tabs=[["geral","Geral"],["espec","Especificações"],["compat","Compatibilidade ("+(c.equipamentos||[]).length+")"]];
+  const tabs=[["geral","Geral"],["descritivo","Descritivo técnico"],["espec","Especificações"],["compat","Compatibilidade ("+(c.equipamentos||[]).length+")"]];
   document.getElementById("consview-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===cvTab?'active':''}" onclick="switchCvTab('${k}')">${esc(l)}</button>`).join("");
   document.getElementById("consview-panels").innerHTML=cvPanel(cvTab,c);
   const eb=document.getElementById("consview-edit"); if(eb) eb.style.display=podeEditar?"inline-flex":"none";
@@ -136,14 +168,23 @@ function consViewEdit(){ const id=consCur&&consCur.id; closeModal("consview"); i
 
 // ── novo / editar ─────────────────────────────────────────────────────────────
 function preencherTipoSelect(sel,val2){ sel.innerHTML='<option value="">—</option>'+TIPOS_C.map(t=>`<option value="${t.id}" ${String(val2)===String(t.id)?'selected':''}>${esc(t.nome)}</option>`).join(""); }
+// campos do descritivo que moram no JSON (fornecedor→fabricante, sku_protheus→sku e descrição→descricao reusam colunas)
+const DESCR_MAP={ identificacao:["codigo","area","origem","criticidade"], descricao:["nome_comercial","categoria","aplicacao"],
+  tecnicas:["material","dimensoes","esterilidade","desempenho","compatibilidade"], embalagem:["tipo_primaria","tipo_secundaria","quantidade"] };
+function _preencherDescritivo(d){ d=d||{};
+  Object.keys(DESCR_MAP).forEach(sec=>{ const src=d[sec]||{}; DESCR_MAP[sec].forEach(k=>{ const el=document.getElementById("ced-"+k); if(el) el.value=src[k]!=null?src[k]:""; }); }); }
+function _coletarDescritivo(){ const o={};
+  Object.keys(DESCR_MAP).forEach(sec=>{ o[sec]={}; DESCR_MAP[sec].forEach(k=>{ const el=document.getElementById("ced-"+k); o[sec][k]=el?el.value.trim():""; }); }); return o; }
 function abrirConsNovo(){ consEditId=null; document.getElementById("consedit-title").textContent="Novo consumível";
   ["nome","sku","sku_importacao","fabricante","descricao"].forEach(f=>{ const el=document.getElementById("ce-"+f); if(el) el.value=""; });
+  _preencherDescritivo({});
   preencherTipoSelect(document.getElementById("ce-tipo_id"),""); consEditCamposDoTipo({}); openBaseModal("consedit"); }
 function abrirConsEdit(id){ const c=CONS.find(x=>x.id===id)||consCur; if(!c) return; consEditId=id;
   document.getElementById("consedit-title").textContent="Editar consumível";
   document.getElementById("ce-nome").value=c.nome||""; document.getElementById("ce-sku").value=c.sku||"";
   document.getElementById("ce-sku_importacao").value=c.sku_importacao||""; document.getElementById("ce-fabricante").value=c.fabricante||"";
   document.getElementById("ce-descricao").value=c.descricao||"";
+  _preencherDescritivo((c.atributos||{}).descritivo);
   preencherTipoSelect(document.getElementById("ce-tipo_id"),c.tipo_id); consEditCamposDoTipo(c.atributos||{}); openBaseModal("consedit"); }
 function consEditCamposDoTipo(atributos){
   const t=tipoById(val("ce-tipo_id")); const box=document.getElementById("ce-campos"); const at=atributos||_coletarAttrAtuais();
@@ -158,9 +199,11 @@ function _coletarAttrAtuais(){ const t=tipoById(val("ce-tipo_id")); const o={}; 
   (t.campos||[]).forEach(cp=>{ const el=document.getElementById("ce-attr-"+cp.chave); if(!el) return; o[cp.chave]=cp.tipo_dado==="bool"?el.checked:el.value.trim(); }); return o; }
 async function salvarConsumivel(){
   const nome=val("ce-nome").trim(); if(!nome){ toast("Informe o nome",true); return; }
+  const base=(consEditId?((CONS.find(x=>x.id===consEditId)||consCur||{}).atributos||{}):{});
+  const atributos=Object.assign({},base,_coletarAttrAtuais()); atributos.descritivo=_coletarDescritivo();
   const payload={ nome, sku:val("ce-sku").trim(), sku_importacao:val("ce-sku_importacao").trim(),
     fabricante:val("ce-fabricante").trim(), descricao:val("ce-descricao").trim(),
-    tipo_id:val("ce-tipo_id")||null, atributos:_coletarAttrAtuais() };
+    tipo_id:val("ce-tipo_id")||null, atributos };
   try{
     if(consEditId) await api("/api/consumiveis/"+consEditId,{method:"PATCH",body:JSON.stringify(payload)});
     else await api("/api/consumiveis",{method:"POST",body:JSON.stringify(payload)});
@@ -179,10 +222,25 @@ async function baixarJSON(url, filename){
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
 }
 function exportarDescritivo(){ if(!consCur) return; const nome=(consCur.sku||consCur.nome||"consumivel").replace(/[^\w.-]+/g,"_"); baixarJSON("/api/consumiveis/"+consCur.id+"/descritivo","descritivo_"+nome+".json"); }
-function abrirConsImport(){ document.getElementById("consimport-json").value=""; document.getElementById("consimport-preview").textContent="—"; document.getElementById("btn-consimport-aplicar").style.display="none"; openBaseModal("consimport"); }
+function abrirConsImport(){ document.getElementById("consimport-json").value=""; document.getElementById("consimport-preview").textContent="—"; document.getElementById("btn-consimport-aplicar").style.display="none";
+  const fi=document.getElementById("consimport-docx"); if(fi) fi.value=""; const fn=document.getElementById("consimport-docx-nome"); if(fn){ fn.textContent="Nenhum arquivo selecionado."; fn.style.color=""; }
+  openBaseModal("consimport"); }
+async function lerConsDocx(input){
+  const file=input.files&&input.files[0]; if(!file) return;
+  const fn=document.getElementById("consimport-docx-nome"); fn.textContent="Lendo "+file.name+"…"; fn.style.color="";
+  const fd=new FormData(); fd.append("arquivo",file);
+  try{
+    const res=await fetch("/api/consumiveis/descritivo/import-docx",{method:"POST",headers:{"Authorization":"Bearer "+token()},body:fd});
+    const data=await res.json();
+    if(!res.ok){ fn.textContent=data.erro||"Falha ao ler o .docx"; fn.style.color="#f43f5e"; return; }
+    document.getElementById("consimport-json").value=JSON.stringify(data.item,null,2);
+    fn.textContent="✓ "+file.name+" — confira a prévia abaixo."; fn.style.color="#34d399";
+    rodarConsImport(true);   // já dispara a prévia
+  }catch(e){ fn.textContent=e.message||"Erro ao ler o arquivo"; fn.style.color="#f43f5e"; }
+}
 async function rodarConsImport(dryrun){
   const raw=val("consimport-json").trim(); const prev=document.getElementById("consimport-preview");
-  if(!raw){ prev.innerHTML='<span style="color:#f43f5e">Cole o JSON do descritivo.</span>'; return; }
+  if(!raw){ prev.innerHTML='<span style="color:#f43f5e">Escolha um arquivo .docx primeiro.</span>'; return; }
   let parsed; try{ parsed=JSON.parse(raw); }catch(e){ prev.innerHTML='<span style="color:#f43f5e">JSON inválido: '+esc(e.message)+'</span>'; return; }
   try{
     const rel=await api("/api/consumiveis/descritivo/import",{method:"POST",body:JSON.stringify({descritivo:parsed,dryrun})});
@@ -199,7 +257,16 @@ async function exportarConsCSV(){
 }
 function copiarConsFicha(){ const c=consCur; if(!c) return; const L=[c.nome||""]; const add=(k,v)=>{ if(v&&String(v).trim()) L.push(k+": "+v); };
   add("Tipo",c.tipo); add("SKU de venda",c.sku); add("SKU de importação",c.sku_importacao); add("Fabricante",c.fabricante); add("Descrição",c.descricao);
-  const at=c.atributos||{}; Object.keys(at).forEach(k=>add(k,at[k]));
+  const at=c.atributos||{}; Object.keys(at).forEach(k=>{ if(k!=="descritivo") add(k,at[k]); });   // descritivo é objeto → formatado à parte
+  const d=at.descritivo;
+  if(d&&typeof d==="object"){
+    const sec=(titulo,obj,labels)=>{ const rows=Object.keys(labels).map(k=>(obj&&obj[k]&&String(obj[k]).trim())?("  "+labels[k]+": "+obj[k]):null).filter(Boolean); if(rows.length){ L.push(""); L.push(titulo+":"); rows.forEach(r=>L.push(r)); } };
+    L.push(""); L.push("── Descritivo técnico ──");
+    sec("Identificação",Object.assign({},d.identificacao,{sku_protheus:c.sku,fornecedor:c.fabricante}),{codigo:"Código",area:"Área",sku_protheus:"SKU Protheus",fornecedor:"Fornecedor",origem:"Origem",criticidade:"Criticidade"});
+    sec("Descrição do produto",Object.assign({},d.descricao,{descricao:c.descricao}),{nome_comercial:"Nome comercial",categoria:"Categoria",aplicacao:"Aplicação",descricao:"Descrição"});
+    sec("Características técnicas",d.tecnicas,{material:"Material",dimensoes:"Dimensões",esterilidade:"Esterilidade",desempenho:"Desempenho",compatibilidade:"Compatibilidade"});
+    sec("Embalagem",d.embalagem,{tipo_primaria:"Tipo primária",tipo_secundaria:"Tipo secundária",quantidade:"Quantidade"});
+  }
   if((c.equipamentos||[]).length){ L.push(""); L.push("Compatível com:"); c.equipamentos.forEach(v=>L.push("  - "+v.equipamento_nome+" ("+(FORN_LABEL[v.fornecimento]||v.fornecimento)+")")); }
   const txt=L.join("\n");
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(()=>toast("Ficha copiada")).catch(()=>toast("Falha ao copiar",true));

@@ -282,6 +282,39 @@
       <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Descrição</label><textarea class="form-input" id="ce-descricao" rows="2"></textarea></div>
     </div>
     <div id="ce-campos" style="margin-top:14px"></div>
+    <details id="ce-descritivo-box" style="margin-top:14px;border-top:1px solid var(--border-soft);padding-top:12px">
+      <summary class="form-label" style="cursor:pointer;user-select:none">Descritivo técnico</summary>
+      <div style="margin-top:10px">
+        <div class="modal-sub" style="margin:0 0 10px">SKU Protheus, Fornecedor e Descrição vêm dos campos acima (SKU de venda, Fabricante e Descrição).</div>
+        <div class="form-label" style="color:var(--t3);margin:6px 0 6px">Identificação</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-group" style="margin:0"><label class="form-label">Código</label><input class="form-input" id="ced-codigo"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Área</label><input class="form-input" id="ced-area"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Origem</label><input class="form-input" id="ced-origem"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Criticidade</label><input class="form-input" id="ced-criticidade"></div>
+        </div>
+        <div class="form-label" style="color:var(--t3);margin:14px 0 6px">Descrição do produto</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-group" style="margin:0"><label class="form-label">Nome comercial</label><input class="form-input" id="ced-nome_comercial"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Categoria</label><input class="form-input" id="ced-categoria"></div>
+          <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Aplicação</label><textarea class="form-input" id="ced-aplicacao" rows="2"></textarea></div>
+        </div>
+        <div class="form-label" style="color:var(--t3);margin:14px 0 6px">Características técnicas</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-group" style="margin:0"><label class="form-label">Material</label><input class="form-input" id="ced-material"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Dimensões</label><input class="form-input" id="ced-dimensoes"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Esterilidade</label><input class="form-input" id="ced-esterilidade"></div>
+          <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Desempenho</label><textarea class="form-input" id="ced-desempenho" rows="2"></textarea></div>
+          <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Compatibilidade</label><textarea class="form-input" id="ced-compatibilidade" rows="2"></textarea></div>
+        </div>
+        <div class="form-label" style="color:var(--t3);margin:14px 0 6px">Embalagem</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="form-group" style="margin:0"><label class="form-label">Tipo primária</label><input class="form-input" id="ced-tipo_primaria"></div>
+          <div class="form-group" style="margin:0"><label class="form-label">Tipo secundária</label><input class="form-input" id="ced-tipo_secundaria"></div>
+          <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Quantidade</label><input class="form-input" id="ced-quantidade"></div>
+        </div>
+      </div>
+    </details>
     <div class="modal-footer" style="justify-content:flex-end">
       <button class="btn btn-ghost" onclick="closeModal('consedit')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarConsumivel()">Salvar</button>
@@ -293,18 +326,20 @@
 <div class="modal-overlay" id="modal-consimport" role="dialog" aria-modal="true" aria-label="Importar descritivo" aria-hidden="true">
   <div class="modal" style="width:640px;max-width:96vw">
     <div class="modal-title">Importar descritivo</div>
-    <div class="modal-sub">Cole o JSON (um consumível ou uma lista). Veja a prévia antes de aplicar.</div>
-    <div class="form-group">
-      <label class="form-label">Descritivo (JSON)</label>
-      <textarea class="form-input" id="consimport-json" rows="8" style="font-family:var(--font-mono);font-size:12px" placeholder='{ "tipo": "Placa PCR", "nome": "...", "sku": "01.000000", "atributos": { "pocos": 96 }, "compatibilidade": [ { "equipamento": "Extracta Assist", "fornecimento": "pode_fornecer" } ] }'></textarea>
+    <div class="modal-sub">Suba um Word (.docx) no modelo da "Descrição Técnica do Produto". Veja a prévia antes de aplicar.</div>
+    <div class="form-group" style="border:1px dashed var(--border-soft);border-radius:10px;padding:12px;margin-bottom:12px">
+      <label class="form-label" style="margin-bottom:6px">Word (.docx)</label>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <input type="file" id="consimport-docx" accept=".docx" style="display:none" onchange="lerConsDocx(this)">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('consimport-docx').click()">📄 Escolher .docx</button>
+        <span id="consimport-docx-nome" class="muted" style="font-size:12px">Nenhum arquivo selecionado.</span>
+      </div>
     </div>
+    <textarea id="consimport-json" style="display:none"></textarea>
     <div id="consimport-preview" class="muted" style="font-size:13px;margin:8px 0">—</div>
     <div class="modal-footer" style="justify-content:space-between">
       <button class="btn btn-ghost btn-sm" onclick="closeModal('consimport')">Cancelar</button>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" onclick="rodarConsImport(true)">Pré-visualizar</button>
-        <button class="btn btn-primary" id="btn-consimport-aplicar" onclick="rodarConsImport(false)" style="display:none">Aplicar</button>
-      </div>
+      <button class="btn btn-primary" id="btn-consimport-aplicar" onclick="rodarConsImport(false)" style="display:none">Aplicar</button>
     </div>
   </div>
 </div>
