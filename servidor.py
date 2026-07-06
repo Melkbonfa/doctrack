@@ -11,6 +11,7 @@ from flask_jwt_extended import (
     JWTManager, jwt_required, get_jwt_identity, get_jwt, decode_token
 )
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 
 # ── CAMINHOS (compatível com PyInstaller / executável "congelado") ─────────────
@@ -37,7 +38,18 @@ if not _jwt_secret:
 _cors_origins = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
-CORS(app, origins=_cors_origins, supports_credentials=True)
+# origins="*" + supports_credentials=True é uma combinação inválida: o navegador
+# rejeita `Access-Control-Allow-Origin: *` em requisições com credenciais, e o
+# flask-cors passa a refletir a origem recebida — o pior dos dois mundos. Só
+# habilita credenciais quando há uma allowlist real configurada em CORS_ORIGINS.
+_allow_all_origins = _cors_origins == ["*"]
+CORS(app, origins=_cors_origins, supports_credentials=not _allow_all_origins)
+
+# Confiança em cabeçalhos de proxy (X-Forwarded-For/-Proto) só quando o app está
+# atrás de um proxy reverso conhecido (IIS/nginx). Sem isso, X-Forwarded-For é
+# forjável pelo cliente — e esse IP vai para o audit log. Habilite com TRUST_PROXY=1.
+if os.environ.get("TRUST_PROXY", "").lower() in ("true", "1", "t"):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 BASE_DIR   = ASSET_DIR                                   # assets de leitura (js/html da raiz, files/)
 # Planilha legada de seed: procura em data/ (layout do repositório) e na raiz
@@ -70,9 +82,13 @@ _database_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
 if _database_url.startswith("postgres://"):
     _database_url = _database_url.replace("postgres://", "postgresql://", 1)
 
+_flask_debug = os.environ.get("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+
 app.config["SQLALCHEMY_DATABASE_URI"]        = _database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["TEMPLATES_AUTO_RELOAD"]          = True
+# Só recarrega templates a cada request em desenvolvimento; em produção o
+# custo de checar o mtime de cada template por requisição é desnecessário.
+app.config["TEMPLATES_AUTO_RELOAD"]          = _flask_debug
 app.config["SQLALCHEMY_ENGINE_OPTIONS"]      = {"pool_pre_ping": True}
 app.config["JWT_SECRET_KEY"]                 = _jwt_secret
 app.config["JWT_ACCESS_TOKEN_EXPIRES"]       = timedelta(hours=1)
@@ -107,7 +123,7 @@ app.register_blueprint(pdr_bp)
 socketio = SocketIO(
     app,
     async_mode="threading",
-    cors_allowed_origins="*",
+    cors_allowed_origins="*" if _allow_all_origins else _cors_origins,
     ping_interval=25,
     ping_timeout=60,
     logger=False,
@@ -166,7 +182,10 @@ def norm(s):
     return unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("ASCII")
 
 def get_client_ip():
-    return request.headers.get("X-Forwarded-For", request.remote_addr or "")
+    # remote_addr já reflete o cliente real quando TRUST_PROXY está ativo (ProxyFix
+    # aplica o X-Forwarded-For). Sem proxy confiável, não lemos o cabeçalho — ele é
+    # forjável e este IP é gravado no audit log.
+    return request.remote_addr or ""
 
 def compute_kpis(docs):
     total = len(docs)
@@ -1982,5 +2001,4 @@ if __name__ == "__main__":
     print("  DocTrack v4.0 Enterprise — Sector Based + WebSocket")
     print("="*55)
     if args.init: init_db(reset=True)
-    _debug = os.environ.get("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=_debug, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=_flask_debug, allow_unsafe_werkzeug=True)
