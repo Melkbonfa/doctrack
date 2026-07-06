@@ -15,6 +15,7 @@ def test_listagem_so_ativos(client, admin_token, auth_headers):
 
 
 def test_create_documento(client, admin_token, auth_headers):
+    from models import TIPOS_DOC_TODOS
     h = auth_headers(admin_token)
     res = client.post("/api/documentos",
                       json={"setor": "PRE", "equipamento": "MAQ-NEW", "documento": "POP-NEW",
@@ -22,8 +23,19 @@ def test_create_documento(client, admin_token, auth_headers):
                       headers=h)
     assert res.status_code == 201
     assert res.get_json()["documento"]["equipamento"] == "MAQ-NEW"
+
+    # Criar um documento para um equipamento novo gera automaticamente os 9 tipos
+    # canônicos (reestruturação PDE: equipamento = entidade central).
     docs = client.get("/api/documentos", headers=h).get_json()
-    assert len(docs) == 3
+    maq_new = [d for d in docs if d["equipamento"] == "MAQ-NEW"]
+    assert len(maq_new) == len(TIPOS_DOC_TODOS)          # == 9
+    assert {d["tipo_doc"] for d in maq_new} == set(TIPOS_DOC_TODOS)
+
+    # O tipo selecionado (IT, primeiro do setor PRE) recebe os dados do payload;
+    # os demais nascem em branco.
+    it_doc = next(d for d in maq_new if d["tipo_doc"] == "IT")
+    assert it_doc["documento"] == "POP-NEW"
+    assert it_doc["codigo_doc"] == "COD-NEW"
 
 
 def test_create_setor_invalido_falha(client, admin_token, auth_headers):
@@ -89,44 +101,45 @@ def test_get_documento_soft_deleted(client, admin_token, auth_headers):
 
 
 def test_propagacao_global_sku(client, admin_token, auth_headers):
+    """A identidade (SKU) é canônica no Equipamento e imutável pelo documento.
+    Editar o SKU do equipamento propaga para todos os documentos vinculados."""
+    from models import TIPOS_DOC_TODOS
     h = auth_headers(admin_token)
-    
-    # 1. Cria um documento do setor "Manuais" para o mesmo equipamento "MAQ-A" (que tem SKU "SKU-A" na fixture)
+
+    # 1. Criar um documento para "MAQ-A" gera os tipos canônicos que faltam; todos
+    #    herdam o SKU do equipamento (SKU-A). O documento do seed tem tipo_doc vazio
+    #    (não canônico e sem equipamento_id), então filtramos pelos tipos canônicos.
     res_create = client.post("/api/documentos",
-                             json={"setor": "Manuais", "equipamento": "MAQ-A", "documento": "Manual do Usuário - MAQ-A",
+                             json={"setor": "Manuais", "equipamento": "MAQ-A",
+                                   "documento": "Manual do Usuário - MAQ-A",
                                    "tipo_doc": "Manual_Usuario", "fabricante": "TestFab"},
                              headers=h)
     assert res_create.status_code == 201
-    
-    # Todos os manuais criados devem ter herdado "SKU-A"
+
     docs = client.get("/api/documentos", headers=h).get_json()
-    maq_a_docs = [d for d in docs if d["equipamento"] == "MAQ-A"]
-    # Devem ser: 1 (original do seed de PRE) + 5 (manuais criados) = 6 documentos
-    assert len(maq_a_docs) == 6
-    for d in maq_a_docs:
+    canonicos = [d for d in docs if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_TODOS]
+    assert len(canonicos) == len(TIPOS_DOC_TODOS)        # == 9
+    for d in canonicos:
         assert d["sku"] == "SKU-A"
-        
-    # 2. Atualizar o SKU do documento original do setor "PRE" (MAQ-A) para "SKU-NOVO"
-    doc_pre_id = next(d["id"] for d in maq_a_docs if d["setor"] == "PRE")
-    res_update = client.patch(f"/api/documentos/{doc_pre_id}",
-                              json={"sku": "SKU-NOVO"},
-                              headers=h)
+
+    # 2. Editar o SKU pelo Equipamento (fonte única de identidade) propaga aos docs.
+    equips = client.get("/api/equipamentos", headers=h).get_json()
+    equip_a = next(e for e in equips if e["nome"] == "MAQ-A")
+    res_update = client.patch(f"/api/equipamentos/{equip_a['id']}",
+                              json={"sku": "SKU-NOVO"}, headers=h)
     assert res_update.status_code == 200
-    
-    # 3. Verificar se todos os documentos de "MAQ-A" agora têm SKU "SKU-NOVO"
+
+    # 3. Todos os documentos canônicos de "MAQ-A" agora têm SKU "SKU-NOVO".
     docs_after = client.get("/api/documentos", headers=h).get_json()
-    maq_a_docs_after = [d for d in docs_after if d["equipamento"] == "MAQ-A"]
-    assert len(maq_a_docs_after) == 6
-    for d in maq_a_docs_after:
+    canonicos_after = [d for d in docs_after if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_TODOS]
+    assert len(canonicos_after) == len(TIPOS_DOC_TODOS)
+    for d in canonicos_after:
         assert d["sku"] == "SKU-NOVO"
-        
-    # 4. Verificar se a auditoria registrou os updates
+
+    # 4. A auditoria registrou o update de SKU do equipamento.
     audit = client.get("/api/audit", headers=h).get_json()
-    sku_updates = [l for l in audit if l["acao"] == "UPDATE" and l["campo"] == "sku" and l["valor_novo"] == "SKU-NOVO"]
-    # O documento de PRE editado gera um log 'sku' na atualização principal.
-    # Os outros 5 manuais geram logs individuais 'sku' no loop de propagação global.
-    # Total de logs de update de SKU deve ser 6.
-    assert len(sku_updates) == 6
+    sku_updates = [l for l in audit if l["acao"] == "UPDATE" and "sku" in (l.get("campo") or "")]
+    assert len(sku_updates) >= 1
 
 
 def test_abrir_pasta_caminho_vazio(client, admin_token, auth_headers):
@@ -187,7 +200,9 @@ def test_abrir_pasta_ancestral_sucesso(client, admin_token, auth_headers):
         res = client.post("/api/documentos/abrir-pasta", json={"caminho": caminho_falso}, headers=h)
         assert res.status_code == 200
         data = res.get_json()
-        assert "Pasta ancestral aberta" in data["mensagem"] or "raiz" in data["mensagem"]
+        # A resolução ancestral agora é sinalizada pelo campo "tipo" (a mensagem é
+        # sempre "Pasta aberta com sucesso"), e a pasta aberta é o ancestral existente.
+        assert data["tipo"] == "ancestral"
         assert data["local"] is True
         assert data["caminho_aberto"] == os.path.normpath(diretorio_real)
         mock_startfile.assert_called_once_with(os.path.normpath(diretorio_real))

@@ -90,7 +90,10 @@ def require_pdr_access(*roles):
 
 
 def get_client_ip():
-    return request.headers.get("X-Forwarded-For", request.remote_addr or "")
+    # remote_addr já reflete o cliente real quando TRUST_PROXY está ativo (ProxyFix
+    # aplica o X-Forwarded-For). Sem proxy confiável, não lemos o cabeçalho — ele é
+    # forjável e este IP é gravado no audit log.
+    return request.remote_addr or ""
 
 
 # ── LOGIN ─────────────────────────────────────────────────────────────────────

@@ -1,0 +1,84 @@
+# DocTrack — Dashboard de Gestão de Documentos e Projetos de TI
+
+Sistema web interno da Loccus para gestão de documentos técnicos, equipamentos,
+entregáveis de projetos e PDR. Backend em Flask (Python) com frontend em
+templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
+(desenvolvimento) ou PostgreSQL (produção).
+
+## Módulos
+
+| Módulo | Descrição |
+|---|---|
+| **Documentos** | Gestão de documentos técnicos por equipamento (9 tipos), com workflow de status, versões e auditoria |
+| **Equipamentos** | Entidade central: taxonomia (categoria/família/linha), dados regulatórios/fabricante, consumíveis e acessórios |
+| **Entregáveis** | Acompanhamento de entregáveis de projetos por categoria, com visão mensal (PMO) |
+| **PDR** | Dashboard PDR integrado como blueprint interno (`/pdr`), acesso por flag de usuário |
+| **Auth/RBAC** | Autenticação JWT, papéis e permissões por área, convite com código no primeiro acesso |
+
+## Como rodar (desenvolvimento)
+
+```powershell
+python -m venv venv
+.\venv\Scripts\pip install -r requirements.txt
+.\venv\Scripts\python servidor.py
+```
+
+O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
+(use `.env.example` como base). Testes:
+
+```powershell
+.\venv\Scripts\python -m pytest
+```
+
+## Estrutura do projeto
+
+```
+├── servidor.py               # App Flask principal (rotas, API, Socket.IO)
+├── models.py                 # Modelos SQLAlchemy
+├── auth.py                   # Autenticação, RBAC e log de auditoria
+├── areas.py                  # Definição das áreas/setores
+├── entregaveis.py            # Blueprint do módulo Entregáveis
+├── event_bus.py              # Barramento de eventos (tempo real)
+├── equipamentos_importer.py  # Importador da planilha mestra de equipamentos
+├── agente_scanner.py         # Agente de varredura (assistente do dash)
+├── app-realtime.js           # Cliente realtime servido pela raiz
+├── socket-client.js          # Cliente Socket.IO servido pela raiz
+├── audit_log_report.html     # Template do relatório de auditoria (/api/export/audit)
+├── templates/                # Templates Jinja (dashboard, hub, equipamentos…)
+├── static/                   # CSS/JS do frontend
+├── pdr/                      # Módulo PDR (blueprint com templates/static próprios)
+├── migrations/               # Migrações de schema numeradas
+├── tests/                    # Testes pytest
+├── scripts/                  # Scripts operacionais (deploy, backup, build, importações)
+│   └── legado/               # Scripts pontuais já executados (mantidos por histórico)
+├── docs/                     # Documentação
+│   ├── planos/               # Planos de implementação (PLANO_*.md)
+│   ├── mockups/              # Mockups HTML de telas
+│   ├── relatorios/           # Relatórios gerados (custos, avaliação técnica…)
+│   └── referencias/          # Material de referência externo
+├── data/                     # Planilhas de dados de entrada
+├── files/                    # Planilha de entregáveis + gerador de relatório PDF
+├── backups/                  # Backups do banco (fora do git)
+└── tools/                    # Instaladores auxiliares (fora do git)
+```
+
+## Deploy
+
+Produção roda em servidor Windows próprio (`C:\apps\doctrack`):
+merge na `main` → `git pull` no servidor → restart do serviço.
+Guias completos em [docs/GUIA_DEPLOY_WINDOWS.md](docs/GUIA_DEPLOY_WINDOWS.md)
+e [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+Scripts úteis (rodar a partir da raiz do projeto):
+
+| Ação | Comando |
+|---|---|
+| Deploy/atualização no servidor | `.\scripts\deploy_windows.ps1` |
+| Backup do banco (PostgreSQL) | `.\scripts\gerar_backup.ps1` |
+| Backup rotativo (SQLite, agendável) | `.\scripts\backup_doctrack.ps1` |
+| Build executável (PyInstaller) | `.\scripts\build_exe.ps1` |
+
+## Versionamento
+
+A versão vigente fica em [VERSION](VERSION) e o histórico em
+[CHANGELOG.md](CHANGELOG.md) (Keep a Changelog + SemVer).

@@ -414,6 +414,193 @@ class EquipamentoItem(db.Model):
         }
 
 
+# ── CONSUMÍVEIS (catálogo global + compatibilidade N:N) ──────────────────────
+# Consumível é entidade própria (uma linha por SKU). A compatibilidade com os
+# equipamentos é N:N via ConsumivelEquipamento, que carrega o "fornecimento"
+# (atributo da RELAÇÃO, não do consumível). Campos que variam por tipo (poços,
+# dimensões, volume…) moram em `atributos` (JSON), guiados pelo modelo de campos
+# do tipo (TipoConsumivel.campos). Campos extras avulsos por item também entram
+# em `atributos` — modelo HÍBRIDO: padrão por tipo + exceções por item.
+
+FORNECIMENTO = ["exclusivo_loccus", "pode_fornecer", "nao_fornecido", "nao_informado"]
+FORNECIMENTO_LABEL = {
+    "exclusivo_loccus": "Exclusivo Loccus",
+    "pode_fornecer":    "Loccus pode fornecer",
+    "nao_fornecido":    "Não fornecido pela Loccus",
+    "nao_informado":    "Não informado",
+}
+
+# Modelo de campos semeado por tipo (o "layout de descritivo" inicial). Cada campo:
+# {chave, rotulo, tipo_dado (texto|numero|bool), unidade, aba}. Editável na UI depois.
+TIPOS_CONSUMIVEL_SEED = {
+    "Ponteira": [
+        {"chave": "volume", "rotulo": "Volume", "tipo_dado": "numero", "unidade": "µL", "aba": "espec"},
+        {"chave": "com_filtro", "rotulo": "Com filtro", "tipo_dado": "bool", "unidade": "", "aba": "espec"},
+        {"chave": "esterilidade", "rotulo": "Esterilidade", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "apresentacao", "rotulo": "Apresentação", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Placa PCR": [
+        {"chave": "pocos", "rotulo": "Poços", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+        {"chave": "saia", "rotulo": "Saia", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "volume_poco", "rotulo": "Volume por poço", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "dimensoes", "rotulo": "Dimensões", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "esterilidade", "rotulo": "Esterilidade", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Placa deepwell": [
+        {"chave": "pocos", "rotulo": "Poços", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+        {"chave": "volume_poco", "rotulo": "Volume por poço", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "fundo", "rotulo": "Fundo", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "dimensoes", "rotulo": "Dimensões", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Placa": [
+        {"chave": "pocos", "rotulo": "Poços", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+        {"chave": "fundo", "rotulo": "Fundo", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "dimensoes", "rotulo": "Dimensões", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Kit de extração": [
+        {"chave": "metodo", "rotulo": "Método", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "alvo", "rotulo": "Alvo (DNA/RNA)", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "reacoes", "rotulo": "Reações", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+    ],
+    "MasterMix / Reagente": [
+        {"chave": "volume", "rotulo": "Volume", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "concentracao", "rotulo": "Concentração", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "reacoes", "rotulo": "Reações", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+        {"chave": "armazenamento", "rotulo": "Armazenamento", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Filme de vedação": [
+        {"chave": "largura", "rotulo": "Largura", "tipo_dado": "texto", "unidade": "mm", "aba": "espec"},
+        {"chave": "comprimento", "rotulo": "Comprimento", "tipo_dado": "texto", "unidade": "m", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "aplicacao", "rotulo": "Aplicação", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Cartucho": [
+        {"chave": "volume", "rotulo": "Volume", "tipo_dado": "texto", "unidade": "mL", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Tip comb / tira": [
+        {"chave": "canais", "rotulo": "Canais", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Lâmina": [
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "aplicacao", "rotulo": "Aplicação", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Reservatório": [
+        {"chave": "volume", "rotulo": "Volume", "tipo_dado": "texto", "unidade": "mL", "aba": "espec"},
+        {"chave": "calhas", "rotulo": "Calhas", "tipo_dado": "numero", "unidade": "", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Tampa": [
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+        {"chave": "aplicacao", "rotulo": "Aplicação", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Tubo": [
+        {"chave": "volume", "rotulo": "Volume", "tipo_dado": "texto", "unidade": "mL", "aba": "espec"},
+        {"chave": "material", "rotulo": "Material", "tipo_dado": "texto", "unidade": "", "aba": "espec"},
+    ],
+    "Outro": [],
+}
+
+
+class TipoConsumivel(db.Model):
+    __tablename__ = "tipos_consumivel"
+    id     = db.Column(db.Integer, primary_key=True)
+    nome   = db.Column(db.String(120), nullable=False, index=True)
+    ordem  = db.Column(db.Integer, default=0)
+    ativo  = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    campos = db.Column(db.Text, default="[]")   # JSON: modelo de campos do tipo
+
+    def campos_list(self):
+        try:
+            v = json.loads(self.campos or "[]")
+            return v if isinstance(v, list) else []
+        except Exception:
+            return []
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome or "", "ordem": self.ordem or 0,
+                "ativo": bool(self.ativo), "campos": self.campos_list()}
+
+
+class Consumivel(db.Model):
+    __tablename__ = "consumiveis"
+    id             = db.Column(db.Integer, primary_key=True)
+    nome           = db.Column(db.String(200), nullable=False, index=True)
+    sku            = db.Column(db.String(50), default="", index=True)   # SKU de Venda (chave de dedup)
+    sku_importacao = db.Column(db.String(50), default="")
+    fabricante     = db.Column(db.String(200), default="")
+    descricao      = db.Column(db.Text, default="")
+    tipo_id        = db.Column(db.Integer, db.ForeignKey("tipos_consumivel.id"), nullable=True, index=True)
+    atributos      = db.Column(db.Text, default="{}")   # JSON: valores (campos do modelo + extras)
+    pendente_sku   = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    status         = db.Column(db.String(40), default="Ativo")
+    ativo          = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+    updated_em     = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    tipo_rel = db.relationship("TipoConsumivel", foreign_keys=[tipo_id], lazy="joined")
+
+    def atributos_dict(self):
+        try:
+            v = json.loads(self.atributos or "{}")
+            return v if isinstance(v, dict) else {}
+        except Exception:
+            return {}
+
+    def to_dict(self, com_equip=False):
+        vinc = [v for v in (self.vinculos or []) if v.ativo]
+        d = {
+            "id": self.id, "nome": self.nome or "", "sku": self.sku or "",
+            "sku_importacao": self.sku_importacao or "", "fabricante": self.fabricante or "",
+            "descricao": self.descricao or "", "tipo_id": self.tipo_id,
+            "tipo": (self.tipo_rel.nome if self.tipo_rel else ""),
+            "atributos": self.atributos_dict(),
+            "pendente_sku": bool(self.pendente_sku), "status": self.status or "Ativo",
+            "ativo": bool(self.ativo), "n_equip": len(vinc),
+        }
+        if com_equip:
+            d["equipamentos"] = [v.to_dict_equip() for v in vinc]
+        return d
+
+
+class ConsumivelEquipamento(db.Model):
+    __tablename__ = "consumivel_equipamento"
+    __table_args__ = (db.UniqueConstraint("consumivel_id", "equipamento_id", name="uq_cons_equip"),)
+
+    id             = db.Column(db.Integer, primary_key=True)
+    consumivel_id  = db.Column(db.Integer, db.ForeignKey("consumiveis.id"), nullable=False, index=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"), nullable=False, index=True)
+    fornecimento   = db.Column(db.String(30), default="nao_informado")
+    obrigatorio    = db.Column(db.Boolean, default=False)
+    observacao     = db.Column(db.String(300), default="")
+    ativo          = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    consumivel  = db.relationship("Consumivel", backref=db.backref("vinculos", lazy="selectin"))
+    equipamento = db.relationship("Equipamento", lazy="joined")
+
+    def to_dict_equip(self):
+        e = self.equipamento
+        return {"vinculo_id": self.id, "equipamento_id": self.equipamento_id,
+                "equipamento_nome": (e.nome if e else ""), "equipamento_sku": (e.sku if e else ""),
+                "fornecimento": self.fornecimento or "nao_informado",
+                "obrigatorio": bool(self.obrigatorio), "observacao": self.observacao or ""}
+
+    def to_dict_cons(self):
+        c = self.consumivel
+        return {"vinculo_id": self.id, "consumivel_id": self.consumivel_id,
+                "nome": (c.nome if c else ""), "sku": (c.sku if c else ""),
+                "tipo": (c.tipo_rel.nome if c and c.tipo_rel else ""),
+                "pendente_sku": bool(c.pendente_sku) if c else False,
+                "fornecimento": self.fornecimento or "nao_informado",
+                "obrigatorio": bool(self.obrigatorio), "observacao": self.observacao or ""}
+
+
 # ── RESPONSAVEL ───────────────────────────────────────────────────────────────
 
 class Responsavel(db.Model):
