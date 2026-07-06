@@ -2,7 +2,6 @@
 servidor.py — DocTrack v4.0 Enterprise Backend
 """
 import os, sys, json, argparse, unicodedata, io, csv
-from functools import wraps
 from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, send_file
@@ -104,7 +103,7 @@ from models import (
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, SETOR_DO_TIPO, TIPOS_DOC_LABELS
 )
-from auth import auth_bp, log_action
+from auth import auth_bp, log_action, require_role
 from event_bus import publish_event, get_events_since, EventType
 
 db.init_app(app)
@@ -165,16 +164,10 @@ def add_security_headers(response):
     return response
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
-def require_role(*roles):
-    def deco(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            claims = get_jwt()
-            if claims.get("role", "") not in roles:
-                return jsonify({"erro": "Acesso negado"}), 403
-            return fn(*args, **kwargs)
-        return wrapper
-    return deco
+# require_role vem de auth.py (fonte única): já embute @jwt_required(), então não
+# depende de o chamador lembrar de empilhá-lo — evita rota sem autenticação por
+# esquecimento. As rotas abaixo ainda mantêm @jwt_required() explícito (redundante
+# e inofensivo); pode ser removido num passo futuro de limpeza.
 
 def norm(s):
     if s is None: return ""
