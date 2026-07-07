@@ -552,6 +552,11 @@ class Consumivel(db.Model):
         except Exception:
             return {}
 
+    def marcar_pendencia_sku(self):
+        """Deriva pendente_sku do SKU atual (sem SKU → pendente). Fonte única da
+        fórmula: chame após qualquer escrita em `sku` para manter o flag coerente."""
+        self.pendente_sku = not bool((self.sku or "").strip())
+
     def to_dict(self, com_equip=False):
         vinc = [v for v in (self.vinculos or []) if v.ativo]
         d = {

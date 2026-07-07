@@ -219,7 +219,9 @@ async function baixarJSON(url, filename){
   const res=await fetch(url,{headers:{"Authorization":"Bearer "+token()}});
   if(!res.ok){ toast("Falha ao exportar",true); return; }
   const data=await res.json(); const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+  const href=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=href; a.download=filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(href),1000);
 }
 function exportarDescritivo(){ if(!consCur) return; const nome=(consCur.sku||consCur.nome||"consumivel").replace(/[^\w.-]+/g,"_"); baixarJSON("/api/consumiveis/"+consCur.id+"/descritivo","descritivo_"+nome+".json"); }
 function abrirConsImport(){ document.getElementById("consimport-json").value=""; document.getElementById("consimport-preview").textContent="—"; document.getElementById("btn-consimport-aplicar").style.display="none";
@@ -244,17 +246,25 @@ async function rodarConsImport(dryrun){
   let parsed; try{ parsed=JSON.parse(raw); }catch(e){ prev.innerHTML='<span style="color:#f43f5e">JSON inválido: '+esc(e.message)+'</span>'; return; }
   try{
     const rel=await api("/api/consumiveis/descritivo/import",{method:"POST",body:JSON.stringify({descritivo:parsed,dryrun})});
-    const det=(rel.itens||[]).slice(0,8).map(r=>{ const ex=r.extras&&r.extras.length?` · extras: ${r.extras.join(", ")}`:""; const ne=r.equip_nao_encontrado?` · equip. não encontrado: ${r.equip_nao_encontrado.join(", ")}`:""; return `${r.acao}: ${esc(r.nome||r.sku||"?")}${ex}${ne}`; }).join("<br>");
+    const det=(rel.itens||[]).slice(0,8).map(r=>{ const ex=r.extras&&r.extras.length?` · extras: ${esc(r.extras.join(", "))}`:""; const ne=r.equip_nao_encontrado?` · equip. não encontrado: ${esc(r.equip_nao_encontrado.join(", "))}`:""; return `${esc(r.acao)}: ${esc(r.nome||r.sku||"?")}${ex}${ne}`; }).join("<br>");
     prev.innerHTML=`<b>${rel.aplicado?"Importado":"Prévia"}</b> — ${rel.total} item(ns) · criar: <b>${rel.a_criar}</b> · atualizar: <b>${rel.a_atualizar}</b>${det?`<div class="muted" style="font-size:11px;margin-top:8px">${det}</div>`:""}`;
     document.getElementById("btn-consimport-aplicar").style.display=dryrun?"inline-flex":"none";
     if(!dryrun){ toast(`Descritivo aplicado (${rel.a_criar} criados, ${rel.a_atualizar} atualizados)`); await loadCons(); renderConsGrid(); setTimeout(()=>closeModal("consimport"),1200); }
   }catch(e){ prev.innerHTML='<span style="color:#f43f5e">'+esc(e.message)+'</span>'; }
 }
-async function exportarConsCSV(){
-  try{ const res=await fetch("/api/consumiveis/export",{headers:{"Authorization":"Bearer "+token()}});
-    const blob=await res.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="consumiveis.csv"; a.click(); }
-  catch(e){ toast("Erro ao exportar",true); }
+// Download autenticado de um arquivo servido pelo backend. Checa res.ok (senão
+// um 401 baixaria o corpo de erro JSON com o nome do arquivo) e revoga o object
+// URL para não vazar memória.
+async function baixarArquivo(url, filename){
+  try{
+    const res=await fetch(url,{headers:{"Authorization":"Bearer "+token()}});
+    if(!res.ok){ toast("Falha ao exportar",true); return; }
+    const href=URL.createObjectURL(await res.blob());
+    const a=document.createElement("a"); a.href=href; a.download=filename; a.click();
+    setTimeout(()=>URL.revokeObjectURL(href),1000);
+  }catch(e){ toast("Erro ao exportar",true); }
 }
+async function exportarConsCSV(){ await baixarArquivo("/api/consumiveis/export","consumiveis.csv"); }
 function copiarConsFicha(){ const c=consCur; if(!c) return; const L=[c.nome||""]; const add=(k,v)=>{ if(v&&String(v).trim()) L.push(k+": "+v); };
   add("Tipo",c.tipo); add("SKU de venda",c.sku); add("SKU de importação",c.sku_importacao); add("Fabricante",c.fabricante); add("Descrição",c.descricao);
   const at=c.atributos||{}; Object.keys(at).forEach(k=>{ if(k!=="descritivo") add(k,at[k]); });   // descritivo é objeto → formatado à parte

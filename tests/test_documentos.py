@@ -151,11 +151,32 @@ def test_abrir_pasta_caminho_vazio(client, admin_token, auth_headers):
 
 def test_abrir_pasta_caminho_inexistente(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
+    import os
     from unittest.mock import patch
-    with patch("os.path.exists", return_value=False):
-        res = client.post("/api/documentos/abrir-pasta", json={"caminho": "Z:/Inexistente/Diretorio/Falso.pdf"}, headers=h)
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    # Dentro do allowlist, porém inexistente → 404 (e não 403).
+    caminho = os.path.join(raiz, "Inexistente", "Diretorio", "Falso.pdf")
+    with patch("documentos.ARQUIVOS_ROOTS", [raiz]), patch("os.path.exists", return_value=False):
+        res = client.post("/api/documentos/abrir-pasta", json={"caminho": caminho}, headers=h)
         assert res.status_code == 404
         assert "Caminho não encontrado" in res.get_json()["erro"]
+
+
+def test_abrir_pasta_fora_das_raizes_bloqueado(client, admin_token, auth_headers):
+    """Caminho fora do allowlist é rejeitado com 403 — proteção contra sondagem
+    de caminhos arbitrários do servidor e shares UNC de terceiros."""
+    h = auth_headers(admin_token)
+    import os
+    from unittest.mock import patch
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with patch("documentos.ARQUIVOS_ROOTS", [raiz]), patch("os.startfile") as mock_startfile, \
+         patch("subprocess.Popen") as mock_popen:
+        res = client.post("/api/documentos/abrir-pasta",
+                          json={"caminho": r"C:\Windows\System32"}, headers=h)
+        assert res.status_code == 403
+        assert "fora das pastas permitidas" in res.get_json()["erro"]
+        mock_startfile.assert_not_called()
+        mock_popen.assert_not_called()
 
 
 def test_abrir_pasta_diretorio_sucesso(client, admin_token, auth_headers):
@@ -163,8 +184,8 @@ def test_abrir_pasta_diretorio_sucesso(client, admin_token, auth_headers):
     import os
     from unittest.mock import patch
     diretorio_real = os.path.dirname(os.path.abspath(__file__))
-    
-    with patch("os.startfile") as mock_startfile:
+
+    with patch("documentos.ARQUIVOS_ROOTS", [diretorio_real]), patch("os.startfile") as mock_startfile:
         res = client.post("/api/documentos/abrir-pasta", json={"caminho": diretorio_real}, headers=h)
         assert res.status_code == 200
         data = res.get_json()
@@ -177,8 +198,9 @@ def test_abrir_pasta_arquivo_sucesso(client, admin_token, auth_headers):
     import os
     from unittest.mock import patch
     arquivo_real = os.path.abspath(__file__)
-    
-    with patch("subprocess.Popen") as mock_popen:
+    raiz = os.path.dirname(arquivo_real)
+
+    with patch("documentos.ARQUIVOS_ROOTS", [raiz]), patch("subprocess.Popen") as mock_popen:
         res = client.post("/api/documentos/abrir-pasta", json={"caminho": arquivo_real}, headers=h)
         assert res.status_code == 200
         data = res.get_json()
@@ -195,8 +217,8 @@ def test_abrir_pasta_ancestral_sucesso(client, admin_token, auth_headers):
     from unittest.mock import patch
     diretorio_real = os.path.dirname(os.path.abspath(__file__))
     caminho_falso = os.path.join(diretorio_real, "PastaNaoExistente", "ArquivoFalso.pdf")
-    
-    with patch("os.startfile") as mock_startfile:
+
+    with patch("documentos.ARQUIVOS_ROOTS", [diretorio_real]), patch("os.startfile") as mock_startfile:
         res = client.post("/api/documentos/abrir-pasta", json={"caminho": caminho_falso}, headers=h)
         assert res.status_code == 200
         data = res.get_json()
@@ -211,14 +233,16 @@ def test_abrir_pasta_ancestral_sucesso(client, admin_token, auth_headers):
 def test_abrir_pasta_acesso_remoto(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
     import os
+    from unittest.mock import patch
     diretorio_real = os.path.dirname(os.path.abspath(__file__))
-    
+
     # Simula IP do cliente como 192.168.1.99 (acesso remoto)
-    res = client.post("/api/documentos/abrir-pasta", 
-                      json={"caminho": diretorio_real}, 
-                      headers=h,
-                      environ_overrides={"REMOTE_ADDR": "192.168.1.99"})
-                      
+    with patch("documentos.ARQUIVOS_ROOTS", [diretorio_real]):
+        res = client.post("/api/documentos/abrir-pasta",
+                          json={"caminho": diretorio_real},
+                          headers=h,
+                          environ_overrides={"REMOTE_ADDR": "192.168.1.99"})
+
     assert res.status_code == 200
     data = res.get_json()
     assert data["local"] is False

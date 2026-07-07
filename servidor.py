@@ -1,7 +1,7 @@
 """
 servidor.py — DocTrack v4.0 Enterprise Backend
 """
-import os, sys, json, argparse, unicodedata, io, csv, zipfile
+import os, sys, json, argparse, io, csv, zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
@@ -66,18 +66,6 @@ try:
 except Exception:
     APP_VERSION = "dev"
 
-# Raízes permitidas para visualizar/baixar arquivos dos equipamentos.
-# Configurável via DOCTRACK_FILE_ROOTS (separado por ';').
-# Inclui tanto a forma UNC (\\loccus-srv03\Projetos$\Engenharia) quanto a letra
-# de unidade mapeada (P:\Engenharia), pois os caminhos podem estar gravados em
-# qualquer um dos formatos e um serviço Windows só enxerga o caminho UNC.
-ARQUIVOS_ROOTS = [
-    r.strip() for r in os.environ.get(
-        "DOCTRACK_FILE_ROOTS",
-        r"\\loccus-srv03\Projetos$\Engenharia;P:\Engenharia",
-    ).split(";") if r.strip()
-]
-
 _database_url = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
 if _database_url.startswith("postgres://"):
     _database_url = _database_url.replace("postgres://", "postgresql://", 1)
@@ -104,8 +92,9 @@ from models import (
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, SETOR_DO_TIPO, TIPOS_DOC_LABELS
 )
-from auth import auth_bp, log_action, require_role
+from auth import auth_bp, log_action, require_role, get_client_ip
 from event_bus import publish_event, get_events_since, EventType
+from utils import norm, norm_sku
 
 db.init_app(app)
 bcrypt.init_app(app)
@@ -114,6 +103,10 @@ app.register_blueprint(auth_bp)
 
 from entregaveis import entregaveis_bp, init_realtime as entregaveis_init_realtime
 app.register_blueprint(entregaveis_bp)
+
+# Módulo Documentos — CRUD de documentos + acesso a arquivos do equipamento.
+from documentos import documentos_bp, init_realtime as documentos_init_realtime
+app.register_blueprint(documentos_bp)
 
 # Módulo PDR (P&D de reagentes) — montado sob /pdr, usa o mesmo db/login/auditoria.
 from pdr import pdr_bp, init_realtime as pdr_init_realtime
@@ -131,6 +124,7 @@ socketio = SocketIO(
 )
 
 entregaveis_init_realtime(socketio, publish_event, AuditLog, EventType)
+documentos_init_realtime(socketio, publish_event, AuditLog, EventType)
 pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
@@ -167,19 +161,9 @@ def add_security_headers(response):
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 # require_role vem de auth.py (fonte única): já embute @jwt_required(), então não
 # depende de o chamador lembrar de empilhá-lo — evita rota sem autenticação por
-# esquecimento. As rotas abaixo ainda mantêm @jwt_required() explícito (redundante
-# e inofensivo); pode ser removido num passo futuro de limpeza.
-
-def norm(s):
-    if s is None: return ""
-    s = str(s).strip().lower()
-    return unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("ASCII")
-
-def get_client_ip():
-    # remote_addr já reflete o cliente real quando TRUST_PROXY está ativo (ProxyFix
-    # aplica o X-Forwarded-For). Sem proxy confiável, não lemos o cabeçalho — ele é
-    # forjável e este IP é gravado no audit log.
-    return request.remote_addr or ""
+# esquecimento. Por isso as rotas com @require_role NÃO empilham @jwt_required()
+# (seria verificação dupla); o decorator explícito fica só nas rotas sem restrição
+# de perfil (apenas login exigido).
 
 def compute_kpis(docs):
     total = len(docs)
@@ -419,136 +403,6 @@ def api_data():
     docs = [d.to_dict() for d in Documento.query.filter(Documento.ativo == True).order_by(Documento.equipamento).all()]
     return jsonify({"updated_at": datetime.now().strftime("%d/%m/%Y %H:%M"), "items": docs, "kpis": compute_kpis(docs)}), 200
 
-# ── API — CRUD DOCUMENTOS ────────────────────────────────────────────────────
-@app.route("/api/documentos")
-@jwt_required()
-def api_documentos():
-    q       = norm(request.args.get("q", ""))
-    setor   = request.args.get("setor", "")
-    
-    query = Documento.query.filter(Documento.ativo == True)
-    if setor: query = query.filter(Documento.setor == setor)
-    
-    docs = [d.to_dict() for d in query.order_by(Documento.equipamento).all()]
-    if q:
-        def matches(d):
-            blob = " ".join(norm(str(d.get(f, ""))) for f in ("equipamento","documento","codigo_doc","sku","responsavel","armazenamento","tipo_doc","fabricante","nome_original","anvisa","familia"))
-            return q in blob
-        docs = [d for d in docs if matches(d)]
-    return jsonify(docs), 200
-
-@app.route("/api/documentos/<int:doc_id>", methods=["GET"])
-@jwt_required()
-def get_documento(doc_id):
-    doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
-    if not doc: return jsonify({"erro": "Não encontrado"}), 404
-    return jsonify(doc.to_dict()), 200
-
-@app.route("/api/documentos", methods=["POST"])
-@jwt_required()
-@require_role("admin", "gestor", "tecnico")
-def create_documento():
-    caller = get_jwt_identity()
-    data = request.get_json(silent=True) or {}
-    setor = data.get("setor")
-    if setor not in SETORES:
-        return jsonify({"erro": f"Setor inválido. Escolha entre {SETORES}"}), 400
-
-    # Busca SKU existente para manter a integração do equipamento
-    equip = data.get("equipamento", "").strip()
-    sku = data.get("sku", "").strip()
-    if equip:
-        existing = Documento.query.filter(
-            Documento.ativo == True,
-            Documento.equipamento == equip,
-            Documento.sku != ""
-        ).first()
-        if existing:
-            sku = existing.sku
-
-    # get-or-create da entidade Equipamento (fonte única de identidade).
-    # Se o equipamento já existe, os documentos herdam a identidade DELE
-    # (SKU/fabricante), garantindo espelho; o payload só semeia um equip novo.
-    equip_obj = None
-    fab = data.get("fabricante", "")
-    if equip:
-        equip_obj = Equipamento.query.filter_by(nome=equip).first()
-        if not equip_obj:
-            equip_obj = Equipamento(
-                nome=equip, sku=sku,
-                fabricante=fab,
-                armazenamento_base=data.get("armazenamento", ""),
-            )
-            db.session.add(equip_obj)
-            db.session.flush()
-        else:
-            if sku and not equip_obj.sku:
-                equip_obj.sku = sku
-            # identidade canônica vem da entidade
-            sku = equip_obj.sku or sku
-            fab = equip_obj.fabricante or fab
-    equip_id = equip_obj.id if equip_obj else None
-
-    # Tipo selecionado (recebe os campos do payload); os demais nascem em branco.
-    tipos_setor = TIPOS_DOC_PRE if setor == "PRE" else TIPOS_DOC_FABRICANTE
-    selected_tipo = data.get("tipo_doc") or tipos_setor[0]
-    if selected_tipo not in TIPOS_DOC_TODOS:
-        selected_tipo = tipos_setor[0]
-
-    # Documentos já existentes deste equipamento (qualquer setor), por tipo.
-    existentes = {}
-    if equip:
-        for d in Documento.query.filter(
-            Documento.ativo == True, Documento.equipamento == equip
-        ).all():
-            existentes.setdefault(d.tipo_doc, d)
-
-    doc = existentes.get(selected_tipo)
-    # Cria os 9 tipos do equipamento que ainda não existem.
-    for t in TIPOS_DOC_TODOS:
-        if t in existentes:
-            continue
-        is_sel = (t == selected_tipo)
-        label = TIPOS_DOC_LABELS.get(t, t)
-        novo = Documento(
-            setor=SETOR_DO_TIPO[t],
-            equipamento=equip,
-            equipamento_id=equip_id,
-            sku=sku,
-            codigo_doc=data.get("codigo_doc", "") if is_sel else "",
-            documento=(data.get("documento") or f"{label} - {equip}") if is_sel else f"{label} - {equip}",
-            responsavel=data.get("responsavel", "") if is_sel else "",
-            status=data.get("status", "Elaborar") if is_sel else "Elaborar",
-            tipo_doc=t,
-            fabricante=fab,
-            obs_treinamento=data.get("obs_treinamento", "") if is_sel else "",
-            obs_homologacao=data.get("obs_homologacao", "") if is_sel else "",
-            armazenamento=data.get("armazenamento", "") if is_sel else (equip_obj.armazenamento_base if equip_obj else ""),
-        )
-        if is_sel:
-            if data.get("data_treinamento"):
-                try: novo.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d")
-                except: pass
-            if data.get("data_homologacao"):
-                try: novo.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
-                except: pass
-        db.session.add(novo)
-        if is_sel:
-            doc = novo
-
-    db.session.commit()
-    if doc is None:   # tipo selecionado já existia e nada foi criado
-        doc = existentes.get(selected_tipo) or next(iter(existentes.values()), None)
-
-    log_action(caller, "CREATE", entidade=doc.documento, campo="setor", novo=setor, documento_id=doc.id, ip=get_client_ip())
-    
-    try:
-        publish_event(EventType.DOCUMENT_CREATED,
-            payload={"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
-            user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
-    except Exception: pass
-    return jsonify({"mensagem": "Documento criado", "documento": doc.to_dict()}), 201
-
 # ── API — EQUIPAMENTOS (entidade central) ────────────────────────────────────
 @app.route("/api/equipamentos", methods=["GET"])
 @jwt_required()
@@ -611,7 +465,6 @@ def _ensure_docs_for_equip(equip):
     return n
 
 @app.route("/api/equipamentos", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def create_equipamento():
     caller = get_jwt_identity()
@@ -661,7 +514,6 @@ def _aplicar_campos_equip(equip, data):
     return mudou
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["PATCH", "PUT"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def update_equipamento(equip_id):
     caller = get_jwt_identity()
@@ -690,7 +542,6 @@ def update_equipamento(equip_id):
     return jsonify({"mensagem": "Equipamento atualizado", "equipamento": equip.to_dict()}), 200
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["DELETE"])
-@jwt_required()
 @require_role("admin", "gestor")
 def delete_equipamento(equip_id):
     caller = get_jwt_identity()
@@ -726,7 +577,6 @@ def export_equipamentos():
     return send_file(out, mimetype="text/csv", as_attachment=True, download_name="equipamentos.csv")
 
 @app.route("/api/equipamentos/import", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor")
 def import_equipamentos():
     caller = get_jwt_identity()
@@ -767,7 +617,6 @@ def _tax_uso(attr, _id):
     return Equipamento.query.filter(getattr(Equipamento, attr) == _id).count()
 
 @app.route("/api/categorias-equipamento", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def add_categoria():
     nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
@@ -776,7 +625,6 @@ def add_categoria():
     return jsonify(c.to_dict()), 201
 
 @app.route("/api/categorias-equipamento/<int:cid>", methods=["PATCH", "DELETE"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def edit_categoria(cid):
     c = CategoriaEquipamento.query.get(cid)
@@ -791,7 +639,6 @@ def edit_categoria(cid):
     return jsonify(c.to_dict()), 200
 
 @app.route("/api/familias-equipamento", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def add_familia():
     data = request.get_json(silent=True) or {}
@@ -801,7 +648,6 @@ def add_familia():
     return jsonify(f.to_dict()), 201
 
 @app.route("/api/familias-equipamento/<int:fid>", methods=["PATCH", "DELETE"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def edit_familia(fid):
     f = FamiliaEquipamento.query.get(fid)
@@ -827,7 +673,6 @@ def list_equip_itens(equip_id):
     }), 200
 
 @app.route("/api/equipamentos/<int:equip_id>/itens", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def add_equip_item(equip_id):
     caller = get_jwt_identity()
@@ -851,7 +696,6 @@ def add_equip_item(equip_id):
     return jsonify(item.to_dict()), 201
 
 @app.route("/api/equip-itens/<int:item_id>", methods=["PATCH", "DELETE"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def edit_equip_item(item_id):
     caller = get_jwt_identity()
@@ -872,53 +716,94 @@ def edit_equip_item(item_id):
     return jsonify(item.to_dict()), 200
 
 # ── API — CONSUMÍVEIS (catálogo + compatibilidade N:N + descritivo) ──────────
-import re as _re_cons
-_CONS_SKU_RE = _re_cons.compile(r"^\s*0*(\d+)\.(\d+)\s*$")
+def _build_import_ctx():
+    """Pré-carrega, uma vez por request de import, os mapas usados na dedup de
+    consumíveis e na resolução de equipamentos/tipos. Antes, cada item varria a
+    tabela inteira de consumíveis e fazia até 2 queries de equipamento por
+    vínculo (N varreduras por import). As chaves usam norm() para casar de forma
+    tolerante a acentos e à caixa (o lower() do SQLite é ASCII-only, então
+    "SOLUÇÃO" não casaria com "solução")."""
+    ctx = {"cons_sku": {}, "cons_nome": {}, "eq_sku": {}, "eq_nome": {},
+           "tipo_nome": {}, "tipo_campos": {}}
+    for c in Consumivel.query.filter(Consumivel.ativo == True).all():
+        k = norm_sku(c.sku)
+        if k:
+            ctx["cons_sku"].setdefault(k, c)
+        nk = norm(c.nome)
+        if nk:
+            ctx["cons_nome"].setdefault(nk, c)
+    for e in Equipamento.query.filter(Equipamento.ativo == True).all():
+        if e.sku:
+            ctx["eq_sku"].setdefault(e.sku, e)
+        nk = norm(e.nome)
+        if nk:
+            ctx["eq_nome"].setdefault(nk, e)
+    for t in TipoConsumivel.query.all():
+        nk = norm(t.nome)
+        if nk:
+            ctx["tipo_nome"].setdefault(nk, t.id)
+        ctx["tipo_campos"][t.id] = {cp["chave"] for cp in t.campos_list()}
+    return ctx
 
-def _cons_norm_sku(sku):
-    """SKU 'NN.NNNNNN' normalizado (ignora zeros à esquerda). Não-padrão → None."""
-    m = _CONS_SKU_RE.match(sku or "")
-    return f"{m.group(1)}.{m.group(2)}" if m else None
-
-def _cons_por_sku(sku):
-    """Consumível ativo cujo SKU normalizado casa (dedup por SKU de Venda)."""
-    k = _cons_norm_sku(sku)
-    if not k:
-        return None
-    for c in Consumivel.query.filter(Consumivel.ativo == True, Consumivel.sku != "").all():
-        if _cons_norm_sku(c.sku) == k:
-            return c
-    return None
-
-def _tipo_id_por_nome(nome):
-    if not nome:
-        return None
-    t = TipoConsumivel.query.filter(db.func.lower(TipoConsumivel.nome) == nome.strip().lower()).first()
-    return t.id if t else None
+def _ctx_registrar_consumivel(ctx, c):
+    """Registra um consumível recém-criado nos mapas para que os itens seguintes
+    do mesmo lote deduplicem contra ele (evita duplicata em imports com SKUs
+    repetidos no mesmo arquivo)."""
+    k = norm_sku(c.sku)
+    if k:
+        ctx["cons_sku"].setdefault(k, c)
+    nk = norm(c.nome)
+    if nk:
+        ctx["cons_nome"].setdefault(nk, c)
 
 @app.route("/api/tipos-consumivel", methods=["GET"])
 @jwt_required()
 def list_tipos_consumivel():
     tipos = TipoConsumivel.query.filter_by(ativo=True).order_by(TipoConsumivel.ordem, TipoConsumivel.nome).all()
-    return jsonify([{**t.to_dict(),
-                     "uso": Consumivel.query.filter_by(tipo_id=t.id, ativo=True).count()}
-                    for t in tipos]), 200
+    # Uso por tipo em uma única query agregada (antes: 1 COUNT por tipo — N+1
+    # num endpoint chamado a cada carga do catálogo).
+    usos = dict(db.session.query(Consumivel.tipo_id, db.func.count(Consumivel.id))
+                .filter(Consumivel.ativo == True)
+                .group_by(Consumivel.tipo_id).all())
+    return jsonify([{**t.to_dict(), "uso": usos.get(t.id, 0)} for t in tipos]), 200
+
+def _sanitize_campos(campos):
+    """Normaliza a lista de campos de um tipo para o contrato {chave, rotulo,
+    tipo_dado, unidade}. Sem isto, um POST pode gravar uma lista de strings
+    (ex.: ["material"]) que depois quebra campo["chave"] no descritivo-modelo
+    e no import (TypeError → 500). Devolve (lista_ok, erro|None)."""
+    if not isinstance(campos, list):
+        return [], None
+    limpos = []
+    for c in campos:
+        if not isinstance(c, dict):
+            return None, "Cada campo deve ser um objeto com 'chave' e 'rotulo'."
+        chave = (c.get("chave") or "").strip()
+        if not chave:
+            return None, "Cada campo precisa de uma 'chave' não vazia."
+        limpos.append({
+            "chave": chave,
+            "rotulo": (c.get("rotulo") or chave).strip(),
+            "tipo_dado": (c.get("tipo_dado") or "texto").strip(),
+            "unidade": (c.get("unidade") or "").strip(),
+        })
+    return limpos, None
 
 @app.route("/api/tipos-consumivel", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def add_tipo_consumivel():
     data = request.get_json(silent=True) or {}
     nome = (data.get("nome") or "").strip()
     if not nome:
         return jsonify({"erro": "Informe o nome"}), 400
-    campos = data.get("campos")
-    t = TipoConsumivel(nome=nome, campos=json.dumps(campos if isinstance(campos, list) else [], ensure_ascii=False))
+    campos, erro = _sanitize_campos(data.get("campos"))
+    if erro:
+        return jsonify({"erro": erro}), 400
+    t = TipoConsumivel(nome=nome, campos=json.dumps(campos, ensure_ascii=False))
     db.session.add(t); db.session.commit()
     return jsonify(t.to_dict()), 201
 
 @app.route("/api/tipos-consumivel/<int:tid>", methods=["PATCH", "DELETE"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def edit_tipo_consumivel(tid):
     t = TipoConsumivel.query.get(tid)
@@ -934,8 +819,11 @@ def edit_tipo_consumivel(tid):
         nome = (data.get("nome") or "").strip()
         if nome:
             t.nome = nome
-    if "campos" in data and isinstance(data["campos"], list):
-        t.campos = json.dumps(data["campos"], ensure_ascii=False)
+    if "campos" in data:
+        campos, erro = _sanitize_campos(data["campos"])
+        if erro:
+            return jsonify({"erro": erro}), 400
+        t.campos = json.dumps(campos, ensure_ascii=False)
     db.session.commit()
     return jsonify(t.to_dict()), 200
 
@@ -949,7 +837,7 @@ def _aplicar_campos_consumivel(c, data):
         c.tipo_id = data.get("tipo_id") or None
     if "atributos" in data and isinstance(data["atributos"], dict):
         c.atributos = json.dumps(data["atributos"], ensure_ascii=False)
-    c.pendente_sku = not bool((c.sku or "").strip())   # derivado: sem SKU → pendente
+    c.marcar_pendencia_sku()
 
 @app.route("/api/consumiveis", methods=["GET"])
 @jwt_required()
@@ -966,7 +854,6 @@ def get_consumivel(cid):
     return jsonify(c.to_dict(com_equip=True)), 200
 
 @app.route("/api/consumiveis", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def create_consumivel():
     caller = get_jwt_identity()
@@ -981,7 +868,6 @@ def create_consumivel():
     return jsonify(c.to_dict()), 201
 
 @app.route("/api/consumiveis/<int:cid>", methods=["PATCH", "PUT"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def update_consumivel(cid):
     caller = get_jwt_identity()
@@ -994,7 +880,6 @@ def update_consumivel(cid):
     return jsonify(c.to_dict(com_equip=True)), 200
 
 @app.route("/api/consumiveis/<int:cid>", methods=["DELETE"])
-@jwt_required()
 @require_role("admin", "gestor")
 def delete_consumivel(cid):
     caller = get_jwt_identity()
@@ -1022,7 +907,6 @@ def _upsert_vinculo(cid, equipamento_id, fornecimento="nao_informado", obrigator
     return v
 
 @app.route("/api/consumiveis/<int:cid>/equipamentos", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def add_vinculo_consumivel(cid):
     c = Consumivel.query.filter_by(id=cid, ativo=True).first()
@@ -1041,7 +925,6 @@ def add_vinculo_consumivel(cid):
     return jsonify(v.to_dict_equip()), 201
 
 @app.route("/api/consumivel-equipamento/<int:vid>", methods=["PATCH", "DELETE"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def edit_vinculo_consumivel(vid):
     v = ConsumivelEquipamento.query.filter_by(id=vid).first()
@@ -1104,24 +987,31 @@ def export_descritivo_modelo(tid):
         "compatibilidade": [],
     }), 200
 
-def _processar_descritivo(item, dryrun):
-    """Importa 1 descritivo (dict). Dedup por SKU; campos fora do modelo do tipo
-    entram como 'extras' em atributos (híbrido). Devolve resumo."""
+def _processar_descritivo(item, dryrun, ctx):
+    """Importa 1 descritivo (dict). Dedup por SKU e nome (via ctx pré-carregado);
+    campos fora do modelo do tipo entram como 'extras' em atributos (híbrido).
+    Devolve resumo."""
     nome = (item.get("nome") or "").strip()
     sku = (item.get("sku") or "").strip()
     if not nome and not sku:
         return {"acao": "ignorado", "motivo": "sem nome e sem SKU"}
     tipo_nome = (item.get("tipo") or "").strip()
-    tipo_id = _tipo_id_por_nome(tipo_nome)
-    campos_chaves = set()
-    if tipo_id:
-        t = TipoConsumivel.query.get(tipo_id)
-        campos_chaves = {c["chave"] for c in (t.campos_list() if t else [])}
+    tipo_id = ctx["tipo_nome"].get(norm(tipo_nome)) if tipo_nome else None
+    campos_chaves = ctx["tipo_campos"].get(tipo_id, set()) if tipo_id else set()
     atributos = item.get("atributos") if isinstance(item.get("atributos"), dict) else {}
     extras = [k for k in atributos.keys() if k not in campos_chaves] if campos_chaves else list(atributos.keys())
     compat = item.get("compatibilidade") if isinstance(item.get("compatibilidade"), list) else []
 
-    existente = _cons_por_sku(sku) if sku else None
+    # Dedup: primeiro por SKU; se o item não tem SKU (ou não casou), tenta por
+    # nome normalizado. Sem esse fallback, reaplicar um descritivo sem SKU cria
+    # uma duplicata a cada clique em "Aplicar".
+    existente = ctx["cons_sku"].get(norm_sku(sku)) if sku else None
+    if not existente and nome:
+        existente = ctx["cons_nome"].get(norm(nome))
+    # Sem correspondência e sem nome (só um SKU órfão) → não dá para criar um
+    # consumível identificável; criaria um card em branco. Ignora.
+    if not existente and not nome:
+        return {"acao": "ignorado", "motivo": "sem nome para criar (apenas SKU sem correspondência)"}
     resumo = {"acao": "atualizar" if existente else "criar",
               "nome": nome or (existente.nome if existente else ""),
               "sku": sku, "tipo": tipo_nome, "extras": extras, "vinculos": len(compat)}
@@ -1141,10 +1031,12 @@ def _processar_descritivo(item, dryrun):
     if atributos:
         merged = c.atributos_dict(); merged.update(atributos)
         c.atributos = json.dumps(merged, ensure_ascii=False)
-    c.pendente_sku = not bool((c.sku or "").strip())
+    c.marcar_pendencia_sku()
     if not existente:
         db.session.add(c)
     db.session.flush()   # garante c.id para os vínculos
+    if not existente:
+        _ctx_registrar_consumivel(ctx, c)
 
     for link in compat:
         eq_nome = (link.get("equipamento") or "").strip()
@@ -1152,12 +1044,9 @@ def _processar_descritivo(item, dryrun):
         forn = link.get("fornecimento") or "nao_informado"
         if forn not in FORNECIMENTO:
             forn = "nao_informado"
-        eq = None
-        if eq_sku:
-            eq = Equipamento.query.filter(Equipamento.ativo == True, Equipamento.sku == eq_sku).first()
+        eq = ctx["eq_sku"].get(eq_sku) if eq_sku else None
         if not eq and eq_nome:
-            eq = Equipamento.query.filter(Equipamento.ativo == True,
-                                          db.func.lower(Equipamento.nome) == eq_nome.lower()).first()
+            eq = ctx["eq_nome"].get(norm(eq_nome))
         if eq:
             _upsert_vinculo(c.id, eq.id, forn)
         else:
@@ -1165,7 +1054,6 @@ def _processar_descritivo(item, dryrun):
     return resumo
 
 @app.route("/api/consumiveis/descritivo/import", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def import_descritivo():
     caller = get_jwt_identity()
@@ -1180,9 +1068,10 @@ def import_descritivo():
         return jsonify({"erro": "Envie 'descritivo' como objeto ou lista"}), 400
     resultados = []
     try:
+        ctx = _build_import_ctx()
         for it in itens:
             if isinstance(it, dict):
-                resultados.append(_processar_descritivo(it, dryrun))
+                resultados.append(_processar_descritivo(it, dryrun, ctx))
         if not dryrun:
             db.session.commit()
             log_action(caller, "UPDATE", entidade="Consumíveis (descritivo)",
@@ -1263,7 +1152,6 @@ def _descritivo_item_de_paragrafos(paras):
     return item
 
 @app.route("/api/consumiveis/descritivo/import-docx", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def import_descritivo_docx():
     f = request.files.get("arquivo")
@@ -1298,292 +1186,8 @@ def export_consumiveis_csv():
     return send_file(io.BytesIO(out.getvalue().encode("utf-8-sig")),
                      mimetype="text/csv", as_attachment=True, download_name="consumiveis.csv")
 
-@app.route("/api/documentos/<int:doc_id>", methods=["PATCH", "PUT"])
-@jwt_required()
-@require_role("admin", "gestor", "tecnico")
-def update_documento(doc_id):
-    caller = get_jwt_identity()
-    data = request.get_json(silent=True) or {}
-    doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
-    if not doc: return jsonify({"erro": "Não encontrado"}), 404
-    
-    # Identidade (equipamento / SKU / fabricante) é IMUTÁVEL pelo documento:
-    # a fonte única é a entidade Equipamento — editável só no módulo Equipamentos,
-    # que propaga para os documentos vinculados. Aqui só se editam campos do
-    # próprio documento (status, responsável, código, datas, obs, caminho).
-    CAMPOS_STR = ["codigo_doc", "documento", "responsavel", "status", "tipo_doc",
-                  "obs_treinamento", "obs_homologacao", "armazenamento"]
-
-    for campo in CAMPOS_STR:
-        if campo in data:
-            antigo = getattr(doc, campo); novo = data[campo]
-            if str(antigo) != str(novo):
-                log_action(caller, "UPDATE", entidade=doc.documento, campo=campo, antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
-                setattr(doc, campo, novo)
-
-    if "data_treinamento" in data:
-        try:
-            doc.data_treinamento = datetime.strptime(data["data_treinamento"], "%Y-%m-%d") if data["data_treinamento"] else None
-        except: pass
-    if "data_homologacao" in data:
-        try:
-            doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d") if data["data_homologacao"] else None
-        except: pass
-
-    doc.updated_em = datetime.now()
-    doc.version = (doc.version or 0) + 1
-    db.session.commit()
-    try:
-        publish_event(EventType.DOCUMENT_UPDATED,
-            payload={"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
-            user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
-    except Exception: pass
-    return jsonify({"mensagem": "Documento atualizado", "documento": doc.to_dict()}), 200
-
-@app.route("/api/documentos/<int:doc_id>", methods=["DELETE"])
-@jwt_required()
-@require_role("admin", "gestor")
-def delete_documento(doc_id):
-    caller = get_jwt_identity()
-    doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
-    if not doc: return jsonify({"erro": "Não encontrado"}), 404
-    nome = doc.documento
-    snapshot_data = json.dumps(doc.snapshot())
-    doc.ativo = False; doc.deleted_at = datetime.now(); db.session.commit()
-    log_action(caller, "DELETE", entidade=nome, campo="*", antigo=snapshot_data, documento_id=doc.id, ip=get_client_ip())
-    try:
-        publish_event(EventType.DOCUMENT_DELETED,
-            payload={"documento_id": doc_id, "setor": doc.setor, "equipamento": doc.equipamento},
-            user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
-    except Exception: pass
-    return jsonify({"mensagem": f"Documento '{nome}' excluído"}), 200
-
-@app.route("/api/documentos/abrir-pasta", methods=["POST"])
-@jwt_required()
-def abrir_pasta():
-    data = request.get_json(silent=True) or {}
-    caminho = data.get("caminho", "").strip()
-    if not caminho:
-        return jsonify({"erro": "Caminho não fornecido"}), 400
-        
-    import os
-    import subprocess
-    import socket
-    
-    caminho_norm = os.path.normpath(caminho)
-    
-    # 1. Determina se o cliente está na mesma máquina física que o servidor
-    client_ip = request.remote_addr
-    is_local = False
-    if client_ip in ("127.0.0.1", "::1", "localhost"):
-        is_local = True
-    else:
-        try:
-            hostname = socket.gethostname()
-            server_ips = socket.gethostbyname_ex(hostname)[2]
-            # Adiciona IPs conhecidos de loopback
-            server_ips.extend(["127.0.0.1", "::1"])
-            if client_ip in server_ips:
-                is_local = True
-        except:
-            pass
-            
-    # 2. Resolve o caminho (busca o arquivo/pasta ou o ancestral mais próximo existente)
-    caminho_final = None
-    tipo_abertura = "direto"
-    
-    if os.path.exists(caminho_norm):
-        caminho_final = caminho_norm
-        tipo_abertura = "direto"
-    else:
-        parent = os.path.dirname(caminho_norm)
-        while parent:
-            if not parent.strip():
-                break
-            if os.path.exists(parent) and os.path.isdir(parent):
-                caminho_final = parent
-                tipo_abertura = "ancestral"
-                break
-            next_parent = os.path.dirname(parent)
-            if next_parent == parent:
-                if os.path.exists(parent) and os.path.isdir(parent):
-                    caminho_final = parent
-                    tipo_abertura = "raiz"
-                break
-            parent = next_parent
-
-    if not caminho_final:
-        return jsonify({"erro": f"Caminho não encontrado ou inacessível: {caminho}"}), 404
-        
-    # 3. Executa a abertura física se for acesso local
-    if is_local:
-        try:
-            if os.path.isdir(caminho_final):
-                os.startfile(caminho_final)
-            else:
-                subprocess.Popen(["explorer", f"/select,{caminho_final}"])
-            return jsonify({
-                "mensagem": "Pasta aberta com sucesso",
-                "caminho_aberto": caminho_final,
-                "local": True,
-                "tipo": tipo_abertura
-            }), 200
-        except Exception as e:
-            return jsonify({"erro": f"Erro ao abrir pasta: {str(e)}"}), 500
-    else:
-        # Se for acesso remoto, não abre no servidor, mas retorna o caminho resolvido para o cliente copiar
-        return jsonify({
-            "mensagem": "Acesso remoto detectado. Caminho resolvido pronto para cópia.",
-            "caminho_aberto": caminho_final,
-            "caminho_original": caminho,
-            "local": False,
-            "tipo": tipo_abertura
-        }), 200
-
-# ── API — VISUALIZAR ARQUIVOS DO EQUIPAMENTO ──────────────────────────────────
-def _validar_caminho_arquivo(caminho):
-    """Resolve o caminho e garante que está dentro de uma raiz permitida.
-    Retorna o caminho real (absoluto) ou None se inválido/fora das raízes."""
-    if not caminho:
-        return None
-    try:
-        real = os.path.realpath(os.path.abspath(caminho))
-    except Exception:
-        return None
-    nreal = os.path.normcase(real)
-    for root in ARQUIVOS_ROOTS:
-        try:
-            nroot = os.path.normcase(os.path.realpath(os.path.abspath(root)))
-            if os.path.commonpath([nreal, nroot]) == nroot:
-                return real
-        except ValueError:
-            continue  # caminhos em drives diferentes
-        except Exception:
-            continue
-    return None
-
-_EXT_INLINE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt"}
-
-@app.route("/api/documentos/arquivos", methods=["GET"])
-@jwt_required()
-def listar_arquivos():
-    """Lista os arquivos da pasta de armazenamento de um equipamento,
-    classificando por IT / Checklist / Outros (até 2 níveis de subpasta)."""
-    caminho = (request.args.get("caminho") or "").strip()
-    if not caminho:
-        return jsonify({"erro": "Caminho não fornecido"}), 400
-    pasta = _validar_caminho_arquivo(caminho)
-    if not pasta:
-        return jsonify({"erro": "Caminho fora das pastas permitidas"}), 403
-    if not os.path.isdir(pasta):
-        return jsonify({"erro": "Pasta não encontrada ou inacessível"}), 404
-
-    arquivos = []
-    try:
-        for base, dirs, files in os.walk(pasta):
-            depth = base[len(pasta):].count(os.sep)
-            if depth >= 2:
-                dirs[:] = []
-                continue
-            for nome in files:
-                full = os.path.join(base, nome)
-                ext = os.path.splitext(nome)[1].lower()
-                low = nome.lower()
-                if low.startswith(("it.", "it ", "it-", "it_")):
-                    cat = "IT"
-                elif low.startswith("rsq") or "checklist" in low or "check list" in low:
-                    cat = "Checklist"
-                else:
-                    cat = "Outros"
-                try:
-                    st = os.stat(full)
-                    tamanho = st.st_size
-                    mod = datetime.fromtimestamp(st.st_mtime).strftime("%d/%m/%Y %H:%M")
-                except Exception:
-                    tamanho, mod = 0, ""
-                arquivos.append({
-                    "nome": nome,
-                    "caminho": full,
-                    "rel": os.path.relpath(full, pasta),
-                    "ext": ext.lstrip("."),
-                    "tamanho": tamanho,
-                    "modificado": mod,
-                    "categoria": cat,
-                    "inline": ext in _EXT_INLINE,
-                })
-                if len(arquivos) >= 300:
-                    break
-            if len(arquivos) >= 300:
-                break
-    except Exception as e:
-        return jsonify({"erro": f"Erro ao listar arquivos: {str(e)}"}), 500
-
-    ordem = {"IT": 0, "Checklist": 1, "Outros": 2}
-    arquivos.sort(key=lambda a: (ordem.get(a["categoria"], 3), a["nome"].lower()))
-    return jsonify({"pasta": pasta, "arquivos": arquivos}), 200
-
-@app.route("/api/documentos/arquivo", methods=["GET"])
-@jwt_required()
-def servir_arquivo():
-    """Serve um arquivo individual: PDF/imagens inline (preview no navegador),
-    demais formatos como download. Restrito às raízes permitidas."""
-    caminho = (request.args.get("caminho") or "").strip()
-    if not caminho:
-        return jsonify({"erro": "Caminho não fornecido"}), 400
-    real = _validar_caminho_arquivo(caminho)
-    if not real:
-        return jsonify({"erro": "Caminho fora das pastas permitidas"}), 403
-    if not os.path.isfile(real):
-        return jsonify({"erro": "Arquivo não encontrado"}), 404
-    ext = os.path.splitext(real)[1].lower()
-    inline = (ext in _EXT_INLINE) and request.args.get("download") != "1"
-    try:
-        return send_file(
-            real,
-            as_attachment=not inline,
-            download_name=os.path.basename(real),
-            conditional=True,
-        )
-    except Exception as e:
-        return jsonify({"erro": f"Erro ao abrir arquivo: {str(e)}"}), 500
-
-# ── API — STATUS FLOW ─────────────────────────────────────────────────────────
-@app.route("/api/documento/<int:doc_id>/status", methods=["PUT"])
-@jwt_required()
-@require_role("admin", "gestor", "tecnico")
-def update_status(doc_id):
-    caller = get_jwt_identity()
-    data = request.get_json(silent=True) or {}
-    novo = data.get("status", "")
-    expected_version = data.get("version")
-    
-    doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
-    if not doc: return jsonify({"erro": "Não encontrado"}), 404
-    
-    if expected_version is not None and doc.version != expected_version:
-        return jsonify({"erro": "Documento alterado por outro usuário.", "current_version": doc.version, "documento": doc.to_dict()}), 409
-        
-    setor_status_list = STATUS_MAP.get(doc.setor, [])
-    if novo not in setor_status_list:
-        return jsonify({"erro": f"Status inválido para o setor {doc.setor}. Use: {', '.join(setor_status_list)}"}), 400
-
-    antigo = doc.status
-    doc.status = novo
-    doc.updated_em = datetime.now()
-    doc.version = (doc.version or 0) + 1
-    db.session.commit()
-    log_action(caller, "STATUS_CHANGE", entidade=doc.documento, campo="status", antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
-    try:
-        publish_event(EventType.DOCUMENT_STATUS_UPDATED,
-            payload={"documento_id": doc.id, "old_value": antigo, "new_value": novo, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
-            user_email=caller, db=db, AuditLog=AuditLog, socketio=socketio)
-    except Exception: pass
-    return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200
-
-
 # ── API — PDF REPORT ─────────────────────────────────────────────────────────
 @app.route("/api/report/pdf", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor", "tecnico")
 def api_report_pdf():
     try:
@@ -1654,7 +1258,6 @@ def _filter_audit_dates(query):
     return query
 
 @app.route("/api/audit")
-@jwt_required()
 @require_role("admin", "gestor")
 def api_audit():
     q = norm(request.args.get("q", ""))
@@ -1669,7 +1272,6 @@ def api_audit():
     return jsonify(result), 200
 
 @app.route("/api/export/audit")
-@jwt_required()
 @require_role("admin", "gestor")
 def export_audit():
     logs = _filter_audit_dates(AuditLog.query.order_by(AuditLog.timestamp.desc())).all()
@@ -1696,9 +1298,8 @@ def export_audit():
             "Data": log.timestamp.strftime("%d/%m/%Y %H:%M:%S") if log.timestamp else ""
         })
         
-    import json
     raw_json = json.dumps(raw_list, ensure_ascii=False)
-    
+
     # Substitui a definição const RAW no javascript usando index para máxima segurança
     start_str = "const RAW = ["
     start_idx = html_content.find(start_str)
@@ -1744,7 +1345,6 @@ def _run_import_bg():
                 pass
 
 @app.route("/api/reimport", methods=["POST"])
-@jwt_required()
 @require_role("admin", "gestor")
 def api_reimport():
     if not os.path.exists(EXCEL_PATH): return jsonify({"erro": "Excel não encontrado"}), 404
@@ -2028,13 +1628,12 @@ def _seed_tipos_consumivel():
     """Semeia os tipos de consumível + o modelo de campos de cada um (só quando
     a tabela está vazia). As tabelas de consumíveis são criadas por create_all().
     Idempotente."""
-    import json as _json
     if TipoConsumivel.query.count() > 0:
         return
     n = 0
     for ordem, (nome, campos) in enumerate(TIPOS_CONSUMIVEL_SEED.items()):
         db.session.add(TipoConsumivel(nome=nome, ordem=ordem,
-                                      campos=_json.dumps(campos, ensure_ascii=False)))
+                                      campos=json.dumps(campos, ensure_ascii=False)))
         n += 1
     db.session.commit()
     if n:
