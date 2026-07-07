@@ -277,12 +277,11 @@
       <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Nome</label><input class="form-input" id="ce-nome" placeholder="Ex.: Tip box 200ul"></div>
       <div class="form-group" style="margin:0"><label class="form-label">SKU de venda</label><input class="form-input" id="ce-sku" placeholder="01.000000"></div>
       <div class="form-group" style="margin:0"><label class="form-label">SKU de importação</label><input class="form-input" id="ce-sku_importacao" placeholder="—"></div>
-      <div class="form-group" style="margin:0"><label class="form-label">Tipo</label><select class="form-input" id="ce-tipo_id" onchange="consEditCamposDoTipo()"></select></div>
+      <div class="form-group" style="margin:0"><label class="form-label">Tipo</label><select class="form-input" id="ce-tipo_id"></select></div>
       <div class="form-group" style="margin:0"><label class="form-label">Fabricante</label><input class="form-input" id="ce-fabricante" placeholder="Ex.: Loccus"></div>
       <div class="form-group" style="grid-column:1/-1;margin:0"><label class="form-label">Descrição</label><textarea class="form-input" id="ce-descricao" rows="2"></textarea></div>
     </div>
-    <div id="ce-campos" style="margin-top:14px"></div>
-    <details id="ce-descritivo-box" style="margin-top:14px;border-top:1px solid var(--border-soft);padding-top:12px">
+    <details id="ce-descritivo-box" open style="margin-top:14px;border-top:1px solid var(--border-soft);padding-top:12px">
       <summary class="form-label" style="cursor:pointer;user-select:none">Descritivo técnico</summary>
       <div style="margin-top:10px">
         <div class="modal-sub" style="margin:0 0 10px">SKU Protheus, Fornecedor e Descrição vêm dos campos acima (SKU de venda, Fabricante e Descrição).</div>
@@ -326,11 +325,11 @@
 <div class="modal-overlay" id="modal-consimport" role="dialog" aria-modal="true" aria-label="Importar descritivo" aria-hidden="true">
   <div class="modal" style="width:640px;max-width:96vw">
     <div class="modal-title">Importar descritivo</div>
-    <div class="modal-sub">Suba um Word (.docx) no modelo da "Descrição Técnica do Produto". Veja a prévia antes de aplicar.</div>
+    <div class="modal-sub">Suba um ou mais Word (.docx) no modelo da "Descrição Técnica do Produto". Veja a prévia antes de aplicar.</div>
     <div class="form-group" style="border:1px dashed var(--border-soft);border-radius:10px;padding:12px;margin-bottom:12px">
       <label class="form-label" style="margin-bottom:6px">Word (.docx)</label>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <input type="file" id="consimport-docx" accept=".docx" style="display:none" onchange="lerConsDocx(this)">
+        <input type="file" id="consimport-docx" accept=".docx" multiple style="display:none" onchange="lerConsDocx(this)">
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('consimport-docx').click()">📄 Escolher .docx</button>
         <span id="consimport-docx-nome" class="muted" style="font-size:12px">Nenhum arquivo selecionado.</span>
       </div>
