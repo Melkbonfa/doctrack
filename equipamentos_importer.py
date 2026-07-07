@@ -84,14 +84,9 @@ def _carregar_df(path=None, file_bytes=None):
     return pd.read_excel(path or DEFAULT_MASTER, header=0)
 
 
-import re as _re
-_SKU_RE = _re.compile(r"^\s*0*(\d+)\.(\d+)\s*$")
-
-def _norm_sku(sku):
-    """Normaliza SKU de Venda 'NN.NNNNNN' ignorando zeros à esquerda ('01.000404'
-    e '1.000404' viram a mesma chave). SKU não-padrão retorna None (não casa)."""
-    m = _SKU_RE.match(sku or "")
-    return f"{m.group(1)}.{m.group(2)}" if m else None
+# Normalização de SKU de Venda: fonte única em utils.norm_sku (compartilhada com
+# o módulo de consumíveis) — antes havia três cópias idênticas deste regex.
+from utils import norm_sku as _norm_sku
 
 
 def importar_equipamentos(path=None, file_bytes=None, dryrun=True):
