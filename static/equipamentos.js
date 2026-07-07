@@ -196,17 +196,20 @@ function renderLista(){
 }
 
 // ══ FICHA ══════════════════════════════════════════════════════════════════
-let fichaId=null, fichaTab="geral", FICHA_ITENS={consumivel:[],acessorio:[]}, fichaFromView=false;
+let fichaId=null, fichaTab="geral", FICHA_ITENS={consumivel:[],acessorio:[]}, FICHA_CONS=[], fichaFromView=false;
 function _eqById(id){ return EQUIP.find(e=>e.id===id) || null; }
 function famsDe(catId){ const c=TAX.categorias.find(x=>String(x.id)===String(catId)); return c?(c.familias||[]):[]; }
 
 async function abrirFicha(id, fromView){
-  fichaId=id; fichaTab="geral"; FICHA_ITENS={consumivel:[],acessorio:[]};
+  fichaId=id; fichaTab="geral"; FICHA_ITENS={consumivel:[],acessorio:[]}; FICHA_CONS=[];
   fichaFromView=!!(fromView&&id);
   const e = id ? _eqById(id) : {id:null,nome:"",status:"Ativo",categoria_id:null,familia_id:null};
   const s = id ? scores(e) : {cad:0,reg:0,doc:0,ice:0};
   if(id){ try{ const det=await api("/api/equipamentos/"+id);
-      FICHA_ITENS={consumivel:det.consumiveis||[], acessorio:det.acessorios||[]}; }catch(_){}
+      FICHA_ITENS={consumivel:det.consumiveis||[], acessorio:det.acessorios||[]};
+      FICHA_CONS=det.consumiveis_vinc||[]; }catch(_){}
+    // catálogo de consumíveis p/ o seletor da aba Consumíveis (só escolher existentes)
+    if(typeof consLoaded!=='undefined' && !consLoaded){ try{ await loadCons(); }catch(_){ } }
   }
   document.getElementById("eq-ficha-del").style.display = (id&&podeGerir)?"inline-flex":"none";
   document.getElementById("eq-ficha-save").style.display = podeEditar?"inline-flex":"none";
@@ -258,7 +261,8 @@ function painelFicha(k,e){
       <div class="g2"><div class="form-group"><label class="form-label">Data de registro</label><input class="form-input" type="date" id="f-anvisa_registro" value="${esc(e.anvisa_registro||"")}"></div><div class="form-group"><label class="form-label">Validade</label><input class="form-input" type="date" id="f-anvisa_validade" value="${esc(e.anvisa_validade||"")}"></div></div>
       <p class="muted" style="font-size:12px" id="reg-hint">RUO (uso em pesquisa) não exige registro ANVISA. Classe de risco e alertas de vencimento entram na Fase 3.</p>`;
   }
-  if(k==="consumivel"||k==="acessorio") return painelItens(k,e);
+  if(k==="consumivel") return painelConsVinc(e);
+  if(k==="acessorio") return painelItens(k,e);
   return '<p class="muted">Auditoria de alterações deste equipamento — integra com o log na Fase 3.</p>';
 }
 // ── itens (consumíveis / acessórios) na ficha ────────────────────────────────
@@ -310,6 +314,56 @@ async function delItem(tipo,id){
   if(!confirm("Excluir este item?")) return;
   try{ await api("/api/equip-itens/"+id,{method:"DELETE"});
     FICHA_ITENS[tipo]=(FICHA_ITENS[tipo]||[]).filter(x=>x.id!==id); refreshItens(tipo); toast("Item excluído"); }
+  catch(e){ toast(e.message,true); }
+}
+// ── consumíveis do catálogo vinculados a este equipamento (N:N) ───────────────
+// Espelha a aba "Compatibilidade" do consumível: aqui vinculamos consumíveis já
+// cadastrados (não cria catálogo). Reusa CONS/FORN_LABEL/fbadge de consumiveis.js.
+function _fornLabels(){ return (typeof FORN_LABEL!=='undefined')?FORN_LABEL:{nao_informado:"não informado"}; }
+function painelConsVinc(e){
+  if(!e||!e.id) return `<p class="muted">Salve o equipamento primeiro para vincular consumíveis.</p>`;
+  const FL=_fornLabels();
+  const links=(FICHA_CONS||[]).slice().sort((a,b)=>(a.nome||"").localeCompare(b.nome||""));
+  const jaTem=new Set(links.map(v=>v.consumivel_id));
+  const cat=(typeof CONS!=='undefined'?CONS:[]);
+  const disp=cat.filter(c=>!jaTem.has(c.id)).sort((a,b)=>(a.nome||"").localeCompare(b.nome||""));
+  const rows=links.map(v=>`<tr>
+      <td>${esc(v.nome)}<div class="cons-card-sku">${esc(v.tipo||"—")}${v.sku?' · '+esc(v.sku):' · sem SKU'}</div></td>
+      <td>${podeEditar?`<select class="filter-sel" style="padding:5px 8px;font-size:12px" onchange="mudarFornEquipCons(${v.vinculo_id},this.value)">${
+          Object.keys(FL).map(f=>`<option value="${f}" ${v.fornecimento===f?'selected':''}>${FL[f]}</option>`).join("")}</select>`
+        :(typeof fbadge==='function'?fbadge(v.fornecimento):esc(FL[v.fornecimento]||v.fornecimento||"—"))}</td>
+      ${podeEditar?`<td style="width:34px"><button class="eq-tdel" title="Remover" onclick="removerConsDoEquip(${v.vinculo_id})">🗑</button></td>`:""}
+    </tr>`).join("");
+  const add=podeEditar?`<div class="cons-linkadd" style="margin-top:10px">
+      <select class="filter-sel" id="eqc-add-cons" style="flex:1;min-width:200px">${
+        disp.map(c=>`<option value="${c.id}">${esc(c.nome)}${c.sku?' — '+esc(c.sku):''}</option>`).join("")||'<option value="">— todos já vinculados —</option>'}</select>
+      <select class="filter-sel" id="eqc-add-forn">${Object.keys(FL).map(f=>`<option value="${f}" ${f==='pode_fornecer'?'selected':''}>${FL[f]}</option>`).join("")}</select>
+      <button class="btn btn-primary btn-sm" onclick="vincularConsAoEquip()">+ vincular</button></div>
+      <p class="muted" style="font-size:11px;margin-top:8px">Só lista consumíveis já cadastrados na aba Consumíveis. O vínculo é o mesmo dos dois lados.</p>`:"";
+  return `<div class="eq-itens">
+    <table class="vw-itbl"><thead><tr><th>Consumível</th><th style="width:180px">Fornecimento</th>${podeEditar?"<th></th>":""}</tr></thead>
+    <tbody>${rows||`<tr><td colspan="3" class="vw-empty">Nenhum consumível vinculado.</td></tr>`}</tbody></table>
+    ${add}</div>`;
+}
+async function refreshFichaCons(){
+  try{ FICHA_CONS=await api("/api/equipamentos/"+fichaId+"/consumiveis"); }catch(_){ FICHA_CONS=[]; }
+  const panel=document.querySelector('#eq-ficha-panels .equip-tab-panel[data-panel="consumivel"]');
+  if(panel) panel.innerHTML=painelConsVinc({id:fichaId});
+}
+async function vincularConsAoEquip(){
+  const cid=val("eqc-add-cons"); if(!cid){ toast("Nenhum consumível disponível para vincular",true); return; }
+  const forn=val("eqc-add-forn");
+  try{ await api("/api/consumiveis/"+cid+"/equipamentos",{method:"POST",body:JSON.stringify({equipamento_id:fichaId,fornecimento:forn})});
+    toast("Consumível vinculado"); await refreshFichaCons(); }
+  catch(e){ toast(e.message,true); }
+}
+async function mudarFornEquipCons(vid,forn){
+  try{ await api("/api/consumivel-equipamento/"+vid,{method:"PATCH",body:JSON.stringify({fornecimento:forn})}); toast("Fornecimento atualizado"); }
+  catch(e){ toast(e.message,true); }
+}
+async function removerConsDoEquip(vid){
+  if(!confirm("Remover este consumível do equipamento?")) return;
+  try{ await api("/api/consumivel-equipamento/"+vid,{method:"DELETE"}); toast("Vínculo removido"); await refreshFichaCons(); }
   catch(e){ toast(e.message,true); }
 }
 function fichaRegToggle(){
@@ -387,6 +441,12 @@ function vitens(list,label){
   if(!list||!list.length) return `<div class="vw-empty">Nenhum ${label} cadastrado.</div>`;
   return `<table class="vw-itbl"><thead><tr><th>Item</th><th>SKU de Venda</th><th>SKU de Importação</th></tr></thead><tbody>${list.map(it=>`<tr><td>${esc(it.nome)}</td><td class="mono">${it.sku?esc(it.sku):'—'}</td><td class="mono">${it.sku_importacao?esc(it.sku_importacao):'—'}</td></tr>`).join("")}</tbody></table>`;
 }
+function vitensCons(list){
+  if(!list||!list.length) return `<div class="vw-empty">Nenhum consumível vinculado.</div>`;
+  const FL=_fornLabels();
+  return `<table class="vw-itbl"><thead><tr><th>Consumível</th><th>SKU</th><th>Fornecimento</th></tr></thead><tbody>${
+    list.map(v=>`<tr><td>${esc(v.nome)}</td><td class="mono">${v.sku?esc(v.sku):'—'}</td><td>${esc(FL[v.fornecimento]||v.fornecimento||'—')}</td></tr>`).join("")}</tbody></table>`;
+}
 function vchip(txt,cls){ return `<span class="vw-chip${cls?" "+cls:""}">${esc(txt)}</span>`; }
 function renderView(e,s,f){
   const chips=[];
@@ -428,7 +488,7 @@ function renderView(e,s,f){
         vfield("Validade",e.anvisa_validade),
       ]))}
     <div class="vw-two">
-      ${vsection("Consumíveis", vitens(e.consumiveis,"consumível"), (e.consumiveis||[]).length)}
+      ${vsection("Consumíveis", vitensCons(e.consumiveis_vinc), (e.consumiveis_vinc||[]).length)}
       ${vsection("Acessórios", vitens(e.acessorios,"acessório"), (e.acessorios||[]).length)}
     </div>
     ${e.observacoes&&e.observacoes.trim()?vsection("Observações internas", `<div class="vw-obs">${esc(e.observacoes)}</div>`):""}
@@ -446,7 +506,9 @@ function copiarFicha(){
   add("Data de registro",e.anvisa_registro); add("Validade",e.anvisa_validade);
   add("Descrição",e.descricao); add("Observações",e.observacoes);
   const bloco=(arr,t)=>{ if(arr&&arr.length){ L.push(""); L.push(t+":"); arr.forEach(it=>L.push("  - "+it.nome+(it.sku?(" | Venda: "+it.sku):"")+(it.sku_importacao?(" | Import.: "+it.sku_importacao):""))); } };
-  bloco(e.consumiveis,"Consumíveis"); bloco(e.acessorios,"Acessórios");
+  const FL=_fornLabels();
+  if(e.consumiveis_vinc&&e.consumiveis_vinc.length){ L.push(""); L.push("Consumíveis:"); e.consumiveis_vinc.forEach(v=>L.push("  - "+v.nome+(v.sku?(" | SKU: "+v.sku):"")+" | "+(FL[v.fornecimento]||v.fornecimento||""))); }
+  bloco(e.acessorios,"Acessórios");
   const txt=L.join("\n");
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(()=>toast("Ficha copiada")).catch(()=>toast("Falha ao copiar",true)); }
   else { const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); try{ document.execCommand("copy"); toast("Ficha copiada"); }catch(_){ toast("Falha ao copiar",true); } document.body.removeChild(ta); }
@@ -506,7 +568,9 @@ async function exportarCSV(){
 // ── modais + nav wiring ──────────────────────────────────────────────────────
 function openBaseModal(id){ const m=document.getElementById("modal-"+id); if(m){ m.classList.add("open"); m.setAttribute("aria-hidden","false"); } }
 function closeModal(id){ const m=document.getElementById("modal-"+id); if(m){ m.classList.remove("open"); m.setAttribute("aria-hidden","true"); } }
-document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{ if(e.target!==m) return; if(m.id==="modal-eq") return; closeModal(m.id.replace("modal-","")); }));
+// modais que NÃO fecham ao clicar fora (evita perder edições sem querer)
+const MODAIS_SEM_FECHAR_FORA=new Set(["modal-eq","modal-consview","modal-consedit","modal-consimport"]);
+document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{ if(e.target!==m) return; if(MODAIS_SEM_FECHAR_FORA.has(m.id)) return; closeModal(m.id.replace("modal-","")); }));
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") document.querySelectorAll(".modal-overlay.open").forEach(m=>{ if(m.id==="modal-eq") fecharFicha(); else closeModal(m.id.replace("modal-","")); }); });
 document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.addEventListener("click",()=>navigate(el.dataset.page)));
 const _st=document.getElementById("sidebar-toggle"), _sb=document.getElementById("sidebar-backdrop"), _sn=document.getElementById("sidebar-nav");

@@ -77,17 +77,6 @@ function cvPanel(k,c){
       vfield("Situação",c.pendente_sku?"Pendente de cadastro (sem SKU)":"Cadastrado"),
       vfield("Descrição",c.descricao,true),
   ]))}</div>`;
-  if(k==="espec"){
-    const t=tipoById(c.tipo_id); const campos=(t&&t.campos)||[]; const at=c.atributos||{};
-    const modelo=campos.map(cp=>{ let v=at[cp.chave]; if(cp.tipo_dado==="bool") v=(v===true||v==="true"||v==="sim")?"Sim":(v===false||v==="false"||v==="não"||v==="nao")?"Não":v;
-      const un=cp.unidade&&v?(" "+cp.unidade):""; return vfield(cp.rotulo,(v!==undefined&&v!==null&&v!=="")?(v+un):"", cp.rotulo.length>16); });
-    const chaves=new Set(campos.map(cp=>cp.chave));
-    const extras=Object.keys(at).filter(k2=>k2!=="descritivo"&&!chaves.has(k2)&&at[k2]!==""&&at[k2]!=null).map(k2=>vfield(k2,at[k2]));
-    let html=`<div class="vw-body">`;
-    html+=modelo.length?vsection("Especificações do tipo", vfields(modelo)):`<div class="vw-sec"><div class="vw-empty">Este tipo ainda não tem campos definidos (configure em Tipos de consumível).</div></div>`;
-    if(extras.length) html+=vsection("Outros campos (extras deste item)", vfields(extras));
-    return html+`</div>`;
-  }
   if(k==="descritivo"){
     const d=(c.atributos&&c.atributos.descritivo)||{};
     const id=d.identificacao||{}, ds=d.descricao||{}, tc=d.tecnicas||{}, em=d.embalagem||{};
@@ -142,7 +131,7 @@ async function abrirConsView(id, keepTab){
   const chips=[]; if(c.tipo) chips.push(vchip(c.tipo,"cat")); if(c.sku) chips.push(vchip("SKU "+c.sku,"mono"));
   chips.push(c.pendente_sku?vchip("pendente de cadastro","warn"):vchip("cadastrado","ok"));
   document.getElementById("consview-hero").innerHTML=`<div class="vw-hero"><div class="vw-hero-main"><div class="vw-name">${esc(c.nome)}</div><div class="vw-chips">${chips.join("")}</div></div></div>`;
-  const tabs=[["geral","Geral"],["descritivo","Descritivo técnico"],["espec","Especificações"],["compat","Compatibilidade ("+(c.equipamentos||[]).length+")"]];
+  const tabs=[["geral","Geral"],["descritivo","Descritivo técnico"],["compat","Compatibilidade ("+(c.equipamentos||[]).length+")"]];
   document.getElementById("consview-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===cvTab?'active':''}" onclick="switchCvTab('${k}')">${esc(l)}</button>`).join("");
   document.getElementById("consview-panels").innerHTML=cvPanel(cvTab,c);
   const eb=document.getElementById("consview-edit"); if(eb) eb.style.display=podeEditar?"inline-flex":"none";
@@ -178,29 +167,19 @@ function _coletarDescritivo(){ const o={};
 function abrirConsNovo(){ consEditId=null; document.getElementById("consedit-title").textContent="Novo consumível";
   ["nome","sku","sku_importacao","fabricante","descricao"].forEach(f=>{ const el=document.getElementById("ce-"+f); if(el) el.value=""; });
   _preencherDescritivo({});
-  preencherTipoSelect(document.getElementById("ce-tipo_id"),""); consEditCamposDoTipo({}); openBaseModal("consedit"); }
+  preencherTipoSelect(document.getElementById("ce-tipo_id"),""); openBaseModal("consedit"); }
 function abrirConsEdit(id){ const c=CONS.find(x=>x.id===id)||consCur; if(!c) return; consEditId=id;
   document.getElementById("consedit-title").textContent="Editar consumível";
   document.getElementById("ce-nome").value=c.nome||""; document.getElementById("ce-sku").value=c.sku||"";
   document.getElementById("ce-sku_importacao").value=c.sku_importacao||""; document.getElementById("ce-fabricante").value=c.fabricante||"";
   document.getElementById("ce-descricao").value=c.descricao||"";
   _preencherDescritivo((c.atributos||{}).descritivo);
-  preencherTipoSelect(document.getElementById("ce-tipo_id"),c.tipo_id); consEditCamposDoTipo(c.atributos||{}); openBaseModal("consedit"); }
-function consEditCamposDoTipo(atributos){
-  const t=tipoById(val("ce-tipo_id")); const box=document.getElementById("ce-campos"); const at=atributos||_coletarAttrAtuais();
-  if(!t||!(t.campos||[]).length){ box.innerHTML=""; return; }
-  box.innerHTML=`<div class="form-label" style="margin-bottom:8px">Campos do tipo — ${esc(t.nome)}</div><div class="g2">`+
-    t.campos.map(cp=>{ const v=at[cp.chave]; const un=cp.unidade?` (${cp.unidade})`:"";
-      if(cp.tipo_dado==="bool") return `<div class="form-group" style="margin:0"><label class="form-label">${esc(cp.rotulo)}</label><label class="muted" style="display:flex;align-items:center;gap:8px;padding-top:9px"><input type="checkbox" id="ce-attr-${cp.chave}" ${(v===true||v==="true"||v==="sim")?'checked':''}> sim</label></div>`;
-      return `<div class="form-group" style="margin:0"><label class="form-label">${esc(cp.rotulo)}${un}</label><input class="form-input" id="ce-attr-${cp.chave}" value="${esc(v!=null?v:"")}"></div>`;
-    }).join("")+`</div>`;
-}
-function _coletarAttrAtuais(){ const t=tipoById(val("ce-tipo_id")); const o={}; if(!t) return o;
-  (t.campos||[]).forEach(cp=>{ const el=document.getElementById("ce-attr-"+cp.chave); if(!el) return; o[cp.chave]=cp.tipo_dado==="bool"?el.checked:el.value.trim(); }); return o; }
+  preencherTipoSelect(document.getElementById("ce-tipo_id"),c.tipo_id); openBaseModal("consedit"); }
 async function salvarConsumivel(){
   const nome=val("ce-nome").trim(); if(!nome){ toast("Informe o nome",true); return; }
+  // preserva atributos existentes (ex.: campos de tipo antigos) sem editá-los; só regrava o descritivo
   const base=(consEditId?((CONS.find(x=>x.id===consEditId)||consCur||{}).atributos||{}):{});
-  const atributos=Object.assign({},base,_coletarAttrAtuais()); atributos.descritivo=_coletarDescritivo();
+  const atributos=Object.assign({},base); atributos.descritivo=_coletarDescritivo();
   const payload={ nome, sku:val("ce-sku").trim(), sku_importacao:val("ce-sku_importacao").trim(),
     fabricante:val("ce-fabricante").trim(), descricao:val("ce-descricao").trim(),
     tipo_id:val("ce-tipo_id")||null, atributos };
@@ -228,17 +207,27 @@ function abrirConsImport(){ document.getElementById("consimport-json").value="";
   const fi=document.getElementById("consimport-docx"); if(fi) fi.value=""; const fn=document.getElementById("consimport-docx-nome"); if(fn){ fn.textContent="Nenhum arquivo selecionado."; fn.style.color=""; }
   openBaseModal("consimport"); }
 async function lerConsDocx(input){
-  const file=input.files&&input.files[0]; if(!file) return;
-  const fn=document.getElementById("consimport-docx-nome"); fn.textContent="Lendo "+file.name+"…"; fn.style.color="";
-  const fd=new FormData(); fd.append("arquivo",file);
-  try{
-    const res=await fetch("/api/consumiveis/descritivo/import-docx",{method:"POST",headers:{"Authorization":"Bearer "+token()},body:fd});
-    const data=await res.json();
-    if(!res.ok){ fn.textContent=data.erro||"Falha ao ler o .docx"; fn.style.color="#f43f5e"; return; }
-    document.getElementById("consimport-json").value=JSON.stringify(data.item,null,2);
-    fn.textContent="✓ "+file.name+" — confira a prévia abaixo."; fn.style.color="#34d399";
-    rodarConsImport(true);   // já dispara a prévia
-  }catch(e){ fn.textContent=e.message||"Erro ao ler o arquivo"; fn.style.color="#f43f5e"; }
+  const files=input.files?Array.from(input.files):[]; if(!files.length) return;
+  const fn=document.getElementById("consimport-docx-nome"); fn.style.color="";
+  const itens=[], falhas=[];
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    fn.textContent="Lendo "+file.name+" ("+(i+1)+"/"+files.length+")…"; fn.style.color="";
+    const fd=new FormData(); fd.append("arquivo",file);
+    try{
+      const res=await fetch("/api/consumiveis/descritivo/import-docx",{method:"POST",headers:{"Authorization":"Bearer "+token()},body:fd});
+      const data=await res.json();
+      if(!res.ok){ falhas.push(file.name+": "+(data.erro||"falha ao ler")); continue; }
+      itens.push(data.item);
+    }catch(e){ falhas.push(file.name+": "+(e.message||"erro ao ler")); }
+  }
+  if(!itens.length){ document.getElementById("consimport-json").value=""; document.getElementById("consimport-preview").textContent="—";
+    document.getElementById("btn-consimport-aplicar").style.display="none";
+    fn.textContent=falhas.length?("✗ "+falhas.join(" · ")):"Nenhum arquivo lido."; fn.style.color="#f43f5e"; return; }
+  document.getElementById("consimport-json").value=JSON.stringify(itens,null,2);
+  const ok=itens.length+" arquivo(s) lido(s)"+(falhas.length?", "+falhas.length+" com erro":"");
+  fn.textContent="✓ "+ok+" — confira a prévia abaixo."+(falhas.length?" ("+falhas.join(" · ")+")":""); fn.style.color=falhas.length?"#f59e0b":"#34d399";
+  rodarConsImport(true);   // já dispara a prévia
 }
 async function rodarConsImport(dryrun){
   const raw=val("consimport-json").trim(); const prev=document.getElementById("consimport-preview");

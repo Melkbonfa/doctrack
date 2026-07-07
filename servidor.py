@@ -444,6 +444,11 @@ def get_equipamento(equip_id):
                                  .order_by(EquipamentoItem.ordem, EquipamentoItem.id).all()
     d["consumiveis"] = [i.to_dict() for i in itens if i.tipo == "consumivel"]
     d["acessorios"]  = [i.to_dict() for i in itens if i.tipo == "acessorio"]
+    # vínculos do catálogo de consumíveis (N:N); o mesmo vínculo lido pelo lado do equipamento
+    vinc = ConsumivelEquipamento.query.filter_by(equipamento_id=equip.id, ativo=True).all()
+    vinc = [v for v in vinc if v.consumivel and v.consumivel.ativo]
+    vinc.sort(key=lambda v: (v.consumivel.nome or "").lower())
+    d["consumiveis_vinc"] = [v.to_dict_cons() for v in vinc]
     return jsonify(d), 200
 
 def _ensure_docs_for_equip(equip):
