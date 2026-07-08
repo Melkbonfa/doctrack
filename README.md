@@ -1,7 +1,7 @@
 # DocTrack — Dashboard de Gestão de Documentos e Projetos de TI
 
 Sistema web interno da Loccus para gestão de documentos técnicos, equipamentos,
-entregáveis de projetos e PDR. Backend em Flask (Python) com frontend em
+consumíveis, entregáveis de projetos e PDR. Backend em Flask (Python) com frontend em
 templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
 (desenvolvimento) ou PostgreSQL (produção).
 
@@ -9,8 +9,9 @@ templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
 
 | Módulo | Descrição |
 |---|---|
-| **Documentos** | Gestão de documentos técnicos por equipamento (9 tipos), com workflow de status, versões e auditoria |
-| **Equipamentos** | Entidade central: taxonomia (categoria/família/linha), dados regulatórios/fabricante, consumíveis e acessórios |
+| **Documentos** | Blueprint próprio: documentos técnicos por equipamento (9 tipos), com pipelines de etapas, workflow de status, versões e auditoria |
+| **Equipamentos** | Entidade central: taxonomia (categoria/família/linha), dados regulatórios/fabricante e acessórios |
+| **Consumíveis** | Catálogo global com compatibilidade N:N por equipamento, tipos de consumível configuráveis e descritivo técnico com import/export por Word (.docx) |
 | **Entregáveis** | Acompanhamento de entregáveis de projetos por categoria, com visão mensal (PMO) |
 | **PDR** | Dashboard PDR integrado como blueprint interno (`/pdr`), acesso por flag de usuário |
 | **Auth/RBAC** | Autenticação JWT, papéis e permissões por área, convite com código no primeiro acesso |
@@ -37,10 +38,12 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── models.py                 # Modelos SQLAlchemy
 ├── auth.py                   # Autenticação, RBAC e log de auditoria
 ├── areas.py                  # Definição das áreas/setores
+├── documentos.py             # Blueprint do módulo Documentos (CRUD + arquivos do equipamento)
 ├── entregaveis.py            # Blueprint do módulo Entregáveis
 ├── event_bus.py              # Barramento de eventos (tempo real)
 ├── equipamentos_importer.py  # Importador da planilha mestra de equipamentos
 ├── agente_scanner.py         # Agente de varredura (assistente do dash)
+├── utils.py                  # Utilitários compartilhados
 ├── app-realtime.js           # Cliente realtime servido pela raiz
 ├── socket-client.js          # Cliente Socket.IO servido pela raiz
 ├── audit_log_report.html     # Template do relatório de auditoria (/api/export/audit)
