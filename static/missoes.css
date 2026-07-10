@@ -94,6 +94,27 @@
   border:1px solid #22d3ee;border-radius:10px;padding:11px 16px;font-size:13px;z-index:300;
   box-shadow:0 10px 30px -10px rgba(0,0,0,.5)}
 
+/* chip de vínculo clicável */
+a.chip.ref{text-decoration:none;cursor:pointer}
+a.chip.ref:hover{border-color:#22d3ee;background:rgba(34,211,238,.12)}
+
+/* seletor de responsáveis (chips + remover) */
+.resp-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;min-height:4px}
+.resp-chips .chip-x{cursor:pointer;font-weight:700;margin-left:2px;opacity:.7}
+.resp-chips .chip-x:hover{opacity:1;color:#ef4444}
+
+/* meus cartões (lista cross-missão) */
+.meus{flex:1;overflow-y:auto;max-width:760px}
+.meus-grupo{margin-bottom:18px}
+.meus-missao{font-weight:700;font-size:13px;color:var(--t2);padding:6px 2px;cursor:pointer}
+.meus-missao:hover{color:var(--t1)}
+.meus-item{display:flex;align-items:center;gap:9px;background:var(--bg-card);
+  border:1px solid var(--border-dim);border-radius:10px;padding:10px 13px;margin-bottom:7px;cursor:pointer;
+  transition:border-color .15s}
+.meus-item:hover{border-color:var(--border-soft)}
+.meus-titulo{flex:1;font-size:13px;font-weight:600;color:var(--t1);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 @media (max-width:760px){
   .content{padding:12px;height:auto;overflow:visible}
   .board{overflow-x:auto}

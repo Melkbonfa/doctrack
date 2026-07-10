@@ -30,7 +30,7 @@ function esc(s){ const d=document.createElement("div"); d.textContent=s??""; ret
 // ── estado ──────────────────────────────────────────────────────────────
 let MISSOES=[], BOARD=null;        // BOARD = missão ativa completa (colunas+cartões)
 let missaoEditando=null, cartaoEditando=null, colunaDoNovoCartao=null;
-let sortables=[];
+let sortables=[], USUARIOS=null, RESP_SEL=[];   // usuários da plataforma + responsáveis do modal
 
 // ── boot ────────────────────────────────────────────────────────────────
 (function boot(){
@@ -49,6 +49,8 @@ let sortables=[];
   document.getElementById("ca-excluir").onclick=excluirCartao;
   document.getElementById("ca-ref-tipo").onchange=carregarRefs;
   document.getElementById("co-salvar").onclick=salvarColuna;
+  document.getElementById("btn-meus-cartoes").onclick=abrirMeusCartoes;
+  document.getElementById("ca-resp-select").onchange=addResponsavel;
   const tg=document.getElementById("sidebar-toggle");
   if(tg) tg.onclick=()=>{ document.getElementById("sidebar-nav").classList.toggle("open");
     document.getElementById("sidebar-backdrop").classList.toggle("open"); };   // style.css usa .open no backdrop
@@ -67,6 +69,10 @@ async function loadAll(){
     const alvo=MISSOES.find(m=>m.id===salva)||MISSOES[0];
     if(alvo) await selecionarMissao(alvo.id);
     else mostrarVazio();
+    // badge "Meus cartões" (best-effort, não bloqueia o board)
+    api("/api/missoes/meus-cartoes").then(r=>{
+      document.getElementById("meus-badge").textContent=(r.cartoes||[]).length||"";
+    }).catch(()=>{});
   }catch(e){ toast("Erro ao carregar missões: "+e.message, true); }
 }
 
@@ -86,6 +92,7 @@ function renderSidebar(){
 function mostrarVazio(){
   BOARD=null;
   document.getElementById("board").style.display="none";
+  document.getElementById("meus").style.display="none";
   document.getElementById("board-vazio").style.display="flex";
   document.getElementById("breadcrumb-current").textContent="—";
   document.getElementById("btn-editar-missao").style.display="none";
@@ -106,6 +113,7 @@ async function selecionarMissao(id){
 function renderBoard(){
   if(!BOARD) return mostrarVazio();
   document.getElementById("board-vazio").style.display="none";
+  document.getElementById("meus").style.display="none";
   const el=document.getElementById("board");
   el.style.display="flex";
   document.getElementById("breadcrumb-current").textContent=BOARD.nome;
@@ -171,7 +179,12 @@ function renderCartao(c){
   }
   const resp=(c.responsaveis||"").split(",").map(s=>s.trim()).filter(Boolean);
   if(resp.length) chips.push(`<span class="chip resp">👤 ${esc(resp[0])}${resp.length>1?" +"+(resp.length-1):""}</span>`);
-  if(c.ref_label) chips.push(`<span class="chip ref">🔗 ${esc(c.ref_label)}</span>`);
+  if(c.ref_label){
+    // chip clicável: navega para a entidade vinculada (equipamento abre a ficha via deep-link)
+    const url=c.ref_tipo==="equipamento" ? "/equipamentos?ficha="+c.ref_id
+             : c.ref_tipo==="projeto" ? "/projetos" : "/";
+    chips.push(`<a class="chip ref" href="${url}" onclick="event.stopPropagation()" title="Abrir ${esc(c.ref_tipo)}">🔗 ${esc(c.ref_label)}</a>`);
+  }
   return `<div class="cartao ${c.concluido?"concluido":""}" data-id="${c.id}" data-versao="${c.versao}">
     <div style="display:flex;gap:8px;align-items:flex-start">
       <span class="pri pri-${esc(c.prioridade||"media")}" style="margin-top:5px" title="Prioridade ${esc(c.prioridade)}"></span>
@@ -299,7 +312,8 @@ async function abrirModalCartao(cartaoId, colunaId){
   document.getElementById("ca-descricao").value=c.descricao||"";
   document.getElementById("ca-prazo").value=c.prazo||"";
   document.getElementById("ca-prioridade").value=c.prioridade||"media";
-  document.getElementById("ca-responsaveis").value=c.responsaveis||"";
+  RESP_SEL=(c.responsaveis||"").split(",").map(s=>s.trim()).filter(Boolean);
+  await carregarUsuarios(); renderRespChips();
   document.getElementById("ca-etiquetas").value=c.etiquetas||"";
   document.getElementById("ca-concluido").checked=!!c.concluido;
   document.getElementById("ca-ref-tipo").value=c.ref_tipo||"";
@@ -337,7 +351,7 @@ async function salvarCartao(){
     descricao:document.getElementById("ca-descricao").value.trim(),
     prazo:document.getElementById("ca-prazo").value,
     prioridade:document.getElementById("ca-prioridade").value,
-    responsaveis:document.getElementById("ca-responsaveis").value.trim(),
+    responsaveis:RESP_SEL.join(", "),
     etiquetas:document.getElementById("ca-etiquetas").value.trim(),
     concluido:document.getElementById("ca-concluido").checked,
     ref_tipo:(refTipo&&refId)?refTipo:"", ref_id:(refTipo&&refId)?parseInt(refId):null,
@@ -369,6 +383,69 @@ async function excluirCartao(){
     fecharModal("modal-cartao");
     await selecionarMissao(BOARD.id);
   }catch(e){ toast("Erro: "+e.message, true); }
+}
+
+// ── responsáveis (usuários da plataforma) ───────────────────────────────
+async function carregarUsuarios(){
+  if(USUARIOS) return;
+  try{ USUARIOS=(await api("/api/missoes/usuarios")).usuarios||[]; }
+  catch(e){ USUARIOS=[]; }
+}
+function renderRespChips(){
+  const sel=document.getElementById("ca-resp-select");
+  sel.innerHTML='<option value="">＋ adicionar responsável…</option>'+
+    (USUARIOS||[]).filter(u=>!RESP_SEL.includes(u)).map(u=>`<option>${esc(u)}</option>`).join("");
+  document.getElementById("ca-resp-chips").innerHTML=RESP_SEL.map(n=>
+    `<span class="chip resp">👤 ${esc(n)} <b class="chip-x" data-nome="${esc(n)}">×</b></span>`).join("");
+  document.querySelectorAll("#ca-resp-chips .chip-x").forEach(x=>{
+    x.onclick=()=>{ RESP_SEL=RESP_SEL.filter(n=>n!==x.dataset.nome); renderRespChips(); };
+  });
+}
+function addResponsavel(){
+  const v=document.getElementById("ca-resp-select").value;
+  if(v && !RESP_SEL.includes(v)){ RESP_SEL.push(v); renderRespChips(); }
+}
+
+// ── meus cartões (visão cross-missão) ───────────────────────────────────
+async function abrirMeusCartoes(){
+  try{
+    const r=await api("/api/missoes/meus-cartoes");
+    BOARD=null;
+    document.getElementById("board").style.display="none";
+    document.getElementById("board-vazio").style.display="none";
+    document.getElementById("btn-editar-missao").style.display="none";
+    document.getElementById("btn-excluir-missao").style.display="none";
+    document.getElementById("breadcrumb-current").textContent="Meus cartões";
+    renderSidebar();
+    const el=document.getElementById("meus");
+    el.style.display="block";
+    const cartoes=r.cartoes||[];
+    document.getElementById("meus-badge").textContent=cartoes.length||"";
+    if(!cartoes.length){
+      el.innerHTML=`<div class="board-vazio-inner" style="margin:60px auto;text-align:center">
+        <div style="font-size:34px">🎉</div><h2>Nada atribuído a você</h2>
+        <p>Cartões em que você é responsável aparecem aqui.</p></div>`;
+      return;
+    }
+    // agrupa por missão
+    const grupos={};
+    cartoes.forEach(c=>{ (grupos[c.missao_id]=grupos[c.missao_id]||{nome:c.missao_nome,itens:[]}).itens.push(c); });
+    el.innerHTML=Object.entries(grupos).map(([mid,g])=>`
+      <div class="meus-grupo">
+        <div class="meus-missao" data-mid="${mid}">🎯 ${esc(g.nome)}</div>
+        ${g.itens.map(c=>`
+          <div class="meus-item" data-mid="${c.missao_id}" data-cid="${c.id}">
+            <span class="pri pri-${esc(c.prioridade||"media")}"></span>
+            <span class="meus-titulo">${esc(c.titulo)}</span>
+            <span class="chip">${esc(c.coluna_nome)}</span>
+            ${c.prazo?`<span class="chip prazo ${(!c.concluido&&c.prazo<new Date().toISOString().slice(0,10))?"vencido":""}">📅 ${esc(c.prazo.split("-").reverse().join("/"))}</span>`:""}
+          </div>`).join("")}
+      </div>`).join("");
+    el.querySelectorAll(".meus-missao").forEach(t=>{ t.onclick=()=>selecionarMissao(parseInt(t.dataset.mid)); });
+    el.querySelectorAll(".meus-item").forEach(i=>{ i.onclick=async()=>{
+      await selecionarMissao(parseInt(i.dataset.mid));
+      abrirModalCartao(parseInt(i.dataset.cid), null); }; });
+  }catch(e){ toast("Erro ao carregar meus cartões: "+e.message, true); }
 }
 
 // ── tempo real (best-effort; o estado real é sempre o servidor) ──────────

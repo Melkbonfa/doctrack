@@ -32,6 +32,12 @@
       <div><div class="user-name" id="nav-name">—</div><div class="user-role" id="nav-role">—</div></div>
     </div>
 
+    <span class="nav-section-label">Visão</span>
+    <button type="button" class="nav-item" id="btn-meus-cartoes">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2" stroke="currentColor" stroke-width="1.6"/><path d="M5 19c1.2-3 3.8-4.5 7-4.5s5.8 1.5 7 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Meus cartões <span id="meus-badge" style="font-size:10px;color:var(--t4);margin-left:auto"></span>
+    </button>
+
     <span class="nav-section-label">Missões</span>
     <div id="lista-missoes"><!-- itens dinâmicos --></div>
     <button type="button" class="nav-item" id="btn-nova-missao">
@@ -71,6 +77,7 @@
         </div>
       </div>
       <div id="board" class="board" style="display:none"><!-- colunas dinâmicas --></div>
+      <div id="meus" class="meus" style="display:none"><!-- meus cartões (cross-missão) --></div>
     </main>
   </div>
 </div>
@@ -132,7 +139,10 @@
         </label>
       </div>
       <div class="fld-row">
-        <label class="fld"><span>Responsáveis</span><input id="ca-responsaveis" placeholder="Nomes separados por vírgula"></label>
+        <label class="fld"><span>Responsáveis</span>
+          <select id="ca-resp-select"><option value="">＋ adicionar responsável…</option></select>
+          <div class="resp-chips" id="ca-resp-chips"></div>
+        </label>
         <label class="fld"><span>Etiquetas</span><input id="ca-etiquetas" placeholder="Ex.: hardware, urgência"></label>
       </div>
       <div class="fld-row">

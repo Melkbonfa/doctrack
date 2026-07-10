@@ -578,4 +578,9 @@ function toggleSidebar(f){ const open=f!==undefined?f:!_sn.classList.contains("o
 _st&&_st.addEventListener("click",()=>toggleSidebar()); _sb&&_sb.addEventListener("click",()=>toggleSidebar(false));
 
 if(!token()){ window.location.href="/"; }
-else { document.getElementById("app").style.display="block"; loadAll(); }
+else { document.getElementById("app").style.display="block";
+  Promise.resolve(loadAll()).then(()=>{   // deep-link: /equipamentos?ficha=<id> abre a ficha (ex.: chip do Missões)
+    const f=parseInt(new URLSearchParams(location.search).get("ficha")||"");
+    if(f && _eqById(f)){ navigate("lista"); abrirFicha(f); }
+  });
+}

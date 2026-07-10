@@ -29,7 +29,7 @@ from flask_jwt_extended import get_jwt_identity
 
 from models import (db, Missao, MissaoColuna, MissaoCartao,
                     PRIORIDADES_CARTAO, REF_TIPOS_CARTAO, CATEGORIAS_COLUNA,
-                    Equipamento, Projeto, Documento)
+                    Equipamento, Projeto, Documento, User)
 from auth import require_role, log_action, get_client_ip
 
 # SQLite não aplica String(n) — os limites precisam ser validados aqui.
@@ -444,6 +444,48 @@ def reordenar():
         return jsonify({"ok": True})
 
     return jsonify({"erro": "envie coluna_id, cartao_id ou missao_id"}), 400
+
+
+# ── USUÁRIOS (p/ o seletor de responsáveis) ──────────────────────────────────
+
+@missoes_bp.route("/api/missoes/usuarios", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def listar_usuarios_leve():
+    """Só nomes de usuários ativos, para o autocomplete de responsáveis.
+    (O /api/users completo é gestor+; aqui técnicos precisam da lista, então
+    expõe-se apenas o nome — nada de email/role/áreas.)"""
+    users = User.query.filter_by(ativo=True).order_by(User.nome).all()
+    return jsonify({"usuarios": [u.nome for u in users if (u.nome or "").strip()]})
+
+
+# ── MEUS CARTÕES (visão cross-missão por responsável) ────────────────────────
+
+@missoes_bp.route("/api/missoes/meus-cartoes", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def meus_cartoes():
+    """Cartões (não concluídos, de missões ativas) onde o usuário logado está
+    nos responsáveis. Match pelo nome do usuário dentro do CSV — a mesma
+    convenção do módulo Projetos (Entregavel.responsaveis)."""
+    email = get_jwt_identity()
+    user = User.query.filter_by(email=email).first()
+    nome = (user.nome or "").strip() if user else ""
+    if not nome:
+        return jsonify({"cartoes": []})
+    cartoes = (MissaoCartao.query
+               .join(Missao, MissaoCartao.missao_id == Missao.id)
+               .filter(Missao.arquivado == False,
+                       MissaoCartao.concluido == False,
+                       MissaoCartao.responsaveis.ilike(f"%{nome}%"))
+               .order_by(MissaoCartao.prazo == "", MissaoCartao.prazo,
+                         MissaoCartao.missao_id, MissaoCartao.ordem)
+               .all())
+    out = []
+    for c in cartoes:
+        d = c.to_dict()
+        d["missao_nome"] = c.missao.nome if c.missao else ""
+        d["coluna_nome"] = c.coluna.nome if c.coluna else ""
+        out.append(d)
+    return jsonify({"cartoes": out})
 
 
 # ── BUSCA DE REFERÊNCIAS (p/ o seletor de vínculo do modal) ──────────────────
