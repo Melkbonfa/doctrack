@@ -99,6 +99,7 @@ applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
   try { user = JSON.parse(localStorage.getItem('doctrack_user') || '{}') || {}; } catch(e){}
   var isAdmin = user.role === 'admin';
   var isGestor = isAdmin || user.role === 'gestor';
+  var isTecnico = isGestor || user.role === 'tecnico';
   var minhas = Array.isArray(user.areas) ? user.areas : [];
 
   // Sem acesso à área: volta ao hub.
@@ -115,6 +116,7 @@ applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
   document.querySelectorAll('.mod-card').forEach(function(card){
     var role = card.getAttribute('data-role');
     if(role === 'gestor' && !isGestor){ card.parentNode.removeChild(card); return; }
+    if(role === 'tecnico' && !isTecnico){ card.parentNode.removeChild(card); return; }
     var url = card.getAttribute('data-url');
     var mod = card.getAttribute('data-module');
     card.addEventListener('click', function(){ entrar(url, mod); });

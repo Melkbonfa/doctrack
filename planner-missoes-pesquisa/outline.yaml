@@ -1,0 +1,87 @@
+topic: >-
+  Como o Microsoft Planner e o Microsoft Project funcionam — modelo de dados,
+  ordenação, dependências, atribuição, views e colaboração — como referência para
+  projetar o módulo kanban nativo "Missões" no DocTrack (Flask/SQLAlchemy), offline,
+  sem Microsoft Graph.
+
+# Cada item é uma "referência" a ser pesquisada contra o framework de campos (fields.yaml).
+# O objetivo prático é mapear cada referência contra o modelo Missão/Coluna/Cartão do plano.
+items:
+  # --- Núcleo Microsoft ---
+  - id: planner_basic
+    nome: Microsoft Planner (Basic)
+    foco: >-
+      Hierarquia plano→bucket→task; progresso como percentComplete (0/50/100) em vez
+      de enum; labels como slots fixos (appliedCategories category1..25); prioridade
+      Int 0–10 bucketizada; task chat (refresh 2026).
+
+  - id: planner_premium
+    nome: Microsoft Planner Premium / Project for the web
+    foco: >-
+      Sprints (buckets datados), Goals (rollup de objetivo), dependências e timeline
+      sobre a mesma tabela de tasks; o que é entidade nova vs. atributo.
+
+  - id: ms_project
+    nome: Microsoft Project (desktop / Project Online)
+    foco: >-
+      WBS + summary tasks (hierarquia recursiva pai/filho com rollup de datas/%),
+      task modes (Auto vs Manual), constraint types (ASAP/SNET/MFO...). Decisão
+      flat-kanban vs. nestável. Marcar o que EVITAR replicar (auto-scheduling).
+
+  - id: graph_data_model
+    nome: Modelo de dados do Graph (plannerTask / plannerTaskDetails)
+    foco: >-
+      Split de entidade: task "leve" (board) vs. details "pesado" (descrição,
+      checklist, references) em 1:1; assignments como mapa N:N por userId; etag
+      (@odata.etag) de concorrência otimista; semântica de datas UTC.
+
+  # --- Mecanismos de ordenação (transversais) ---
+  - id: order_hint
+    nome: Order Hint (Planner)
+    foco: >-
+      String de ordenação fracionária recomputada no servidor a cada move; formato,
+      colisões, e por que evita reindexar a coluna inteira.
+
+  - id: fractional_indexing
+    nome: Fractional indexing (Figma / tldraw / Notion / Linear)
+    foco: >-
+      Índice fracionário entre vizinhos; crescimento de precisão/comprimento da
+      string; adequação a merge realtime (CRDT-friendly).
+
+  - id: lexorank_e_pos
+    nome: Jira LexoRank + Trello pos + Asana rank
+    foco: >-
+      Implementações reais em produção: LexoRank (base-36 lexicográfico bucketizado
+      com rebalanceamento periódico) como meio-termo entre pos inteiro (Trello) e
+      fractional index puro. Custo de manutenção/rebalance.
+
+  # --- Kanban moderno (comparativo) ---
+  - id: trello
+    nome: Trello
+    foco: >-
+      Board/list/card, position numérica (pos), "My Cards" cross-board, labels,
+      checklists, due dates. O kanban canônico minimalista.
+
+  - id: github_projects_v2
+    nome: GitHub Projects (v2)
+    foco: >-
+      Board flexível com campos customizados (single-select/status/iteration),
+      itens vinculados a issues/PRs, múltiplas views derivadas do mesmo dataset.
+
+  - id: notion_linear
+    nome: Notion / Linear
+    foco: >-
+      Estados de workflow configuráveis, prioridade, labels, sub-issues (nesting),
+      ordering fracionário; como expõem o mesmo dado em board/list/timeline.
+
+  - id: views_derivadas
+    nome: Views derivadas de um único dataset
+    foco: >-
+      Board / Grid / Timeline / Gantt / Calendar / Charts + "My Tasks": como todas
+      derivam da mesma tabela de tasks só mudando group-by/sort/filtro (nenhuma
+      entidade extra). Base para futuras views do Missões sem re-modelar.
+
+execution:
+  batch_size: 4          # agentes em paralelo no /research-deep
+  items_per_agent: 3     # 11 itens ~ 4 agentes
+  output_dir: ./results  # resultados da pesquisa profunda

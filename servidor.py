@@ -112,6 +112,10 @@ app.register_blueprint(documentos_bp)
 from pdr import pdr_bp, init_realtime as pdr_init_realtime
 app.register_blueprint(pdr_bp)
 
+# Módulo Missões — kanban nativo (tipo Planner) da área PDE.
+from missoes import missoes_bp, init_realtime as missoes_init_realtime
+app.register_blueprint(missoes_bp)
+
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
 socketio = SocketIO(
     app,
@@ -126,6 +130,7 @@ socketio = SocketIO(
 entregaveis_init_realtime(socketio, publish_event, AuditLog, EventType)
 documentos_init_realtime(socketio, publish_event, AuditLog, EventType)
 pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
+missoes_init_realtime(socketio, publish_event, AuditLog, EventType)
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -364,6 +369,11 @@ def entregaveis_page():
 def equipamentos_page():
     # Módulo Equipamentos (área PDE). Acesso validado no front (token + áreas).
     return render_template("equipamentos.html", asset_v=_static_version())
+
+@app.route("/missoes")
+def missoes_page():
+    # Módulo Missões (kanban da área PDE). Acesso real barrado nas APIs (técnico+).
+    return render_template("missoes.html", asset_v=_static_version())
 
 @app.route("/hub")
 def hub_page():

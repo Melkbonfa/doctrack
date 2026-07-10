@@ -1,0 +1,46 @@
+{
+  "id": "fractional_indexing",
+  "research_name": "Fractional indexing (Figma / tldraw / Notion / Linear)",
+  "modelo_de_dados": {
+    "entidades_e_hierarquia": "Fractional indexing is a technique, not an entity: each ordered item stores one 'index' key (a string) that lexicographically sorts it among siblings. It is the generalization behind Planner's orderHint and Figma's 'positions'. The item keeps its key inline; ordering is 'SELECT ... ORDER BY index'. It applies at any level of a hierarchy independently (cards within a column, columns within a board), each container being its own key space.",
+    "relacionamentos_fk_cascade": "No FK and no separate table — the key is a column on the ordered row, scoped to its container (parent_id). Moving an item across containers = change parent_id + assign a new key between the destination neighbors; the source is untouched (no reindex, no cascade). Figma stores this as a position string on each object keyed by parent.",
+    "granularidade_detalhes": "The index is a tiny string kept on the light/board row (it is the sort key, so it must be on the list query). Keys are meant to stay short but can grow with repeated same-gap inserts.",
+    "mapeamento_missoes": "The index maps to Cartao.ordem / Coluna.ordem. Versus the plan's integer-reindex approach: fractional indexing makes a move a single-row write (write only the moved card's key = midpoint(prev, next)), at the cost of (a) keys that can grow in length and (b) needing a key generator. It is the 'option B' upgrade path referenced from the Order_Hint item, and the CRDT-friendly choice if Missoes ever wants realtime multi-user editing beyond best-effort SocketIO."
+  },
+  "ordenacao": {
+    "mecanismo": "Assign each item a key between its neighbors so keys sort into the desired order. Two common encodings: (1) base-N digit strings compared lexicographically (e.g. base-62/base-95 over printable ASCII) where you find a string strictly between prev and next (this is what Planner's orderHint and tldraw use); (2) rational/decimal midpoints (Trello's float 'pos' is the degenerate 1-dimensional case: new_pos = (prev+next)/2). Insert at head = key before the first; at tail = key after the last; between = a value strictly between neighbors. The canonical library (Observable/@rocicorp 'fractional-indexing', after Figma/David Greenspan) generates base-62 strings and supports generateNKeysBetween for bulk inserts.",
+    "custo_reordenar_e_rebalanceamento": "Move/insert = O(1), a single-row write; siblings never move. The failure mode is key-length growth, not precision exhaustion: repeatedly inserting into the SAME gap makes keys longer by ~1 char each time (float pos hits 64-bit precision after ~50 same-gap inserts and must renormalize; string keys grow unbounded but slowly). Mitigations: (a) periodic renormalization/rebalance of a container to evenly spaced short keys; (b) Figma/tldraw add a small random 'jitter' suffix so two clients inserting at the same spot concurrently produce DIFFERENT keys and never collide/interleave. There is no central server required to compact — but SOMETHING (a job or on-write heuristic) should renormalize occasionally.",
+    "concorrencia_conflito": "This is fractional indexing's headline advantage and why Figma/tldraw/Notion use it: keys are generated purely from the two neighbors, so two offline/concurrent clients can insert without a lock and MERGE deterministically — it is CRDT-friendly / commutative. The jitter suffix prevents identical-key collisions when two clients target the exact same gap (worst case the two land in a stable but arbitrary relative order, never corrupt). This contrasts with integer position (needs a server to renumber) and is stronger than Planner's etag-retry: no 412/retry needed because there is no shared counter to contend on. For Missoes with only best-effort SocketIO + a DB, this is over-engineering for the MVP but the right foundation if true realtime is ever desired."
+  },
+  "atributos_cartao": {
+    "responsaveis_cardinalidade": "Not applicable — fractional indexing concerns position only.",
+    "datas": "Not applicable to the mechanism (dates are separate sort keys for date-sorted views).",
+    "prioridade_encoding": "Not applicable; when a view sorts by priority, manual order within a priority group would use a separate fractional key.",
+    "labels_encoding": "Not applicable.",
+    "estados_workflow": "Not applicable, except that (as in Planner) each grouping/state can keep its own fractional key so manual order survives re-grouping.",
+    "checklist_progresso": "Checklist item order can itself use a fractional key, the same mechanism one level down.",
+    "vinculos_externos": "Not applicable."
+  },
+  "views": {
+    "views_disponiveis": "Enables any manually-ordered view (board/list) to persist drag order cheaply; Figma uses it for layer order, tldraw for shape z-order, Notion/Linear for row/issue order.",
+    "derivacao_do_mesmo_dado": "Like orderHint, you can keep MULTIPLE fractional keys per item (one per view) so each view has independent manual ordering, all on the same row. For an MVP a single key per container is enough; add another only when a second manually-ordered view appears.",
+    "my_tasks_cross": "A per-user manual ordering of a cross-container list is just another fractional key scoped to (user_id), letting each user arrange their own list independently."
+  },
+  "dependencias_scheduling": {
+    "modelo_dependencia": "None — purely positional, unrelated to dependencies.",
+    "calculo_datas": "None.",
+    "rollup_progresso": "None."
+  },
+  "colaboracao": {
+    "comentarios_chat": "Not applicable.",
+    "notificacoes_activity_feed": "A reorder is a single-key change; broadcast it as a lightweight event, not a notification.",
+    "tempo_real": "Best-in-class for realtime: because keys are computed from neighbors and are commutative, missed events reconcile by re-fetching and re-sorting; concurrent inserts merge without a server arbiter. Figma's 'Realtime Editing of Ordered Sequences' is the canonical write-up. For DocTrack, this is the mechanism to adopt IF you later move from best-effort SocketIO to genuine collaborative editing; for the MVP it is optional.",
+    "templating_reuso": "Cloning a container copies keys as-is (they remain valid because comparisons are relative), preserving order in templates."
+  },
+  "replicavel_offline": {
+    "veredito_copy_adapt_avoid": "ADAPT (as an upgrade path), not MVP-mandatory. For the Missoes MVP the plan's integer reindex is simpler and fine. Adopt fractional indexing when: a column can hold hundreds of cards, reordering is frequent/hot, or you want realtime multi-user without lock contention. If adopted, COPY the proven approach: base-62 string keys via a small pure function generateKeyBetween(prev, next) (port the well-known algorithm), plus a jitter suffix if concurrent inserts are possible, plus an occasional renormalize job. AVOID hand-rolling float midpoints for anything but the most trivial case (64-bit precision runs out fast and forces frequent renormalization).",
+    "recomendacao_sqlalchemy": "cartoes.ordem = String(64), NOT NULL, indexed as part of (coluna_id, ordem). Pure helpers: gerar_ordem_entre(prev: str|None, next: str|None) -> str (base-62 midpoint); reindexar(coluna_id) to rewrite evenly spaced keys when the longest key in the column exceeds a threshold. On move: write only the moved card's ordem = gerar_ordem_entre(neighbor_prev, neighbor_next) within a transaction guarded by the card version. Keep a small unit test for head/tail/between and for the 'repeated same-gap insert' growth case.",
+    "riscos": "Key-length growth if you never renormalize; float variants exhaust precision quickly; forgetting the jitter suffix lets two concurrent inserts at the same gap collide; comparison MUST be a stable byte/ordinal comparison (watch out for DB collation — use a binary/ASCII collation on the ordem column or keys may sort differently than your generator assumes). This collation pitfall is the most common real bug when porting fractional indexing to SQL."
+  },
+  "uncertain": []
+}

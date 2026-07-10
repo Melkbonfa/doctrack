@@ -1,0 +1,123 @@
+/* Módulo Missões — só o específico do board (tokens vêm de style.css) */
+
+.content{padding:18px 22px;height:calc(100vh - 58px);overflow:hidden;display:flex;flex-direction:column}
+
+/* ── board ─────────────────────────────────────────────────────────────── */
+.board{flex:1;display:flex;align-items:flex-start;gap:14px;overflow-x:auto;overflow-y:hidden;padding-bottom:12px}
+.board::-webkit-scrollbar{height:10px}
+.board::-webkit-scrollbar-thumb{background:var(--border-soft);border-radius:5px}
+
+.coluna{
+  flex:0 0 292px;max-height:100%;display:flex;flex-direction:column;
+  background:var(--bg-card);border:1px solid var(--border-dim);
+  border-radius:var(--r3,12px);padding:10px 10px 12px;
+}
+.coluna-head{display:flex;align-items:center;gap:8px;padding:2px 4px 10px}
+.coluna-cor{width:8px;height:8px;border-radius:50%;background:var(--accent,#22d3ee);flex:0 0 auto}
+.coluna-nome{font-weight:700;font-size:13.5px;color:var(--t1);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.coluna-count{font-size:11px;color:var(--t3);background:var(--bg-void);
+  border:1px solid var(--border-dim);border-radius:10px;padding:1px 8px}
+.coluna-x{border:0;background:none;color:var(--t4);cursor:pointer;font-size:14px;padding:2px 4px;border-radius:6px}
+.coluna-x:hover{color:#ef4444;background:var(--bg-void)}
+
+.cartoes{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:24px;padding:2px}
+.cartoes::-webkit-scrollbar{width:8px}
+.cartoes::-webkit-scrollbar-thumb{background:var(--border-soft);border-radius:4px}
+
+.cartao{
+  background:var(--bg-void);border:1px solid var(--border-dim);border-radius:10px;
+  padding:10px 12px;cursor:grab;transition:border-color .15s,transform .15s,box-shadow .15s;
+}
+.cartao:hover{border-color:var(--border-soft);transform:translateY(-1px);box-shadow:0 6px 16px -8px rgba(0,0,0,.4)}
+.cartao.sortable-ghost{opacity:.35;border-style:dashed}
+.cartao.sortable-drag{cursor:grabbing}
+.cartao.concluido .cartao-titulo{text-decoration:line-through;color:var(--t3)}
+
+.cartao-titulo{font-size:13px;font-weight:600;color:var(--t1);line-height:1.35;word-break:break-word}
+.cartao-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;align-items:center}
+.chip{font-size:10.5px;padding:2px 8px;border-radius:9px;border:1px solid var(--border-dim);color:var(--t2);background:var(--bg-card)}
+.chip.etiqueta{color:#a5b4fc;border-color:#a5b4fc44}
+.chip.prazo{color:var(--t2)}
+.chip.prazo.vencido{color:#f87171;border-color:#f8717155;font-weight:700}
+.chip.ref{color:#22d3ee;border-color:#22d3ee44}
+.chip.resp{color:#fbbf24;border-color:#fbbf2444}
+.pri{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.pri-baixa{background:#64748b}.pri-media{background:#38bdf8}.pri-alta{background:#f59e0b}.pri-urgente{background:#ef4444}
+
+.add-cartao{
+  margin-top:8px;border:1px dashed var(--border-dim);background:none;color:var(--t3);
+  border-radius:8px;padding:7px;font-size:12px;cursor:pointer;width:100%;
+}
+.add-cartao:hover{color:var(--t1);border-color:var(--border-soft)}
+.add-coluna{
+  flex:0 0 240px;border:1px dashed var(--border-dim);background:none;color:var(--t3);
+  border-radius:var(--r3,12px);padding:14px;font-size:13px;cursor:pointer;align-self:flex-start;
+}
+.add-coluna:hover{color:var(--t1);border-color:var(--border-soft)}
+
+/* ── sidebar: lista de missões ─────────────────────────────────────────── */
+#lista-missoes .nav-item{position:relative}
+#lista-missoes .nav-item .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-right:2px}
+
+/* ── estado vazio ──────────────────────────────────────────────────────── */
+.board-vazio{flex:1;display:flex;align-items:center;justify-content:center}
+.board-vazio-inner{text-align:center;color:var(--t3)}
+.board-vazio-inner h2{color:var(--t1);font-size:18px;margin:10px 0 4px}
+.board-vazio-inner p{font-size:13px;margin-bottom:16px}
+
+/* ── modais (reuso leve do padrão do app) ──────────────────────────────── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
+  align-items:center;justify-content:center;z-index:200;padding:18px}
+.modal{background:var(--bg-card);border:1px solid var(--border-soft);border-radius:14px;
+  width:100%;max-width:440px;max-height:92vh;display:flex;flex-direction:column}
+.modal-lg{max-width:560px}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 8px}
+.modal-head h3{font-size:15px;color:var(--t1);margin:0}
+.modal-x{border:0;background:none;color:var(--t3);font-size:20px;cursor:pointer;line-height:1}
+.modal-body{padding:8px 18px;overflow-y:auto}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 18px 16px}
+.fld{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;font-size:12px;color:var(--t3);flex:1}
+.fld input,.fld select,.fld textarea{
+  background:var(--bg-void);border:1px solid var(--border-dim);border-radius:8px;
+  color:var(--t1);padding:8px 10px;font-size:13px;font-family:inherit}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--accent,#22d3ee)}
+.fld input[type=color]{padding:2px;height:36px;width:70px}
+.fld-row{display:flex;gap:12px}
+.fld-check{flex-direction:row;align-items:center;gap:8px;color:var(--t1);font-size:13px}
+.fld-check input{width:16px;height:16px}
+.btn-danger{background:#7f1d1d;border:1px solid #ef444455;color:#fecaca;border-radius:8px;
+  padding:8px 14px;font-size:13px;cursor:pointer}
+.btn-danger:hover{background:#991b1b}
+
+.toast{position:fixed;bottom:22px;right:22px;background:var(--bg-card);color:var(--t1);
+  border:1px solid #22d3ee;border-radius:10px;padding:11px 16px;font-size:13px;z-index:300;
+  box-shadow:0 10px 30px -10px rgba(0,0,0,.5)}
+
+/* chip de vínculo clicável */
+a.chip.ref{text-decoration:none;cursor:pointer}
+a.chip.ref:hover{border-color:#22d3ee;background:rgba(34,211,238,.12)}
+
+/* seletor de responsáveis (chips + remover) */
+.resp-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;min-height:4px}
+.resp-chips .chip-x{cursor:pointer;font-weight:700;margin-left:2px;opacity:.7}
+.resp-chips .chip-x:hover{opacity:1;color:#ef4444}
+
+/* meus cartões (lista cross-missão) */
+.meus{flex:1;overflow-y:auto;max-width:760px}
+.meus-grupo{margin-bottom:18px}
+.meus-missao{font-weight:700;font-size:13px;color:var(--t2);padding:6px 2px;cursor:pointer}
+.meus-missao:hover{color:var(--t1)}
+.meus-item{display:flex;align-items:center;gap:9px;background:var(--bg-card);
+  border:1px solid var(--border-dim);border-radius:10px;padding:10px 13px;margin-bottom:7px;cursor:pointer;
+  transition:border-color .15s}
+.meus-item:hover{border-color:var(--border-soft)}
+.meus-titulo{flex:1;font-size:13px;font-weight:600;color:var(--t1);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+@media (max-width:760px){
+  .content{padding:12px;height:auto;overflow:visible}
+  .board{overflow-x:auto}
+  .coluna{flex:0 0 84vw}
+  .fld-row{flex-direction:column;gap:0}
+}

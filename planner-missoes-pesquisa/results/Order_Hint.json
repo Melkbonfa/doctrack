@@ -1,0 +1,48 @@
+{
+  "id": "order_hint",
+  "research_name": "Order Hint (Planner)",
+  "modelo_de_dados": {
+    "entidades_e_hierarquia": "Order Hint is not an entity; it is a single String property attached to every item that participates in an ordered relationship in Planner: a task's position within its bucket (plannerTask.orderHint), a bucket's position within its plan (plannerBucket.orderHint), an assignment's position in the 'Assigned to' view (plannerAssignment.orderHint), and each per-view board format (bucketTaskBoardFormat/progressTaskBoardFormat/assignedToTaskBoardFormat, each with its own orderHint). So ordering is a per-container, per-view attribute of the ordered item, never a separate ordering table.",
+    "relacionamentos_fk_cascade": "There is no FK — the hint is a scalar on the row it orders. Ordering scope is implicit in the container: task hints are only comparable within the same bucketId; bucket hints only within the same planId. Moving a task to another bucket changes bucketId and assigns a new orderHint valid in the destination; the source needs no reindex. No cascade semantics: deleting a neighbor never requires touching another row's hint.",
+    "granularidade_detalhes": "The hint is a light board-render field on the slim task — it must stay on the list/board query path, never in a details blob, because it is exactly what the board sorts by. It is small (a short ASCII string) precisely so the board list stays cheap.",
+    "mapeamento_missoes": "orderHint maps directly to the Cartao.ordem and Coluna.ordem fields in the Missoes plan. The plan currently proposes 'ordem = integer reindexed by the server from a list of ids'. Order Hint is the alternative: a per-container string that makes a move a single-row write. If Missoes keeps integer reindex it accepts O(n) rewrites per move but total simplicity; if it adopts an order-hint/fractional string it gets O(1) moves at the cost of writing a midpoint generator. This item exists to make that trade-off explicit."
+  },
+  "ordenacao": {
+    "mecanismo": "A fractional-lexicographic STRING over printable ASCII (ordinals 32 'space' to 126 '~'). Comparison is ordinal-by-ordinal, and a shorter string sorts before a longer one that shares its prefix (space < '!' < ... < '~'; 'a' < 'ab' < 'abc'; 'abc' < 'abd'). To insert between two neighbors the client PATCHes the literal composite string '<previousHint> <nextHint>!' (previous hint, a single space, next hint, a trailing '!'); if a neighbor is missing you pass an empty string on that side (top of list: '' + ' ' + nextHint + '!'; bottom: previousHint + ' ' + '' + '!'). The SERVICE, not the client, then replaces that composite with a compact canonical value that still sorts into the requested gap. The trailing '!' and the space are a documented convention that guarantees the composite sorts strictly between the two neighbors before the server compacts it.",
+    "custo_reordenar_e_rebalanceamento": "A move is O(1): only the moved item's hint is rewritten; neighbors are never touched, so no whole-column renumber (contrast with integer position, which is O(n)). Precision does not 'run out' like integer gaps — instead the string can GROW as repeated insertions happen in the same gap (documented examples show values like 'adhg ! !' and ' 5637! 5637 adhg!!'). Because the service recomputes a short canonical value on each PATCH, growth is amortized away server-side and there is no exposed periodic global rebalance job. Critical caveat for an offline clone: you have no service doing the compaction, so YOU must implement a midpoint-string generator (and optionally an occasional per-container renormalization pass) or your strings slowly bloat.",
+    "concorrencia_conflito": "Works hand-in-hand with @odata.etag optimistic concurrency. Two users moving the same card each send If-Match; the second gets 412 and retries against the fresh hint the first move produced. Because every accepted move yields a new server-computed hint, concurrent moves converge to a consistent total order without CRDT — the loser simply recomputes '<prev> <next>!' against the now-current neighbors. No silent last-write-wins clobber of position."
+  },
+  "atributos_cartao": {
+    "responsaveis_cardinalidade": "Not applicable to the ordering mechanism itself, except that assignments also carry their own orderHint (each plannerAssignment has an orderHint for the 'Assigned to' board), showing the same per-relationship ordering pattern is reused for the N-assignee association objects.",
+    "datas": "Not applicable — order hint is independent of dates. (Ordering by due date is a separate group-by/sort view, not driven by orderHint.)",
+    "prioridade_encoding": "Not applicable — priority is a separate Int field; when a board is grouped by priority the manual within-group order is still an orderHint (via the relevant board-format hint).",
+    "labels_encoding": "Not applicable to ordering.",
+    "estados_workflow": "Not applicable directly; note only that the 'group by Progress' board keeps its own manual order via progressTaskBoardFormat.orderHint, i.e. each grouping remembers a distinct order hint chain for the same task.",
+    "checklist_progresso": "Checklist items themselves are ordered by their own per-item orderHint inside plannerTaskDetails.checklist — the same string mechanism, one level down.",
+    "vinculos_externos": "Not applicable to ordering."
+  },
+  "views": {
+    "views_disponiveis": "Order Hint underpins every manually-ordered view: Board grouped by bucket, by progress, by assignee — each grouping has an independent hint chain so re-grouping does not destroy the manual order of the other groupings.",
+    "derivacao_do_mesmo_dado": "The key architectural point: instead of one canonical position, Planner stores SEVERAL order hints per task (one per board grouping via the *TaskBoardFormat hints). All are on the same task row; the view chooses which hint to sort by. Lesson for Missoes: if you ever want per-view manual ordering, add another order column/hint rather than a new table — but for an MVP a single ordem per (coluna) is enough.",
+    "my_tasks_cross": "The 'Assigned to me' view uses assigneePriority / assignment orderHint so a user can manually order their own cross-plan task list independently of each board's order."
+  },
+  "dependencias_scheduling": {
+    "modelo_dependencia": "None — order hint is pure manual positioning, unrelated to dependencies. It expresses 'the user dragged this here', not 'this must follow that'.",
+    "calculo_datas": "None — ordering never triggers date recalculation.",
+    "rollup_progresso": "None — ordering does not roll up."
+  },
+  "colaboracao": {
+    "comentarios_chat": "Not applicable.",
+    "notificacoes_activity_feed": "A move (orderHint change) is a normal task update and can appear in change tracking, but reordering itself is not usually a notification-worthy event. For Missoes, treat a move as a lightweight SocketIO broadcast, not a notification.",
+    "tempo_real": "Order hints make realtime reconciliation robust: because a move is a single-row write of a self-describing string, a client that missed an event can re-fetch and re-sort deterministically. Broadcast the moved card's new ordem via SocketIO; clients that reconnect just re-sort by ordem. No ordering CRDT needed.",
+    "templating_reuso": "When a plan/board is cloned, hints are copied so the template preserves the manual order of buckets and tasks."
+  },
+  "replicavel_offline": {
+    "veredito_copy_adapt_avoid": "ADAPT. The order-hint IDEA (a per-container fractional key so moves are single-row writes) is worth adopting, but you must implement the midpoint/compaction the Planner service hides. Two concrete offline options: (A) Simplest / plan's current choice: integer 'ordem' reindexed from a submitted id-list on every reorder — O(n) writes per move but trivial, no growth, no compaction; perfectly fine for boards with tens of cards per column. (B) Scalable: a String/Decimal fractional key generated as the midpoint between neighbors (fractional indexing) or LexoRank — O(1) moves, but you own a midpoint generator and an occasional renormalization. Recommendation for the Missoes MVP: keep option (A) integer reindex (matches the plan, dead simple), and note (B) as the upgrade path if a column ever holds hundreds of cards or reordering becomes hot.",
+    "recomendacao_sqlalchemy": "MVP: cartoes.ordem = Integer; on POST /reordenar receive {coluna_id, ids:[...]} and do a bulk UPDATE setting ordem=index in one transaction; guard each card with its version. Upgrade path: cartoes.ordem = String(length up to ~64); generate_between(prev, next) returns a midpoint string; on move write only the moved card's ordem; add a maintenance job renormalize(coluna_id) that rewrites the column's ordem to evenly spaced values when max length exceeds a threshold. Composite index (coluna_id, ordem) either way.",
+    "riscos": "If you copy the string form without the compaction step, hints grow unbounded. If you keep integer reindex, remember it is O(n) per move and must run in a single transaction to avoid transient duplicate positions. Mixing manual order with 'sort by due date' needs a clear rule about which wins. Concurrent moves MUST be guarded by the version/etag or two drags can interleave into an inconsistent order."
+  },
+  "uncertain": [
+    "notificacoes_activity_feed"
+  ]
+}
