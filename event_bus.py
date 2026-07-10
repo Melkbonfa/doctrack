@@ -50,6 +50,20 @@ class EventType:
     PROJETO_CREATED = "PROJETO_CREATED"
     PROJETO_UPDATED = "PROJETO_UPDATED"
 
+    # Missões (kanban)
+    MISSAO_CREATED = "MISSAO_CREATED"
+    MISSAO_UPDATED = "MISSAO_UPDATED"
+    MISSAO_DELETED = "MISSAO_DELETED"
+    MISSAO_COLUNA_CREATED = "MISSAO_COLUNA_CREATED"
+    MISSAO_COLUNA_UPDATED = "MISSAO_COLUNA_UPDATED"
+    MISSAO_COLUNA_DELETED = "MISSAO_COLUNA_DELETED"
+    MISSAO_COLUNA_REORDENADA = "MISSAO_COLUNA_REORDENADA"
+    MISSAO_COLUNAS_REORDENADAS = "MISSAO_COLUNAS_REORDENADAS"
+    MISSAO_CARTAO_CREATED = "MISSAO_CARTAO_CREATED"
+    MISSAO_CARTAO_UPDATED = "MISSAO_CARTAO_UPDATED"
+    MISSAO_CARTAO_DELETED = "MISSAO_CARTAO_DELETED"
+    MISSAO_CARTAO_MOVIDO = "MISSAO_CARTAO_MOVIDO"
+
     # PDR (P&D de reagentes)
     PRODUTO_CREATED = "PRODUTO_CREATED"
     PRODUTO_UPDATED = "PRODUTO_UPDATED"
@@ -108,6 +122,12 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
         rooms.append("role:tecnico")
         if payload.get("apresentacao_id"):
             rooms.append(f"apres:{payload['apresentacao_id']}")
+
+    # Missões (kanban): módulo é técnico+ — broadcast para os papéis com acesso;
+    # o front filtra pelo missao_id do payload (sem sala por missão no MVP).
+    if event_type.startswith("MISSAO_"):
+        rooms.append("role:gestor")
+        rooms.append("role:tecnico")
 
     if event_type == EventType.NOTIFICATION:
         # Notificações vão para o destinatário específico (ou broadcast)

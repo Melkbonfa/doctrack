@@ -1,0 +1,134 @@
+# Framework de campos (dimensões pesquisadas para CADA item do outline.yaml).
+# Base: o próprio plano "Missões" (Missão/Coluna/Cartão/ordem/vínculo). Cada campo
+# pede explicitamente o mapeamento contra esse modelo para virar decisão de design.
+# detail_level: brief -> moderate -> detailed
+
+modelo_de_dados:
+  descricao: Como a referência estrutura suas entidades e como isso mapeia no Missões.
+  fields:
+    - name: entidades_e_hierarquia
+      description: >-
+        Entidades e níveis (ex.: plano→bucket→task). Flat vs. nestável (sub-tasks/WBS).
+        Mapear ao par Missão(≈plano) / Coluna(≈bucket) / Cartão(≈task).
+      detail_level: detailed
+    - name: relacionamentos_fk_cascade
+      description: FKs, cascade de delete, e onde ficam vínculos opcionais vs. rígidos.
+      detail_level: moderate
+    - name: granularidade_detalhes
+      description: >-
+        A referência separa campos "leves" de board de campos "pesados" (descrição,
+        checklist) em tabela 1:1? (plannerTask↔plannerTaskDetails). Recomendação p/ Cartão.
+      detail_level: moderate
+    - name: mapeamento_missoes
+      description: >-
+        Tabela de correspondência explícita: o que na referência equivale a
+        Missão / Coluna / Cartão / ordem / (ref_tipo, ref_id) do plano DocTrack.
+      detail_level: detailed
+
+ordenacao:
+  descricao: Mecanismo de ordenar cartões/colunas — o coração do drag-and-drop.
+  fields:
+    - name: mecanismo
+      description: order_hint (string fracionária) / pos inteiro / índice fracionário / LexoRank.
+      detail_level: detailed
+    - name: custo_reordenar_e_rebalanceamento
+      description: >-
+        Custo de um move (recompute local vs. reindex de container inteiro) e como
+        trata esgotamento de precisão (rebalance periódico, crescimento de string).
+      detail_level: detailed
+    - name: concorrencia_conflito
+      description: >-
+        O que acontece quando 2 usuários arrastam o mesmo cartão: etag otimista,
+        last-write-wins, ou merge CRDT. Risco direto num app Flask multiusuário.
+      detail_level: moderate
+
+atributos_cartao:
+  descricao: Campos que vivem no cartão/tarefa.
+  fields:
+    - name: responsaveis_cardinalidade
+      description: 1 responsável vs. N (mapa de assignments); carrega dado extra (units/effort)?
+      detail_level: moderate
+    - name: datas
+      description: Quais datas (start/due/created/completed), nulabilidade e timezone (UTC?).
+      detail_level: moderate
+    - name: prioridade_encoding
+      description: Enum string vs. Int bucketizado (Planner 0–10 → 4 tiers). Recomendação.
+      detail_level: moderate
+    - name: labels_encoding
+      description: N:N tags livres vs. slots fixos por plano (appliedCategories). Custo/benefício.
+      detail_level: moderate
+    - name: estados_workflow
+      description: >-
+        Status como enum configurável (Notion/Linear) vs. percentComplete 0/50/100
+        (Planner) que dirige chip + agrupamento. Trade-off p/ Missões.
+      detail_level: detailed
+    - name: checklist_progresso
+      description: Checklist por cartão e como progresso é computado/rolado.
+      detail_level: brief
+    - name: vinculos_externos
+      description: >-
+        Como a referência liga um card a outra entidade (issue/PR/objetivo). Mapear ao
+        (ref_tipo, ref_id) opcional do Missões (Equipamento/Projeto/Documento).
+      detail_level: moderate
+
+views:
+  descricao: Como múltiplas visões saem do mesmo dado.
+  fields:
+    - name: views_disponiveis
+      description: Board / Grid / Timeline / Gantt / Calendar / Charts disponíveis.
+      detail_level: brief
+    - name: derivacao_do_mesmo_dado
+      description: >-
+        As views são group-by/sort/filtro sobre a mesma tabela (sem entidade nova)?
+        Chave para adicionar views futuras ao Missões sem re-modelar.
+      detail_level: moderate
+    - name: my_tasks_cross
+      description: Existe visão "meus cartões" cross-missão (query por responsável)? Custo.
+      detail_level: brief
+
+dependencias_scheduling:
+  descricao: Dependências entre tarefas e cálculo de datas.
+  fields:
+    - name: modelo_dependencia
+      description: Predecessor/sucessor, tipos (FS/SS/FF/SF), lead/lag.
+      detail_level: moderate
+    - name: calculo_datas
+      description: Auto-scheduling vs. manual; o que EVITAR replicar offline.
+      detail_level: moderate
+    - name: rollup_progresso
+      description: Progresso de pai/summary/goal derivado dos filhos — armazenado ou calculado?
+      detail_level: brief
+
+colaboracao:
+  descricao: Recursos multiusuário.
+  fields:
+    - name: comentarios_chat
+      description: Comentários/threaded chat por cartão (Planner task chat 2026). Modelo mínimo.
+      detail_level: brief
+    - name: notificacoes_activity_feed
+      description: Que eventos notificam (atribuição, prazo, @menção, conclusão); activity log.
+      detail_level: brief
+    - name: tempo_real
+      description: Mecanismo de sync ao vivo (webhook/etag/socket). Mapear ao SocketIO best-effort.
+      detail_level: moderate
+    - name: templating_reuso
+      description: Criar missão a partir de template (clonar colunas+labels+cartões).
+      detail_level: brief
+
+replicavel_offline:
+  descricao: Veredito de aplicabilidade no DocTrack — a saída mais acionável.
+  fields:
+    - name: veredito_copy_adapt_avoid
+      description: >-
+        Tag de 3 vias por conceito: COPY (copiar tal qual), ADAPT (copiar simplificado),
+        AVOID (não replicar). Ex.: COPY order-hint/3-estados; ADAPT dependências sem
+        auto-schedule; AVOID engine de scheduling e CRDT realtime.
+      detail_level: detailed
+    - name: recomendacao_sqlalchemy
+      description: Sugestão concreta de tabela/coluna/índice SQLAlchemy p/ o modelo Missões.
+      detail_level: moderate
+    - name: riscos
+      description: Armadilhas de manutenção/performance/consistência ao replicar.
+      detail_level: brief
+
+uncertain: []   # reservado — preenchido automaticamente na fase deep

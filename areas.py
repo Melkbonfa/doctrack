@@ -13,7 +13,8 @@ Campos de cada área:
   home    — para onde o card do hub leva (sub-hub ou app da área)
   icon    — markup interno do <svg> (sem a tag <svg>), herda currentColor
   modulos — módulos da área para o sub-hub: {label, url, role, icon}
-            role=None: visível a qualquer membro da área; "gestor": admin/gestor.
+            role=None: visível a qualquer membro da área; "gestor": admin/gestor;
+            "tecnico": técnico pra cima (esconde de `leitura`).
 """
 
 # Ícones (markup interno do <svg viewBox="0 0 24 24">), na linha do hub atual.
@@ -33,13 +34,16 @@ _IC_EQUIP_MOD = ('<rect x="4" y="4" width="16" height="16" rx="2"/>'
                  '<path d="M9 9h6v6H9z"/><path d="M9 2v2"/><path d="M15 2v2"/>'
                  '<path d="M9 20v2"/><path d="M15 20v2"/><path d="M2 9h2"/>'
                  '<path d="M2 15h2"/><path d="M20 9h2"/><path d="M20 15h2"/>')
+_IC_MISSOES = ('<rect x="3" y="4" width="5" height="16" rx="1.5"/>'
+               '<rect x="10" y="4" width="5" height="10" rx="1.5"/>'
+               '<rect x="17" y="4" width="4" height="13" rx="1.5"/>')
 
 
 AREAS = [
     {
         "slug": "pde",
         "nome": "P&D Equipamentos",
-        "sub": "DOCUMENTOS · PROJETOS",
+        "sub": "DOCUMENTOS · PROJETOS · MISSÕES",
         "accent": "#22d3ee",
         "home": "/hub/pde",
         "icon": _IC_EQUIP,
@@ -47,6 +51,7 @@ AREAS = [
             {"label": "Equipamentos", "url": "/equipamentos", "role": None, "module": "equip", "icon": _IC_EQUIP_MOD},
             {"label": "Documentos", "url": "/", "role": None, "module": "docs", "icon": _IC_DOCS},
             {"label": "Projetos", "url": "/projetos", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
+            {"label": "Missões", "url": "/missoes", "role": "tecnico", "module": "missoes", "icon": _IC_MISSOES},
         ],
     },
     {

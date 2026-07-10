@@ -1,0 +1,46 @@
+{
+  "id": "views_derivadas",
+  "research_name": "Views derivadas de um único dataset",
+  "modelo_de_dados": {
+    "entidades_e_hierarquia": "Across Planner, Trello, GitHub Projects v2, Notion and Linear the recurring architecture is: ONE canonical set of task/card rows, and every visualization (Board, Grid/Table, Timeline/Gantt, Calendar, Charts, My Tasks) is a projection of those same rows. No view introduces a new core entity. The only per-view state is (a) view configuration (which grouping/sort/filter) and (b) small per-view ordering hints so manual drag order survives switching or re-grouping. Hierarchy is unchanged by the view; a Board just groups the flat task list by a field value.",
+    "relacionamentos_fk_cascade": "Views are read models; they add no FKs to the domain. What may be persisted is a saved-view config row (belongs to a Missao and/or user) and optional per-view order-hint columns on the task. None of these cascade into task data; deleting a saved view never touches cards.",
+    "granularidade_detalhes": "Views select only light board/list fields; the heavy details (description/checklist) load on card open regardless of view. So the light/heavy split pays off in EVERY view — the board, table and calendar all run off the slim row.",
+    "mapeamento_missoes": "The Missoes MVP ships exactly ONE view — the Board grouped by Coluna (bucketId). This item's lesson is forward-looking: because Cartao already carries the fields other views need (prazo -> Calendar/Timeline, prioridade -> group/sort, responsaveis -> My Tasks, percent/estado -> progress charts), future views are pure query changes (group-by/sort/filter) with NO new tables and NO re-modeling. Design the Cartao row now so those fields exist; add views later as endpoints/renderers."
+  },
+  "ordenacao": {
+    "mecanismo": "Manual order per view is a per-view sort key (order hint / fractional index) on the task; automatic-sort views (by due date, priority) just ORDER BY that field. Planner persists distinct board-format order hints per grouping (bucket/progress/assignee) so each grouping remembers its own manual order.",
+    "custo_reordenar_e_rebalanceamento": "If you only ever manually order ONE view (the Board by Coluna), you need one 'ordem' per card — cheap. Each additional manually-orderable view costs one more order column/hint per card. Auto-sorted views cost nothing extra (they sort by an existing field). Recommendation: give the MVP a single ordem for the Board; add per-view order only if/when a second manually-ordered view is actually built.",
+    "concorrencia_conflito": "Views are read-mostly, so concurrency is mainly about the underlying card edits (guarded by the card version). Saved-view config edits are low-contention; last-write-wins on a view config is acceptable."
+  },
+  "atributos_cartao": {
+    "responsaveis_cardinalidade": "The 'My Tasks' view is the direct consumer of assignee cardinality: with N assignees it filters cards where the user is in the assignment set. Ensure the assignee relation is indexed by user_id for this view to be cheap.",
+    "datas": "Calendar and Timeline/Gantt views are projections of the card's date fields (prazo/inicio). Storing start+due enables a Timeline for free later; storing only due still enables a Calendar. This is why the date fields belong on the card even though the MVP board does not group by them.",
+    "prioridade_encoding": "A 'group by priority' board and a priority chart are free once prioridade is a sortable small int. No extra modeling.",
+    "labels_encoding": "A 'group by label' board and label-filtered views derive from the etiquetas relation; slot/JSON labels are filterable directly, N:N labels via a join.",
+    "estados_workflow": "A progress/status chart and a 'group by estado' board derive from percent_complete or the column's category. If columns are tagged todo/doing/done, a cross-column progress rollup becomes a trivial aggregate.",
+    "checklist_progresso": "Charts can aggregate checklist completion (sum of checklist_feitos/checklist_total) once those counters exist on the card.",
+    "vinculos_externos": "A 'cards linked to Equipamento X' view is just a filter on (ref_tipo, ref_id) — an example of a valuable view that costs nothing beyond the field already in the plan."
+  },
+  "views": {
+    "views_disponiveis": "Superset observed across the references: Board (group-by field), Grid/Table (spreadsheet), Timeline/Gantt (dates + optional dependencies), Calendar (by date), Charts/Insights (aggregations), and My Tasks/Assigned-to-me (cross-container by assignee). Planner Basic has all but Gantt; Premium/Project-web adds Timeline+dependencies; Trello centers on Board; GitHub v2 and Notion/Linear expose Table+Board+Timeline uniformly.",
+    "derivacao_do_mesmo_dado": "The core finding: EVERY listed view = group_by + sort + filter over one row set + a renderer. Board = group by a field, render columns. Table = no grouping, render rows. Calendar = filter has-date, render by date. Timeline = render start..due bars. Charts = aggregate. My Tasks = filter by assignee across Missoes. Implementation implication for DocTrack: a single board endpoint returning the card list, plus client-side (or query-param) grouping/sort/filter, can grow into all these views without schema changes.",
+    "my_tasks_cross": "The one view worth building EARLY after the board, because it is high-value (a personal landing page) and cheap (indexed filter by responsavel across all Missoes). Linear/Planner/Trello all ship it. Recommend it as the first fast-follow to the MVP board."
+  },
+  "dependencias_scheduling": {
+    "modelo_dependencia": "Only the Timeline/Gantt view consumes dependencies (to draw arrows). Since the MVP has no dependencies, the Timeline view is deferred; if lightweight blocks/blocked-by relations are added later (see Notion/Linear), a read-only Timeline can render them as arrows without a scheduling engine.",
+    "calculo_datas": "Views never compute dates; they only display card dates. Keep it that way offline.",
+    "rollup_progresso": "Charts/insights views derive rollups (counts by column/status/priority, % complete) as aggregate queries over the card table — computed on read, nothing stored."
+  },
+  "colaboracao": {
+    "comentarios_chat": "Not applicable to views (comments live on the card, shown when opened from any view).",
+    "notificacoes_activity_feed": "Not applicable to views.",
+    "tempo_real": "A card move/edit broadcast via SocketIO should update whatever view is open by re-applying the client-side grouping/sort; because all views derive from the same rows, one incremental patch keeps every open view consistent. Reconnect => refetch the row set and re-project.",
+    "templating_reuso": "Saved views can themselves be templated/shared (GitHub Projects, Notion, Linear all share view configs), but this is a later nicety, not MVP."
+  },
+  "replicavel_offline": {
+    "veredito_copy_adapt_avoid": "COPY the 'many views, one table' architecture as the guiding constraint: model the Cartao row now with the fields future views need (dates, prioridade, responsaveis, estado/percent, etiquetas, ref_tipo/ref_id) so no view ever requires a new table. Build ONLY the Board (group by Coluna) for the MVP, then fast-follow with My Tasks (cheap, high value). ADAPT Timeline/Charts as later query-only additions. AVOID: creating per-view entities, denormalizing cards into view-specific tables, or building a generic saved-view/config engine before there is a second view to justify it.",
+    "recomendacao_sqlalchemy": "No new tables for the MVP: one board endpoint GET /api/missoes/<id> returns colunas with nested cartoes ordered by (coluna_id, ordem). Later views are new endpoints or query params over the same Cartao query: /api/missoes/<id>/cartoes?group_by=prioridade, /api/meus-cartoes?responsavel=<uid> (index cartao_responsavel.user_id or a responsaveis lookup), /api/missoes/<id>/timeline (select cards with prazo). Optional later: saved_view(missao_id, user_id, config JSON) only when saved views are actually requested.",
+    "riscos": "Premature view abstraction (a saved-view/config engine) is wasted scope before a second view exists. Adding a manually-ordered second view later requires a second order key per card — cheap only if the pattern is anticipated. Client-side grouping/filtering must page/limit large card sets to stay fast. Ensure the single board query stays on the light row (light/heavy split) or every view inherits a slow query."
+  },
+  "uncertain": []
+}

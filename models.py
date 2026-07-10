@@ -1110,3 +1110,155 @@ class ProjetoMensal(db.Model):
             "atualizado_por":  self.atualizado_por or "",
             "atualizado_em":   self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
         }
+
+
+# ── MISSÕES (kanban nativo tipo Planner) ─────────────────────────────────────
+# Hierarquia flat Missão → Coluna → Cartão (≈ plannerPlan → bucket → task).
+# Ordenação por `ordem` int reindexado em transação; `versao` no cartão é o lock
+# otimista (equivalente barato do @odata.etag do Graph — conflito devolve 409).
+# Referência: planner-missoes-pesquisa/report.md.
+
+PRIORIDADES_CARTAO = ["baixa", "media", "alta", "urgente"]
+REF_TIPOS_CARTAO   = ["equipamento", "projeto", "documento"]
+CATEGORIAS_COLUNA  = ["todo", "doing", "done"]
+
+
+class Missao(db.Model):
+    __tablename__ = "missoes"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    nome       = db.Column(db.String(160), nullable=False)
+    descricao  = db.Column(db.Text, default="")
+    accent     = db.Column(db.String(9), default="")        # cor hex opcional
+    arquivado  = db.Column(db.Boolean, default=False, index=True)
+    ordem      = db.Column(db.Integer, default=0)
+    criado_por = db.Column(db.String(120), default="")
+    criado_em  = db.Column(db.DateTime, default=datetime.now)
+
+    colunas = db.relationship("MissaoColuna", back_populates="missao",
+                              cascade="all, delete-orphan",
+                              order_by="MissaoColuna.ordem")
+    cartoes = db.relationship("MissaoCartao", back_populates="missao",
+                              cascade="all, delete-orphan")
+
+    def to_dict(self, com_colunas=False, n_cartoes=None):
+        d = {
+            "id":         self.id,
+            "nome":       (self.nome or "").strip(),
+            "descricao":  self.descricao or "",
+            "accent":     self.accent or "",
+            "arquivado":  bool(self.arquivado),
+            "ordem":      self.ordem or 0,
+            "criado_por": self.criado_por or "",
+            "criado_em":  self.criado_em.strftime("%d/%m/%Y") if self.criado_em else "",
+            # n_cartoes pré-computado evita carregar os cartões só para contar (N+1 na lista)
+            "n_cartoes":  len(self.cartoes) if n_cartoes is None else n_cartoes,
+        }
+        if com_colunas:
+            d["colunas"] = [c.to_dict(com_cartoes=True) for c in self.colunas]
+        return d
+
+
+class MissaoColuna(db.Model):
+    __tablename__ = "missao_colunas"
+
+    id        = db.Column(db.Integer, primary_key=True)
+    missao_id = db.Column(db.Integer, db.ForeignKey("missoes.id"),
+                          nullable=False, index=True)
+    nome      = db.Column(db.String(80), nullable=False)
+    cor       = db.Column(db.String(9), default="")
+    ordem     = db.Column(db.Integer, default=0)
+    # Tag opcional p/ rollup/relatório sem virar enum global (à la Notion/Linear):
+    # a coluna É o estado; a categoria só classifica (todo|doing|done).
+    categoria = db.Column(db.String(10), default="")
+
+    missao  = db.relationship("Missao", back_populates="colunas")
+    cartoes = db.relationship("MissaoCartao", back_populates="coluna",
+                              cascade="all, delete-orphan",
+                              order_by="MissaoCartao.ordem")
+
+    def to_dict(self, com_cartoes=False):
+        d = {
+            "id":        self.id,
+            "missao_id": self.missao_id,
+            "nome":      (self.nome or "").strip(),
+            "cor":       self.cor or "",
+            "ordem":     self.ordem or 0,
+            "categoria": self.categoria or "",
+        }
+        if com_cartoes:
+            d["cartoes"] = [c.to_dict() for c in self.cartoes]
+        return d
+
+
+class MissaoCartao(db.Model):
+    __tablename__ = "missao_cartoes"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    missao_id      = db.Column(db.Integer, db.ForeignKey("missoes.id"),
+                               nullable=False, index=True)
+    coluna_id      = db.Column(db.Integer, db.ForeignKey("missao_colunas.id"),
+                               nullable=False, index=True)
+    titulo         = db.Column(db.String(200), nullable=False)
+    descricao      = db.Column(db.Text, default="")          # pesado: fora da query do board
+    responsaveis   = db.Column(db.String(200), default="")   # CSV (convenção do Entregavel)
+    prazo          = db.Column(db.String(40), default="")    # ISO 'YYYY-MM-DD'
+    prioridade     = db.Column(db.String(10), default="media")
+    etiquetas      = db.Column(db.String(300), default="")   # CSV
+    concluido      = db.Column(db.Boolean, default=False)
+    ordem          = db.Column(db.Integer, default=0)
+    versao         = db.Column(db.Integer, default=0)        # lock otimista (move/patch)
+    # Vínculo opcional, tipado, sem FK rígida (módulo solto; validação ao gravar).
+    ref_tipo       = db.Column(db.String(20), default="")    # equipamento|projeto|documento|""
+    ref_id         = db.Column(db.Integer, nullable=True)
+    criado_por     = db.Column(db.String(120), default="")
+    atualizado_por = db.Column(db.String(120), default="")
+    atualizado_em  = db.Column(db.DateTime, default=datetime.now,
+                               onupdate=datetime.now)
+
+    __table_args__ = (db.Index("ix_missao_cartoes_coluna_ordem", "coluna_id", "ordem"),)
+
+    missao = db.relationship("Missao", back_populates="cartoes")
+    coluna = db.relationship("MissaoColuna", back_populates="cartoes")
+
+    def ref_label(self):
+        """Rótulo leve do vínculo (chip): nome do equipamento/projeto/documento."""
+        if not self.ref_tipo or not self.ref_id:
+            return ""
+        try:
+            if self.ref_tipo == "equipamento":
+                e = Equipamento.query.get(self.ref_id)
+                return e.nome if e and e.ativo else ""
+            if self.ref_tipo == "projeto":
+                p = Projeto.query.get(self.ref_id)
+                return p.nome if p and p.ativo else ""
+            if self.ref_tipo == "documento":
+                doc = Documento.query.get(self.ref_id)
+                return doc.documento if doc and doc.ativo else ""
+        except Exception:
+            return ""
+        return ""
+
+    def to_dict(self, com_descricao=False):
+        d = {
+            "id":             self.id,
+            "missao_id":      self.missao_id,
+            "coluna_id":      self.coluna_id,
+            "titulo":         (self.titulo or "").strip(),
+            "responsaveis":   self.responsaveis or "",
+            "prazo":          self.prazo or "",
+            "prioridade":     self.prioridade or "media",
+            "etiquetas":      self.etiquetas or "",
+            "concluido":      bool(self.concluido),
+            "ordem":          self.ordem or 0,
+            "versao":         self.versao or 0,
+            "ref_tipo":       self.ref_tipo or "",
+            "ref_id":         self.ref_id,
+            "ref_label":      self.ref_label(),
+            "tem_descricao":  bool((self.descricao or "").strip()),
+            "atualizado_por": self.atualizado_por or "",
+            "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
+        }
+        if com_descricao:
+            d["descricao"] = self.descricao or ""
+        return d
