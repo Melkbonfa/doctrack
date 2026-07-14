@@ -1477,6 +1477,7 @@ def _sync_schema():
     existentes = set(insp.get_table_names())
     # Boolean DEFAULT difere entre dialetos (Postgres exige FALSE, SQLite aceita 0)
     _bool_false = "FALSE" if db.engine.dialect.name == "postgresql" else "0"
+    _bool_true  = "TRUE"  if db.engine.dialect.name == "postgresql" else "1"
     novas_colunas = {
         "users": [
             ("precisa_definir_senha", f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
@@ -1500,8 +1501,12 @@ def _sync_schema():
         "projeto_mensal": [
             ("custo_mes", "FLOAT DEFAULT 0"),
         ],
+        # Documentos já existentes nascem aplicavel=TRUE pelo DEFAULT da coluna —
+        # é o backfill que queremos: existir significa que se aplica.
         "documentos": [
             ("equipamento_id", "INTEGER"),
+            ("aplicavel",      f"BOOLEAN DEFAULT {_bool_true} NOT NULL"),
+            ("motivo_na",      "VARCHAR(300) DEFAULT ''"),
         ],
         "equipamentos": [
             ("nome_tecnico",      "VARCHAR(400) DEFAULT ''"),

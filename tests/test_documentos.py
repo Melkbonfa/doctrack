@@ -252,3 +252,15 @@ def test_abrir_pasta_acesso_remoto(client, admin_token, auth_headers):
 
 
 
+
+
+def test_documento_nasce_aplicavel(client, admin_token, auth_headers):
+    """Todo documento nasce aplicável; o dict expõe aplicavel/motivo_na."""
+    h = auth_headers(admin_token)
+    res = client.post("/api/documentos",
+                      json={"setor": "PRE", "equipamento": "MAQ-APL", "sku": "SKU-APL"},
+                      headers=h)
+    assert res.status_code == 201
+    doc = res.get_json()["documento"]
+    assert doc["aplicavel"] is True
+    assert doc["motivo_na"] == ""
