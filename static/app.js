@@ -987,26 +987,38 @@ function groupByEquip(){
   return Object.values(groups).sort((a,b)=>a.equipamento.localeCompare(b.equipamento));
 }
 
-// Documentos de equipamento (PRE + Manuais) do grupo
-function _equipDocs(g){ return g.docs.filter(d=>d.setor==='PRE'||d.setor==='Manuais'); }
+// Documentos de equipamento (PRE + Manuais) do grupo. `_equipDocs` devolve só os
+// APLICÁVEIS: documentos em N/A ("não se aplica a este equipamento") estão fora da
+// completude — não pintam o card, não entram nos chips, não contam nos KPIs.
+function _equipDocs(g){ return g.docs.filter(d=>(d.setor==='PRE'||d.setor==='Manuais') && d.aplicavel!==false); }
+function _equipDocsNA(g){ return g.docs.filter(d=>d.aplicavel===false); }
 function _docFinalizado(d){
   return (d.setor==='PRE' && d.status==='Homologado') || (d.setor==='Manuais' && d.status==='Concluído');
 }
-function equipManuaisOk(g){ return g.manuais.filter(d=>d.status==='Concluído').length; }
+function equipManuaisOk(g){ return g.manuais.filter(d=>d.aplicavel!==false && d.status==='Concluído').length; }
+function equipManuaisAplicaveis(g){ return g.manuais.filter(d=>d.aplicavel!==false).length; }
 
-// Cor do card = PIOR status entre os documentos do equipamento.
+// Cor do card = PIOR status entre os documentos APLICÁVEIS do equipamento.
+// Equipamento sem nenhum aplicável (tudo N/A) fica neutro — como o idp() que
+// devolve null quando todos os itens são N/A.
 function equipStatusColor(g){
   const docs = _equipDocs(g);
-  if(!docs.length) return 'amber';
+  if(!docs.length) return 'neutro';
   if(docs.some(d=>d.status==='Elaborar')) return 'red';   // algum não iniciado
   if(docs.every(_docFinalizado)) return 'green';          // tudo finalizado
   return 'amber';
 }
 
+// Completude do equipamento: finalizados / aplicáveis (+ quantos estão em N/A)
+function equipCompletude(g){
+  const docs = _equipDocs(g);
+  return { ok: docs.filter(_docFinalizado).length, total: docs.length, na: _equipDocsNA(g).length };
+}
+
 function equipMatchesChip(g, chip){
   const docs = _equipDocs(g);
   const color = equipStatusColor(g);
-  const ok = equipManuaisOk(g), cnt = g.manuais.length;
+  const ok = equipManuaisOk(g), cnt = equipManuaisAplicaveis(g);
   switch(chip){
     case 'todos': return true;
     case 'pendente': return color==='red';
@@ -1059,9 +1071,14 @@ function renderGrid(){
   }
   grid.innerHTML = filtered.map(g => {
     const color = equipStatusColor(g);
+    const c = equipCompletude(g);
+    const resumo = c.total
+      ? `${c.ok}/${c.total} concluídos${c.na?` · ${c.na} N/A`:''}`
+      : 'nenhum documento aplicável';
     return `<div class="equip-card st-${color}" data-equip="${esc(g.key)}" onclick="openEquipModal('${esc(g.key).replace(/'/g,"\\'")}')">
       <div class="equip-card-name">${esc(g.equipamento)}</div>
       <div class="equip-card-sku">${g.sku?esc(g.sku):'<span class="muted">sem SKU</span>'}</div>
+      <div class="equip-card-compl">${esc(resumo)}</div>
     </div>`;
   }).join('');
 }
@@ -1169,7 +1186,7 @@ async function _loadCartoesVinculados(){
 function renderEquipHeader(){
   const e = _equipCtx.equip || {};
   const color = _equipCtx.g ? equipStatusColor(_equipCtx.g) : 'amber';
-  const dot = color==='green'?'var(--green)':color==='red'?'var(--red)':'var(--amber)';
+  const dot = color==='green'?'var(--green)':color==='red'?'var(--red)':color==='neutro'?'var(--t4)':'var(--amber)';
   const reg = (e.anvisa_registro||e.anvisa_validade)
     ? `Registro ${e.anvisa_registro||'—'} · val. ${e.anvisa_validade||'—'}` : '';
   const badges = [
