@@ -90,7 +90,8 @@ from models import (
     CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
-    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, SETOR_DO_TIPO, TIPOS_DOC_LABELS
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_AUTO,
+    TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS, ESTADOS_REVISAO
 )
 from auth import auth_bp, log_action, require_role, get_client_ip
 from event_bus import publish_event, get_events_since, EventType
@@ -462,12 +463,13 @@ def get_equipamento(equip_id):
     return jsonify(d), 200
 
 def _ensure_docs_for_equip(equip):
-    """Garante os 9 tipos de documento do equipamento (paridade com o módulo
-    Documentos). Cria só os que faltam. Retorna quantos criou. Idempotente."""
+    """Garante os tipos obrigatórios de documento do equipamento (paridade com o
+    módulo Documentos). Opcionais (TIPOS_DOC_OPCIONAIS) não são auto-criados.
+    Cria só os que faltam. Retorna quantos criou. Idempotente."""
     existentes = {d.tipo_doc for d in Documento.query.filter(
         Documento.ativo == True, Documento.equipamento_id == equip.id).all() if d.tipo_doc}
     n = 0
-    for t in TIPOS_DOC_TODOS:
+    for t in TIPOS_DOC_AUTO:
         if t in existentes:
             continue
         label = TIPOS_DOC_LABELS.get(t, t)
@@ -502,6 +504,9 @@ _EQUIP_STR = ["nome", "nome_original", "nome_tecnico", "descricao",
               "anvisa", "anvisa_registro", "anvisa_validade",
               "fabricante", "codigo_fabricante", "status", "observacoes", "armazenamento_base"]
 _EQUIP_INT = ["categoria_id", "familia_id"]
+# Itens de revisão manuais do IDP (editáveis por PATCH, validados contra ESTADOS_REVISAO).
+# pareto_classe/qtd_saidas NÃO entram aqui — só o importador Pareto os grava.
+_EQUIP_REV = ["rev_cadastro", "rev_estrutura", "rev_descritivo"]
 
 def _aplicar_campos_equip(equip, data):
     """Aplica os campos do payload ao equipamento. Devolve a lista de campos mudados."""
@@ -515,6 +520,13 @@ def _aplicar_campos_equip(equip, data):
         novo = bool(data.get("bloqueado"))
         if novo != bool(equip.bloqueado):
             equip.bloqueado = novo; mudou.append("bloqueado")
+    for campo in _EQUIP_REV:
+        if campo in data:
+            novo = (data.get(campo) or "").strip()
+            if novo not in ESTADOS_REVISAO:
+                continue  # valor inválido: ignora (mantém o estado atual)
+            if novo != (getattr(equip, campo) or ""):
+                setattr(equip, campo, novo); mudou.append(campo)
     for campo in _EQUIP_INT:
         if campo in data:
             raw = data.get(campo)
@@ -611,6 +623,31 @@ def import_equipamentos():
     if not dryrun:
         log_action(caller, "REIMPORT", entidade="Equipamentos (planilha mestra)",
                    campo="import", novo=f"criados={rel['a_criar']} atualizados={rel['a_atualizar']}",
+                   ip=get_client_ip())
+    return jsonify(rel), 200
+
+
+@app.route("/api/equipamentos/import-pareto", methods=["POST"])
+@require_role("admin", "gestor")
+def import_pareto():
+    """Importa a aba Pareto 80-20 (Qtd de saídas + Classe ABC) casando por SKU de Venda."""
+    caller = get_jwt_identity()
+    dryrun = request.args.get("dryrun", "1") not in ("0", "false")
+    file_bytes = None
+    if "arquivo" in request.files:
+        file_bytes = request.files["arquivo"].read()
+    if not file_bytes:
+        return jsonify({"erro": "Faça upload da planilha do Pareto."}), 400
+    try:
+        from pareto_importer import importar_pareto as _importar_pareto
+        rel = _importar_pareto(file_bytes=file_bytes, dryrun=dryrun)
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao importar: {e}"}), 500
+    if rel.get("erro"):
+        return jsonify(rel), 400
+    if not dryrun:
+        log_action(caller, "REIMPORT", entidade="Equipamentos (Pareto ABC)",
+                   campo="import", novo=f"atualizados={rel['a_atualizar']} sem_match={rel['sem_match_n']}",
                    ip=get_client_ip())
     return jsonify(rel), 200
 
@@ -1251,6 +1288,7 @@ def api_enums():
         "tipos_doc_pre": TIPOS_DOC_PRE,
         "tipos_doc_fabricante": TIPOS_DOC_FABRICANTE,
         "tipos_doc_todos": TIPOS_DOC_TODOS,
+        "tipos_doc_opcionais": TIPOS_DOC_OPCIONAIS,
         "setor_do_tipo": SETOR_DO_TIPO,
         "tipos_doc_labels": TIPOS_DOC_LABELS,
         "familias": familias,
@@ -1478,6 +1516,11 @@ def _sync_schema():
             ("linha_id",          "INTEGER"),
             ("classificacao_reg", "VARCHAR(20) DEFAULT ''"),
             ("codigo_fabricante", "VARCHAR(80) DEFAULT ''"),
+            ("rev_cadastro",      "VARCHAR(20) DEFAULT 'Pendente'"),
+            ("rev_estrutura",     "VARCHAR(20) DEFAULT 'Pendente'"),
+            ("rev_descritivo",    "VARCHAR(20) DEFAULT 'Pendente'"),
+            ("pareto_classe",     "VARCHAR(1) DEFAULT ''"),
+            ("qtd_saidas",        "INTEGER DEFAULT 0"),
         ],
     }
     adicionadas = set()
@@ -1577,6 +1620,55 @@ def _sync_schema():
                 print(f"[INFO] Schema: {n} itens de modelo de entregável semeados")
 
 
+def _migrar_taxonomia_docs():
+    """Migração one-time da taxonomia de tipos (idempotente, roda a cada boot):
+    1) 'Checklist' genérico → 'Checklist_Conferencia' (o processo real tem 4
+       checklists por IT; o genérico herda os dados no de Conferência).
+    2) Opcionais (Spare Parts / Dossiê / QIQOQD) em branco são ocultados
+       (soft delete) — deixam de ser auto-criados e voltam sob demanda pelo
+       botão "Criar" do modal. Os que têm qualquer dado preenchido permanecem.
+    Os 3 checklists novos que faltarem são criados pelo _backfill_equipamentos
+    (via TIPOS_DOC_AUTO), que roda logo depois."""
+    # 1) rename do tipo genérico, preservando dados
+    renomeados = 0
+    for d in Documento.query.filter(Documento.tipo_doc == "Checklist").all():
+        d.tipo_doc = "Checklist_Conferencia"
+        # atualiza só o nome-padrão ("Checklist - X"); nomes customizados ficam
+        if (d.documento or "").startswith("Checklist - "):
+            d.documento = d.documento.replace(
+                "Checklist - ", "Checklist de Conferência - ", 1)
+        renomeados += 1
+
+    # 2) oculta opcionais em branco (critério conservador: qualquer dado salva)
+    ocultados = 0
+    base_por_equip = {e.id: (e.armazenamento_base or "").strip()
+                      for e in Equipamento.query.all()}
+    candidatos = Documento.query.filter(
+        Documento.ativo == True,
+        Documento.tipo_doc.in_(TIPOS_DOC_OPCIONAIS)).all()
+    for d in candidatos:
+        arm = (d.armazenamento or "").strip()
+        arm_base = base_por_equip.get(d.equipamento_id, "")
+        em_branco = (
+            not (d.codigo_doc or "").strip()
+            and not (d.responsavel or "").strip()
+            and (d.status or "Elaborar") == "Elaborar"
+            and d.data_treinamento is None and d.data_homologacao is None
+            and not (d.obs_treinamento or "").strip()
+            and not (d.obs_homologacao or "").strip()
+            and (not arm or arm == arm_base)
+        )
+        if em_branco:
+            d.ativo = False
+            d.deleted_at = datetime.now()
+            ocultados += 1
+
+    if renomeados or ocultados:
+        db.session.commit()
+        print(f"[INFO] Taxonomia de documentos: {renomeados} 'Checklist' renomeados; "
+              f"{ocultados} opcionais em branco ocultados.")
+
+
 def _backfill_equipamentos():
     """Cria a entidade Equipamento, vincula os documentos e completa os 9 tipos
     por equipamento. Idempotente — roda a cada boot e após o seed do Excel."""
@@ -1668,8 +1760,10 @@ with app.app_context():
         if User.query.count() == 0:
             init_db()
 
-        # Reestruturação: entidade Equipamento + 9 tipos por equipamento.
-        # Após o seed, para cobrir também instalações novas. Idempotente.
+        # Reestruturação: entidade Equipamento + tipos por equipamento.
+        # A migração de taxonomia roda ANTES do backfill (o rename evita que o
+        # backfill crie um Checklist_Conferencia duplicado). Idempotente.
+        _migrar_taxonomia_docs()
         _backfill_equipamentos()
 
         # PDR: na primeira subida as tabelas pdr_* já foram criadas por create_all();

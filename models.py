@@ -27,21 +27,33 @@ STATUS_MAP = {
     "Manuais": STATUS_FABRICANTE,
 }
 
-# Tipos de documento por setor. Cada equipamento tem 1 documento de cada tipo.
-TIPOS_DOC_PRE = ["IT", "Checklist"]
+# Tipos de documento por setor. Cada equipamento tem 1 documento de cada tipo
+# obrigatório; os opcionais são criados sob demanda (nem todo equipamento tem).
+# Processo PRE: a IT finalizada vem vinculada a 4 checklists.
+TIPOS_DOC_PRE = [
+    "IT", "Checklist_Conferencia", "Checklist_BurnIn",
+    "Checklist_Limpeza_Embalagem", "Checklist_Produto",
+]
 TIPOS_DOC_FABRICANTE = [
     "Manual_Usuario", "Manual_ES", "Manual_Servico",
     "Spare_Parts", "Dossie", "Guia_Instalacao", "QIQOQD",
 ]
 TIPOS_DOC_TODOS = TIPOS_DOC_PRE + TIPOS_DOC_FABRICANTE
 
+# Opcionais: não são auto-criados por equipamento (botão "Criar" no modal).
+TIPOS_DOC_OPCIONAIS = ["Spare_Parts", "Dossie", "QIQOQD"]
+TIPOS_DOC_AUTO = [t for t in TIPOS_DOC_TODOS if t not in TIPOS_DOC_OPCIONAIS]
+
 # setor (pipeline de status) de cada tipo de documento
 SETOR_DO_TIPO = {t: "PRE" for t in TIPOS_DOC_PRE}
 SETOR_DO_TIPO.update({t: "Manuais" for t in TIPOS_DOC_FABRICANTE})
 
 TIPOS_DOC_LABELS = {
-    "IT":              "Instrução de Trabalho",
-    "Checklist":       "Checklist",
+    "IT":                          "Instrução de Trabalho",
+    "Checklist_Conferencia":       "Checklist de Conferência",
+    "Checklist_BurnIn":            "Checklist de Burn-In",
+    "Checklist_Limpeza_Embalagem": "Checklist de Limpeza e Embalagem",
+    "Checklist_Produto":           "Checklist de Produto",
     "Manual_Usuario":  "Manual do Usuário PT",
     "Manual_ES":       "Manual do Usuário ES",
     "Manual_Servico":  "Manual de Serviço",
@@ -50,6 +62,10 @@ TIPOS_DOC_LABELS = {
     "Guia_Instalacao": "Guia de Instalação",
     "QIQOQD":          "QI/QO/QD",
 }
+
+# Estados de cada item de revisão do Índice de Desenvolvimento de Produto (IDP).
+# O índice conta só "Revisado"; "N/A" sai do denominador (item não se aplica).
+ESTADOS_REVISAO = ["Pendente", "Em revisão", "Revisado", "N/A"]
 
 ACOES_AUDIT = [
     "CREATE", "UPDATE", "DELETE", "STATUS_CHANGE", "LOGIN", "REIMPORT",
@@ -297,6 +313,15 @@ class Equipamento(db.Model):
     bloqueado          = db.Column(db.Boolean, default=False, nullable=False, index=True)
     observacoes        = db.Column(db.Text, default="")
     armazenamento_base = db.Column(db.String(500), default="")
+    # Revisões manuais do IDP (Índice de Desenvolvimento de Produto). Os itens
+    # Manual do usuário / IT / Checklists são derivados do status dos documentos
+    # (não persistidos aqui); estes três são marcados à mão. Valores: ESTADOS_REVISAO.
+    rev_cadastro       = db.Column(db.String(20), default="Pendente")
+    rev_estrutura      = db.Column(db.String(20), default="Pendente")
+    rev_descritivo     = db.Column(db.String(20), default="Pendente")
+    # Retrato do último import da planilha Pareto (priorização comercial).
+    pareto_classe      = db.Column(db.String(1), default="")   # "A" | "B" | "C" | ""
+    qtd_saidas         = db.Column(db.Integer, default=0)
     # Taxonomia gerenciada (família aninhada na categoria)
     categoria_id       = db.Column(db.Integer, db.ForeignKey("categorias_equipamento.id"), nullable=True, index=True)
     familia_id         = db.Column(db.Integer, db.ForeignKey("familias_equipamento.id"), nullable=True, index=True)
@@ -329,6 +354,11 @@ class Equipamento(db.Model):
             "bloqueado":          bool(self.bloqueado),
             "observacoes":        self.observacoes or "",
             "armazenamento_base": self.armazenamento_base or "",
+            "rev_cadastro":       self.rev_cadastro or "Pendente",
+            "rev_estrutura":      self.rev_estrutura or "Pendente",
+            "rev_descritivo":     self.rev_descritivo or "Pendente",
+            "pareto_classe":      self.pareto_classe or "",
+            "qtd_saidas":         self.qtd_saidas or 0,
             "categoria_id":       self.categoria_id,
             "categoria":          (self.categoria_rel.nome if self.categoria_rel else ""),
             "familia_id":         self.familia_id,
@@ -1141,7 +1171,7 @@ class Missao(db.Model):
     cartoes = db.relationship("MissaoCartao", back_populates="missao",
                               cascade="all, delete-orphan")
 
-    def to_dict(self, com_colunas=False, n_cartoes=None):
+    def to_dict(self, com_colunas=False, n_cartoes=None, refs_map=None):
         d = {
             "id":         self.id,
             "nome":       (self.nome or "").strip(),
@@ -1155,7 +1185,8 @@ class Missao(db.Model):
             "n_cartoes":  len(self.cartoes) if n_cartoes is None else n_cartoes,
         }
         if com_colunas:
-            d["colunas"] = [c.to_dict(com_cartoes=True) for c in self.colunas]
+            d["colunas"] = [c.to_dict(com_cartoes=True, refs_map=refs_map)
+                            for c in self.colunas]
         return d
 
 
@@ -1177,7 +1208,7 @@ class MissaoColuna(db.Model):
                               cascade="all, delete-orphan",
                               order_by="MissaoCartao.ordem")
 
-    def to_dict(self, com_cartoes=False):
+    def to_dict(self, com_cartoes=False, refs_map=None):
         d = {
             "id":        self.id,
             "missao_id": self.missao_id,
@@ -1187,7 +1218,12 @@ class MissaoColuna(db.Model):
             "categoria": self.categoria or "",
         }
         if com_cartoes:
-            d["cartoes"] = [c.to_dict() for c in self.cartoes]
+            # refs_map (ver _mapa_refs em missoes.py) evita 1 query por cartão
+            vazio = {"label": "", "status": "", "status_global": ""}
+            d["cartoes"] = [
+                c.to_dict(ref_info=(refs_map.get((c.ref_tipo, c.ref_id), vazio)
+                                    if refs_map is not None else None))
+                for c in self.cartoes]
         return d
 
 
@@ -1221,25 +1257,37 @@ class MissaoCartao(db.Model):
     missao = db.relationship("Missao", back_populates="cartoes")
     coluna = db.relationship("MissaoColuna", back_populates="cartoes")
 
-    def ref_label(self):
-        """Rótulo leve do vínculo (chip): nome do equipamento/projeto/documento."""
+    def _ref_meta(self):
+        """Metadados leves do vínculo (chip): label + status vivo (documento).
+        1 query por cartão — em listagens grandes, passe ref_info pré-computado
+        ao to_dict (ver _mapa_refs em missoes.py) para evitar N+1."""
+        meta = {"label": "", "status": "", "status_global": ""}
         if not self.ref_tipo or not self.ref_id:
-            return ""
+            return meta
         try:
             if self.ref_tipo == "equipamento":
                 e = Equipamento.query.get(self.ref_id)
-                return e.nome if e and e.ativo else ""
-            if self.ref_tipo == "projeto":
+                if e and e.ativo:
+                    meta["label"] = e.nome
+            elif self.ref_tipo == "projeto":
                 p = Projeto.query.get(self.ref_id)
-                return p.nome if p and p.ativo else ""
-            if self.ref_tipo == "documento":
+                if p and p.ativo:
+                    meta["label"] = p.nome
+            elif self.ref_tipo == "documento":
                 doc = Documento.query.get(self.ref_id)
-                return doc.documento if doc and doc.ativo else ""
+                if doc and doc.ativo:
+                    meta.update(label=doc.documento, status=doc.status or "",
+                                status_global=doc.status_global)
         except Exception:
-            return ""
-        return ""
+            pass
+        return meta
 
-    def to_dict(self, com_descricao=False):
+    def ref_label(self):
+        """Rótulo leve do vínculo (compat; prefira _ref_meta)."""
+        return self._ref_meta()["label"]
+
+    def to_dict(self, com_descricao=False, ref_info=None):
+        ref = ref_info if ref_info is not None else self._ref_meta()
         d = {
             "id":             self.id,
             "missao_id":      self.missao_id,
@@ -1254,7 +1302,9 @@ class MissaoCartao(db.Model):
             "versao":         self.versao or 0,
             "ref_tipo":       self.ref_tipo or "",
             "ref_id":         self.ref_id,
-            "ref_label":      self.ref_label(),
+            "ref_label":      ref.get("label", ""),
+            "ref_status":     ref.get("status", ""),
+            "ref_status_global": ref.get("status_global", ""),
             "tem_descricao":  bool((self.descricao or "").strip()),
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",

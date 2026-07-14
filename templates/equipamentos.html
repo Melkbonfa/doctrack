@@ -36,6 +36,10 @@
       <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
       Dashboard
     </button>
+    <button type="button" class="nav-item" data-page="dev">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-3M20 16v-8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Desenvolvimento
+    </button>
 
     <span class="nav-section-label">Equipamentos</span>
     <button type="button" class="nav-item" data-page="lista">
@@ -108,6 +112,39 @@
           <div class="card"><div class="card-title">Lacunas mais comuns</div><div style="position:relative;height:200px"><canvas id="chartGaps" role="img" aria-label="Barras horizontais: lacunas mais comuns"></canvas></div></div>
         </div>
         <div class="card mb"><div class="card-title">Menos completos · worklist</div><div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>SKU</th><th>Cadastro</th><th>Regulatório</th><th>Documental</th><th>ICE</th></tr></thead><tbody id="dash-table"></tbody></table></div></div>
+      </div>
+
+      <!-- DESENVOLVIMENTO (IDP — 6 revisões + Pareto) -->
+      <div class="page" id="page-dev">
+        <div class="page-header">
+          <div><div class="page-title">Índice de Desenvolvimento de Produto</div><div class="page-sub">6 revisões por equipamento · priorização Pareto/ABC (Classe A primeiro)</div></div>
+          <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+            <span class="docs-count-badge" id="dev-idp-badge">—</span>
+            <button class="btn btn-ghost btn-sm" id="btn-import-pareto" onclick="abrirImportPareto()" style="display:none">Importar Pareto</button>
+          </div>
+        </div>
+        <div class="dash-equipsel">
+          <span class="dash-equipsel-lbl">Classe</span>
+          <select class="filter-sel" id="dev-classe" onchange="renderDev()" aria-label="Filtrar por classe ABC">
+            <option value="">Todas as classes</option><option value="A">Classe A</option><option value="B">Classe B</option><option value="C">Classe C</option><option value="-">Sem classe</option>
+          </select>
+          <span class="dash-equipsel-lbl">Categoria</span>
+          <select class="filter-sel" id="dev-cat" onchange="renderDev()" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select>
+          <label class="filter-count" style="margin-left:auto;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dev-bloq" onchange="renderDev()"> incluir obsoletos/bloqueados</label>
+        </div>
+        <div class="kpi-grid" id="dev-kpi-grid"><div class="loading-state" style="grid-column:1/-1"><div class="spinner"></div>Carregando…</div></div>
+        <div class="g2">
+          <div class="card"><div class="card-title">Completude por Classe ABC</div><div style="position:relative;height:220px"><canvas id="devChartClasse" role="img" aria-label="Barras empilhadas: revisões por classe ABC"></canvas></div></div>
+          <div class="card"><div class="card-title">Revisões mais pendentes</div><div style="position:relative;height:220px"><canvas id="devChartItens" role="img" aria-label="Barras horizontais: revisões pendentes por item"></canvas></div></div>
+        </div>
+        <div class="card mb">
+          <div class="card-title">Matriz de revisões · prioridade por Pareto</div>
+          <div class="tbl-wrap"><table class="dev-matriz"><thead><tr>
+            <th>Equipamento</th><th>Classe</th><th class="num">Saídas</th>
+            <th>Cadastro</th><th>Estrutura</th><th>IT</th><th>Checklists</th><th>Manual usuário</th><th>Descritivo</th>
+            <th>IDP</th>
+          </tr></thead><tbody id="dev-table"></tbody></table></div>
+        </div>
       </div>
 
       <!-- LISTA -->
@@ -244,6 +281,26 @@
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" id="btn-prever" onclick="rodarImport(true)">Pré-visualizar</button>
         <button class="btn btn-primary" id="btn-aplicar" onclick="rodarImport(false)" style="display:none">Aplicar importação</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: importar Pareto (Qtd de saídas + Classe ABC) -->
+<div class="modal-overlay" id="modal-pareto" role="dialog" aria-modal="true" aria-label="Importar Pareto" aria-hidden="true">
+  <div class="modal" style="width:620px;max-width:96vw" tabindex="-1">
+    <div class="modal-title">Importar análise Pareto</div>
+    <div class="modal-sub">Casa por SKU de Venda e traz Qtd de saídas + Classe ABC. Veja a prévia antes de aplicar.</div>
+    <div class="form-group">
+      <label class="form-label">Arquivo (.xlsx com a aba "Pareto 80-20")</label>
+      <input type="file" id="pareto-file" accept=".xlsx">
+    </div>
+    <div id="pareto-preview" class="muted" style="font-size:13px;margin:8px 0">—</div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('pareto')">Cancelar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btn-pareto-prever" onclick="rodarImportPareto(true)">Pré-visualizar</button>
+        <button class="btn btn-primary" id="btn-pareto-aplicar" onclick="rodarImportPareto(false)" style="display:none">Aplicar importação</button>
       </div>
     </div>
   </div>

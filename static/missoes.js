@@ -65,9 +65,19 @@ async function loadAll(){
     const r=await api("/api/missoes");
     MISSOES=r.missoes||[];
     renderSidebar();
-    const salva=parseInt(sessionStorage.getItem("dt_missao")||"0");
+    // deep-link de entrada (?missao=<id>&cartao=<id>) tem prioridade sobre a
+    // missão salva na sessão; a URL é limpa depois de consumida
+    const params=new URLSearchParams(location.search);
+    const deepMissao=parseInt(params.get("missao")||"0");
+    const deepCartao=parseInt(params.get("cartao")||"0");
+    if(deepMissao||deepCartao) history.replaceState(null,"",location.pathname);
+    const salva=deepMissao||parseInt(sessionStorage.getItem("dt_missao")||"0");
     const alvo=MISSOES.find(m=>m.id===salva)||MISSOES[0];
-    if(alvo) await selecionarMissao(alvo.id);
+    if(alvo){
+      await selecionarMissao(alvo.id);
+      if(deepCartao && BOARD && (BOARD.colunas||[]).some(col=>(col.cartoes||[]).some(c=>c.id===deepCartao)))
+        abrirModalCartao(deepCartao, null);
+    }
     else mostrarVazio();
     // badge "Meus cartões" (best-effort, não bloqueia o board)
     api("/api/missoes/meus-cartoes").then(r=>{
@@ -180,10 +190,17 @@ function renderCartao(c){
   const resp=(c.responsaveis||"").split(",").map(s=>s.trim()).filter(Boolean);
   if(resp.length) chips.push(`<span class="chip resp">👤 ${esc(resp[0])}${resp.length>1?" +"+(resp.length-1):""}</span>`);
   if(c.ref_label){
-    // chip clicável: navega para a entidade vinculada (equipamento abre a ficha via deep-link)
+    // chip clicável: navega para a entidade vinculada (equipamento/documento abrem a ficha via deep-link)
     const url=c.ref_tipo==="equipamento" ? "/equipamentos?ficha="+c.ref_id
-             : c.ref_tipo==="projeto" ? "/projetos" : "/";
-    chips.push(`<a class="chip ref" href="${url}" onclick="event.stopPropagation()" title="Abrir ${esc(c.ref_tipo)}">🔗 ${esc(c.ref_label)}</a>`);
+             : c.ref_tipo==="projeto" ? "/projetos" : "/?doc="+c.ref_id;
+    // documento: chip "vivo" — dot colorido + status atual (fonte: o próprio doc)
+    let vivo="";
+    if(c.ref_tipo==="documento" && c.ref_status){
+      const cor=c.ref_status_global==="Finalizado" ? "var(--green)"
+              : c.ref_status_global==="Pendente" ? "var(--red)" : "var(--amber)";
+      vivo=` · <span class="ref-dot" style="background:${cor}"></span>${esc(c.ref_status)}`;
+    }
+    chips.push(`<a class="chip ref" href="${url}" onclick="event.stopPropagation()" title="Abrir ${esc(c.ref_tipo)}">🔗 ${esc(c.ref_label)}${vivo}</a>`);
   }
   return `<div class="cartao ${c.concluido?"concluido":""}" data-id="${c.id}" data-versao="${c.versao}">
     <div style="display:flex;gap:8px;align-items:flex-start">

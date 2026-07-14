@@ -593,6 +593,47 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .equip-modal-tab .tab-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
 .equip-tab-panel{display:none;}
 .equip-tab-panel.active{display:block;}
+.equip-modal-tab.tab-add{color:var(--t4);font-style:italic;}
+.equip-modal-tab.tab-add.active{color:var(--t2);border-bottom-color:var(--t3);}
+.man-lang-toggle{display:flex;gap:6px;margin-bottom:12px;}
+
+/* Painel do documento: seções */
+.doc-sec{background:var(--bg-elevated);border-radius:9px;padding:12px 14px;margin-bottom:12px;}
+.doc-sec-title{font-size:10px;color:var(--cyan-lt);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;}
+
+/* Stepper de etapas do documento */
+.doc-stepper{display:flex;align-items:flex-start;gap:2px;}
+.doc-step{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;
+  background:none;border:none;cursor:pointer;padding:2px 4px;font-family:var(--font-body);
+}
+.doc-step-line{flex:0 0 14px;height:2px;background:var(--border-soft);margin-top:12px;border-radius:1px;}
+.doc-step-dot{
+  width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;background:var(--bg-card);color:var(--t4);
+  border:2px solid var(--border-soft);flex-shrink:0;transition:all .15s;
+}
+.doc-step-label{font-size:10.5px;color:var(--t4);line-height:1.25;text-align:center;word-break:normal;}
+.doc-step.done .doc-step-dot{background:var(--green);border-color:var(--green);color:#04121a;}
+.doc-step.done .doc-step-label{color:var(--t3);}
+.doc-step.current .doc-step-dot{background:var(--bg-card);border-color:var(--cyan-brand);color:var(--cyan-brand);}
+.doc-step.current .doc-step-label{color:var(--t1);font-weight:600;}
+.doc-step:hover .doc-step-dot{border-color:var(--cyan-brand);}
+@media (max-width:600px){
+  .doc-stepper{flex-direction:column;align-items:stretch;gap:6px;}
+  .doc-step{flex-direction:row;justify-content:flex-start;gap:10px;}
+  .doc-step-label{text-align:left;}
+  .doc-step-line{display:none;}
+}
+
+/* Chips de missões vinculadas ao documento */
+.doc-missoes{display:flex;flex-wrap:wrap;gap:7px;}
+.doc-missao-chip{
+  font-size:11.5px;padding:4px 11px;border-radius:9px;text-decoration:none;
+  border:1px solid var(--border-soft);color:var(--t2);background:var(--bg-card);white-space:nowrap;
+}
+.doc-missao-chip:hover{border-color:var(--cyan-brand);color:var(--t1);}
+.doc-missao-chip.done{opacity:.65;text-decoration:line-through;}
 
 /* Cabeçalho de identidade do equipamento */
 #equip-header{margin-bottom:6px;}

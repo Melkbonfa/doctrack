@@ -25,12 +25,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import (
     db, Documento, Equipamento, AuditLog,
     SETORES, STATUS_MAP,
-    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS,
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_AUTO,
     SETOR_DO_TIPO, TIPOS_DOC_LABELS,
 )
 from auth import require_role, log_action, get_client_ip
 from event_bus import EventType
 from utils import norm
+# Sync Documento → Cartão (import acíclico: missoes.py só importa models/auth)
+from missoes import sincronizar_cartoes_documento, emitir_eventos_sync
 
 documentos_bp = Blueprint("documentos", __name__)
 
@@ -159,8 +161,12 @@ def create_documento():
             existentes.setdefault(d.tipo_doc, d)
 
     doc = existentes.get(selected_tipo)
-    # Cria os 9 tipos do equipamento que ainda não existem.
-    for t in TIPOS_DOC_TODOS:
+    # Cria os tipos obrigatórios do equipamento que ainda não existem.
+    # Opcionais (Spare Parts / Dossiê / QIQOQD) só nascem se forem o tipo
+    # explicitamente selecionado (botão "Criar" do modal).
+    tipos_criar = [t for t in TIPOS_DOC_TODOS
+                   if t in TIPOS_DOC_AUTO or t == selected_tipo]
+    for t in tipos_criar:
         if t in existentes:
             continue
         is_sel = (t == selected_tipo)
@@ -221,7 +227,8 @@ def update_documento(doc_id):
     # regra da rota /status). Sem isto, um PATCH grava qualquer string em status
     # e quebra os KPIs / status_global. Só valida quando o valor muda, para não
     # rejeitar um edit de outro campo em documentos com status legado.
-    if "status" in data and str(data.get("status")) != str(doc.status):
+    status_mudou = ("status" in data and str(data.get("status")) != str(doc.status))
+    if status_mudou:
         setor_status = STATUS_MAP.get(doc.setor, [])
         if data.get("status") not in setor_status:
             return jsonify({"erro": f"Status inválido para o setor {doc.setor}. Use: {', '.join(setor_status)}"}), 400
@@ -248,10 +255,14 @@ def update_documento(doc_id):
 
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    # documento é a fonte da verdade: se o status mudou, move os cartões
+    # vinculados no kanban (mesma transação; eventos emitidos após o commit)
+    eventos_sync = sincronizar_cartoes_documento(doc, caller) if status_mudou else []
     db.session.commit()
     _emit(EventType.DOCUMENT_UPDATED,
           {"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
+    emitir_eventos_sync(eventos_sync, caller)
     return jsonify({"mensagem": "Documento atualizado", "documento": doc.to_dict()}), 200
 
 @documentos_bp.route("/api/documentos/<int:doc_id>", methods=["DELETE"])
@@ -492,9 +503,13 @@ def update_status(doc_id):
     doc.status = novo
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    # documento é a fonte da verdade: move os cartões vinculados no kanban
+    # (mesma transação; eventos emitidos após o commit)
+    eventos_sync = sincronizar_cartoes_documento(doc, caller) if novo != antigo else []
     db.session.commit()
     log_action(caller, "STATUS_CHANGE", entidade=doc.documento, campo="status", antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
     _emit(EventType.DOCUMENT_STATUS_UPDATED,
           {"documento_id": doc.id, "old_value": antigo, "new_value": novo, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
+    emitir_eventos_sync(eventos_sync, caller)
     return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200
