@@ -31,9 +31,20 @@ function norm(s){
 
 // ═══ AUTH / FETCH ═══
 function getToken(){return localStorage.getItem('doctrack_token')||''}
-function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_user')}
+function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_refresh');localStorage.removeItem('doctrack_user')}
 function authHeader(){return{'Content-Type':'application/json','Authorization':'Bearer '+getToken()}}
-async function apiFetch(url,opts={}){try{const res=await fetch(API+url,{headers:authHeader(),...opts});if(res.status===401){doLogout();return null}return res}catch(e){return null}}
+async function apiFetch(url,opts={}){
+  try{
+    let res=await fetch(API+url,{headers:authHeader(),...opts});
+    if(res.status===401){
+      if(window.DT_AUTH&&await window.DT_AUTH.refresh()){
+        res=await fetch(API+url,{headers:authHeader(),...opts});
+      }
+      if(res.status===401){ if(window.DT_AUTH)window.DT_AUTH.gotoLogin(true); else doLogout(); return null; }
+    }
+    return res;
+  }catch(e){return null}
+}
 async function doLogout(){
   try{await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
   clearToken();

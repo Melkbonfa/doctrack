@@ -48,12 +48,12 @@ applyTheme(localStorage.getItem("doctrack_theme") || "dark");
 sessionStorage.setItem("dt_module", "ent");
 
 async function api(url, opts={}){
-  const res = await fetch(url, {...opts, headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer " + token(),
-    ...(opts.headers||{})
-  }});
-  if (res.status === 401){ window.location.href = "/"; throw new Error("401"); }
+  function hdr(){ return {"Content-Type":"application/json", "Authorization":"Bearer "+token(), ...(opts.headers||{})}; }
+  let res = await fetch(url, {...opts, headers: hdr()});
+  if (res.status === 401){
+    if (window.DT_AUTH && await window.DT_AUTH.refresh()){ res = await fetch(url, {...opts, headers: hdr()}); }
+    if (res.status === 401){ (window.DT_AUTH ? window.DT_AUTH.gotoLogin(true) : window.location.href = "/"); throw new Error("401"); }
+  }
   if (!res.ok){
     const body = await res.json().catch(()=>({}));
     throw new Error(body.erro || ("HTTP " + res.status));

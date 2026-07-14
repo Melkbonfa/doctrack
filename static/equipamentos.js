@@ -13,12 +13,15 @@ function toggleTheme(){ const n=document.body.classList.contains("theme-light")?
   localStorage.setItem("doctrack_theme",n); applyTheme(n);
   if(document.getElementById("page-dashboard").classList.contains("active")) renderDashboard(); }
 applyTheme(localStorage.getItem("doctrack_theme")||"dark");
-function doLogout(){ localStorage.removeItem("doctrack_token"); localStorage.removeItem("doctrack_user"); window.location.href="/"; }
+function doLogout(){ localStorage.removeItem("doctrack_token"); localStorage.removeItem("doctrack_refresh"); localStorage.removeItem("doctrack_user"); window.location.href="/"; }
 
 async function api(url, opts={}){
-  const res = await fetch(url, {...opts, headers:{
-    "Content-Type":"application/json", "Authorization":"Bearer "+token(), ...(opts.headers||{})}});
-  if(res.status===401){ window.location.href="/"; throw new Error("401"); }
+  function hdr(){ return {"Content-Type":"application/json", "Authorization":"Bearer "+token(), ...(opts.headers||{})}; }
+  let res = await fetch(url, {...opts, headers:hdr()});
+  if(res.status===401){
+    if(window.DT_AUTH && await window.DT_AUTH.refresh()){ res = await fetch(url, {...opts, headers:hdr()}); }
+    if(res.status===401){ (window.DT_AUTH?window.DT_AUTH.gotoLogin(true):window.location.href="/"); throw new Error("401"); }
+  }
   if(!res.ok){ const b=await res.json().catch(()=>({})); throw new Error(b.erro||("HTTP "+res.status)); }
   return res.json();
 }
