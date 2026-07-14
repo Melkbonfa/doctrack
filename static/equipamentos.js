@@ -194,15 +194,28 @@ const EST_TODOS = ["Pendente","Em revisão","Revisado","N/A"];
 function _estPRE(st){ return st==="Homologado"?"Revisado":(!st||st==="Elaborar")?"Pendente":"Em revisão"; }
 function _estManuais(st){ return st==="Concluído"?"Revisado":(!st||st==="Elaborar")?"Pendente":"Em revisão"; }
 function _docsDoTipo(eqId,tipos){ return (DOCS_BY_EQ[eqId]||[]).filter(d=>tipos.includes(d.tipo_doc)); }
+// Documento marcado como "não se aplica" no módulo Documentos → item N/A no IDP
+// (sai do denominador, como o N/A das revisões manuais).
+function _aplicaveis(ds){ return ds.filter(d=>d.aplicavel!==false); }
 // estado de cada um dos 6 itens de revisão
 function revState(e,item){
   if(item==="cadastro")   return e.rev_cadastro||"Pendente";
   if(item==="estrutura")  return e.rev_estrutura||"Pendente";
   if(item==="descritivo") return e.rev_descritivo||"Pendente";
-  if(item==="it"){ const d=_docsDoTipo(e.id,["IT"])[0]; return _estPRE(d&&d.status); }
-  if(item==="manual_usuario"){ const d=_docsDoTipo(e.id,["Manual_Usuario"])[0]; return _estManuais(d&&d.status); }
+  if(item==="it"){
+    const todos=_docsDoTipo(e.id,["IT"]), ds=_aplicaveis(todos);
+    if(todos.length && !ds.length) return "N/A";      // existe, mas fora do escopo
+    return _estPRE(ds[0] && ds[0].status);            // sem documento → "Pendente"
+  }
+  if(item==="manual_usuario"){
+    const todos=_docsDoTipo(e.id,["Manual_Usuario"]), ds=_aplicaveis(todos);
+    if(todos.length && !ds.length) return "N/A";
+    return _estManuais(ds[0] && ds[0].status);
+  }
   if(item==="checklists"){
-    const ds=_docsDoTipo(e.id,["Checklist_Conferencia","Checklist_BurnIn","Checklist_Limpeza_Embalagem","Checklist_Produto"]);
+    const todos=_docsDoTipo(e.id,["Checklist_Conferencia","Checklist_BurnIn","Checklist_Limpeza_Embalagem","Checklist_Produto"]);
+    const ds=_aplicaveis(todos);
+    if(todos.length && !ds.length) return "N/A";      // os 4 checklists em N/A
     if(!ds.length) return "Pendente";
     const est=ds.map(d=>_estPRE(d.status));
     if(est.every(x=>x==="Revisado")) return "Revisado";
