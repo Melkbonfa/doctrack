@@ -25,7 +25,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import (
     db, Documento, Equipamento, AuditLog,
     SETORES, STATUS_MAP,
-    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS,
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_AUTO,
     SETOR_DO_TIPO, TIPOS_DOC_LABELS,
 )
 from auth import require_role, log_action, get_client_ip
@@ -159,8 +159,12 @@ def create_documento():
             existentes.setdefault(d.tipo_doc, d)
 
     doc = existentes.get(selected_tipo)
-    # Cria os 9 tipos do equipamento que ainda não existem.
-    for t in TIPOS_DOC_TODOS:
+    # Cria os tipos obrigatórios do equipamento que ainda não existem.
+    # Opcionais (Spare Parts / Dossiê / QIQOQD) só nascem se forem o tipo
+    # explicitamente selecionado (botão "Criar" do modal).
+    tipos_criar = [t for t in TIPOS_DOC_TODOS
+                   if t in TIPOS_DOC_AUTO or t == selected_tipo]
+    for t in tipos_criar:
         if t in existentes:
             continue
         is_sel = (t == selected_tipo)

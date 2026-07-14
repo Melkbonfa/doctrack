@@ -15,7 +15,7 @@ def test_listagem_so_ativos(client, admin_token, auth_headers):
 
 
 def test_create_documento(client, admin_token, auth_headers):
-    from models import TIPOS_DOC_TODOS
+    from models import TIPOS_DOC_AUTO
     h = auth_headers(admin_token)
     res = client.post("/api/documentos",
                       json={"setor": "PRE", "equipamento": "MAQ-NEW", "documento": "POP-NEW",
@@ -24,12 +24,12 @@ def test_create_documento(client, admin_token, auth_headers):
     assert res.status_code == 201
     assert res.get_json()["documento"]["equipamento"] == "MAQ-NEW"
 
-    # Criar um documento para um equipamento novo gera automaticamente os 9 tipos
-    # canônicos (reestruturação PDE: equipamento = entidade central).
+    # Criar um documento para um equipamento novo gera automaticamente os tipos
+    # obrigatórios (equipamento = entidade central); opcionais ficam de fora.
     docs = client.get("/api/documentos", headers=h).get_json()
     maq_new = [d for d in docs if d["equipamento"] == "MAQ-NEW"]
-    assert len(maq_new) == len(TIPOS_DOC_TODOS)          # == 9
-    assert {d["tipo_doc"] for d in maq_new} == set(TIPOS_DOC_TODOS)
+    assert len(maq_new) == len(TIPOS_DOC_AUTO)
+    assert {d["tipo_doc"] for d in maq_new} == set(TIPOS_DOC_AUTO)
 
     # O tipo selecionado (IT, primeiro do setor PRE) recebe os dados do payload;
     # os demais nascem em branco.
@@ -103,12 +103,12 @@ def test_get_documento_soft_deleted(client, admin_token, auth_headers):
 def test_propagacao_global_sku(client, admin_token, auth_headers):
     """A identidade (SKU) é canônica no Equipamento e imutável pelo documento.
     Editar o SKU do equipamento propaga para todos os documentos vinculados."""
-    from models import TIPOS_DOC_TODOS
+    from models import TIPOS_DOC_AUTO
     h = auth_headers(admin_token)
 
-    # 1. Criar um documento para "MAQ-A" gera os tipos canônicos que faltam; todos
-    #    herdam o SKU do equipamento (SKU-A). O documento do seed tem tipo_doc vazio
-    #    (não canônico e sem equipamento_id), então filtramos pelos tipos canônicos.
+    # 1. Criar um documento para "MAQ-A" gera os tipos obrigatórios que faltam;
+    #    todos herdam o SKU do equipamento (SKU-A). O documento do seed tem tipo_doc
+    #    vazio (não canônico e sem equipamento_id), então filtramos pelos canônicos.
     res_create = client.post("/api/documentos",
                              json={"setor": "Manuais", "equipamento": "MAQ-A",
                                    "documento": "Manual do Usuário - MAQ-A",
@@ -117,8 +117,8 @@ def test_propagacao_global_sku(client, admin_token, auth_headers):
     assert res_create.status_code == 201
 
     docs = client.get("/api/documentos", headers=h).get_json()
-    canonicos = [d for d in docs if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_TODOS]
-    assert len(canonicos) == len(TIPOS_DOC_TODOS)        # == 9
+    canonicos = [d for d in docs if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_AUTO]
+    assert len(canonicos) == len(TIPOS_DOC_AUTO)
     for d in canonicos:
         assert d["sku"] == "SKU-A"
 
@@ -131,8 +131,8 @@ def test_propagacao_global_sku(client, admin_token, auth_headers):
 
     # 3. Todos os documentos canônicos de "MAQ-A" agora têm SKU "SKU-NOVO".
     docs_after = client.get("/api/documentos", headers=h).get_json()
-    canonicos_after = [d for d in docs_after if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_TODOS]
-    assert len(canonicos_after) == len(TIPOS_DOC_TODOS)
+    canonicos_after = [d for d in docs_after if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_AUTO]
+    assert len(canonicos_after) == len(TIPOS_DOC_AUTO)
     for d in canonicos_after:
         assert d["sku"] == "SKU-NOVO"
 

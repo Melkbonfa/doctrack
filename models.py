@@ -27,21 +27,33 @@ STATUS_MAP = {
     "Manuais": STATUS_FABRICANTE,
 }
 
-# Tipos de documento por setor. Cada equipamento tem 1 documento de cada tipo.
-TIPOS_DOC_PRE = ["IT", "Checklist"]
+# Tipos de documento por setor. Cada equipamento tem 1 documento de cada tipo
+# obrigatório; os opcionais são criados sob demanda (nem todo equipamento tem).
+# Processo PRE: a IT finalizada vem vinculada a 4 checklists.
+TIPOS_DOC_PRE = [
+    "IT", "Checklist_Conferencia", "Checklist_BurnIn",
+    "Checklist_Limpeza_Embalagem", "Checklist_Produto",
+]
 TIPOS_DOC_FABRICANTE = [
     "Manual_Usuario", "Manual_ES", "Manual_Servico",
     "Spare_Parts", "Dossie", "Guia_Instalacao", "QIQOQD",
 ]
 TIPOS_DOC_TODOS = TIPOS_DOC_PRE + TIPOS_DOC_FABRICANTE
 
+# Opcionais: não são auto-criados por equipamento (botão "Criar" no modal).
+TIPOS_DOC_OPCIONAIS = ["Spare_Parts", "Dossie", "QIQOQD"]
+TIPOS_DOC_AUTO = [t for t in TIPOS_DOC_TODOS if t not in TIPOS_DOC_OPCIONAIS]
+
 # setor (pipeline de status) de cada tipo de documento
 SETOR_DO_TIPO = {t: "PRE" for t in TIPOS_DOC_PRE}
 SETOR_DO_TIPO.update({t: "Manuais" for t in TIPOS_DOC_FABRICANTE})
 
 TIPOS_DOC_LABELS = {
-    "IT":              "Instrução de Trabalho",
-    "Checklist":       "Checklist",
+    "IT":                          "Instrução de Trabalho",
+    "Checklist_Conferencia":       "Checklist de Conferência",
+    "Checklist_BurnIn":            "Checklist de Burn-In",
+    "Checklist_Limpeza_Embalagem": "Checklist de Limpeza e Embalagem",
+    "Checklist_Produto":           "Checklist de Produto",
     "Manual_Usuario":  "Manual do Usuário PT",
     "Manual_ES":       "Manual do Usuário ES",
     "Manual_Servico":  "Manual de Serviço",

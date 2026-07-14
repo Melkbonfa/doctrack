@@ -183,6 +183,23 @@ async function initApp(){
 
   renderDashboard();renderDocs();
   makeSortable();
+
+  // deep-link vindo do board de missões: /?doc=<id> abre a ficha na aba certa
+  const _dq = new URLSearchParams(location.search);
+  const _docDeep = parseInt(_dq.get('doc')||'0');
+  if(_docDeep){
+    history.replaceState(null, '', location.pathname);
+    const d = allDocs.find(x=>x.id===_docDeep);
+    if(d){
+      const key = d.equipamento_id ? ('id:'+d.equipamento_id) : ('nome:'+(d.equipamento||'—').trim());
+      openEquipModal(key);
+      if(d.tipo_doc==='Manual_ES'){ _manLang='ES'; setManLang('ES'); switchEquipTab('Manual_Usuario'); }
+      else if(d.tipo_doc==='Manual_Usuario'){ switchEquipTab('Manual_Usuario'); }
+      else if(_isChkTipo(d.tipo_doc)){ setChkSel(d.tipo_doc); switchEquipTab('Checklist_Conferencia'); }
+      else if(d.tipo_doc){ switchEquipTab(d.tipo_doc); }
+    }
+  }
+
   showToast('Bem-vindo ao DocTrack v4.0','success');
   document.getElementById('sync-label').textContent='Conectado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const ls=document.getElementById('last-sync');if(ls)ls.textContent=new Date().toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
@@ -1046,7 +1063,10 @@ const _PRE_STATUS = ['Elaborar','Treinamento Piloto','Enviado para Homologação
 const _MAN_STATUS = ['Elaborar','Em andamento','Concluído'];
 const _PRE_TIPOS = [
   ['IT','Instrução de Trabalho'],
-  ['Checklist','Checklist'],
+  ['Checklist_Conferencia','Checklist de Conferência'],
+  ['Checklist_BurnIn','Checklist de Burn-In'],
+  ['Checklist_Limpeza_Embalagem','Checklist de Limpeza e Embalagem'],
+  ['Checklist_Produto','Checklist de Produto'],
 ];
 const _MAN_TIPOS = [
   ['Manual_Usuario','Manual do Usuário PT'],
@@ -1058,6 +1078,18 @@ const _MAN_TIPOS = [
   ['QIQOQD','QI/QO/QD'],
 ];
 const _TODOS_TIPOS = [..._PRE_TIPOS, ..._MAN_TIPOS];
+// Opcionais: não são auto-criados; a aba só aparece se o documento existir
+// (criação sob demanda via "+ Adicionar").
+const _TIPOS_OPCIONAIS = ['Spare_Parts','Dossie','QIQOQD'];
+// Os 4 checklists dividem UMA aba ("Checklists") com seletor interno,
+// como os manuais PT/ES. Rótulos curtos para o seletor.
+const _CHK_TIPOS = [
+  ['Checklist_Conferencia','Conferência'],
+  ['Checklist_BurnIn','Burn-In'],
+  ['Checklist_Limpeza_Embalagem','Limpeza e Embalagem'],
+  ['Checklist_Produto','Produto'],
+];
+function _isChkTipo(t){ return _CHK_TIPOS.some(x=>x[0]===t); }
 function _isPreTipo(t){ return _PRE_TIPOS.some(x=>x[0]===t); }
 function _tipoLabel(t){ const x=_TODOS_TIPOS.find(y=>y[0]===t); return x?x[1]:t; }
 function _statusDotColor(d){
@@ -1087,7 +1119,8 @@ function openEquipModal(key){
   const sku = (g&&g.sku) || (equip&&equip.sku) || '';
   const fabricante = (g&&g.fabricante) || (equip&&equip.fabricante) || '';
   const equip_id = (g&&g.id) || (equip&&equip.id) || null;
-  _equipCtx = { equipamento: (g&&g.equipamento)||'', equip, equip_id, byTipo, docs, sku, fabricante, g };
+  _equipCtx = { equipamento: (g&&g.equipamento)||'', equip, equip_id, byTipo, docs, sku, fabricante, g,
+                cartoesPorDoc: undefined };   // undefined=carregando, null=indisponível (403/erro)
 
   const delBtn = document.getElementById('btn-del-equip');
   if(delBtn) delBtn.style.display = (currentUser.role==='admin'||currentUser.role==='gestor') ? 'inline-flex' : 'none';
@@ -1096,6 +1129,27 @@ function openEquipModal(key){
   renderEquipModal();
   switchEquipTab(_TODOS_TIPOS[0][0]);   // abre na aba "Instrução de Trabalho"
   openBaseModal('equip');
+  _loadCartoesVinculados();
+}
+
+// Busca (1 chamada, em lote) os cartões de missão vinculados aos documentos do
+// equipamento aberto. Role `leitura` recebe 403 → a seção some sem erro.
+async function _loadCartoesVinculados(){
+  const ctx = _equipCtx;
+  const ids = (ctx.docs||[]).map(d=>d.id).filter(Boolean);
+  if(!ids.length){ ctx.cartoesPorDoc = {}; refreshMissoesSections(); return; }
+  try{
+    const res = await apiFetch('/missoes/cartoes-vinculados?tipo=documento&ids='+ids.join(','));
+    if(_equipCtx!==ctx) return;          // modal foi reaberto com outro equipamento
+    if(!res || !res.ok){ ctx.cartoesPorDoc = null; }
+    else{
+      const j = await res.json();
+      const map = {};
+      (j.cartoes||[]).forEach(c=>{ (map[c.ref_id] = map[c.ref_id]||[]).push(c); });
+      ctx.cartoesPorDoc = map;
+    }
+  }catch(e){ ctx.cartoesPorDoc = null; }
+  refreshMissoesSections();
 }
 
 // Cabeçalho de identidade do equipamento (fonte: entidade Equipamento)
@@ -1123,21 +1177,129 @@ function renderEquipHeader(){
     <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
 }
 
-// Abas (uma por tipo) + painéis
+// Abas visíveis do modal: IT, Checklists (os 4 numa aba só), Manual do
+// Usuário (PT/ES numa aba só), Manual de Serviço, Guia de Instalação, e
+// opcionais só quando o documento existe. Ids das abas agregadas: o primeiro
+// tipo do grupo ('Checklist_Conferencia' / 'Manual_Usuario').
+function _visibleTabs(){
+  const tabs = [
+    ['IT','Instrução de Trabalho'],
+    ['Checklist_Conferencia','Checklists'],
+    ['Manual_Usuario','Manual do Usuário'],
+    ['Manual_Servico','Manual de Serviço'],
+    ['Guia_Instalacao','Guia de Instalação'],
+  ];
+  _TIPOS_OPCIONAIS.forEach(t=>{ if(_equipCtx.byTipo[t]) tabs.push([t,_tipoLabel(t)]); });
+  return tabs;
+}
+function _tabDotColor(tipo){
+  // abas agregadas (checklists / manuais PT+ES): pior status do grupo
+  const grupo = (tipo==='Checklist_Conferencia') ? _CHK_TIPOS.map(x=>x[0])
+              : (tipo==='Manual_Usuario') ? ['Manual_Usuario','Manual_ES']
+              : [tipo];
+  const docs = grupo.map(t=>_equipCtx.byTipo[t]).filter(Boolean);
+  if(!docs.length) return 'var(--t4)';
+  if(docs.some(d=>d.status==='Elaborar')) return 'var(--red)';
+  if(docs.every(_docFinalizado)) return 'var(--green)';
+  return 'var(--amber)';
+}
+
+// Abas + painéis
 function renderEquipModal(){
   const tabsEl = document.getElementById('equip-tabs');
   const panelsEl = document.getElementById('equip-panels');
-  tabsEl.innerHTML = _TODOS_TIPOS.map(([tipo,label])=>{
-    const d = _equipCtx.byTipo[tipo];
-    const col = d ? _statusDotColor(d) : 'var(--t4)';
-    return `<button type="button" class="equip-modal-tab" data-tab="${tipo}" onclick="switchEquipTab('${tipo}')"><span class="tab-dot" style="background:${col}"></span>${esc(label)}</button>`;
-  }).join('');
-  panelsEl.innerHTML = _TODOS_TIPOS.map(([tipo])=>
-    `<div class="equip-tab-panel" data-panel="${tipo}">${renderTipoPanel(tipo)}</div>`
-  ).join('');
+  const tabs = _visibleTabs();
+  const faltantes = _TIPOS_OPCIONAIS.filter(t=>!_equipCtx.byTipo[t]);
+  tabsEl.innerHTML = tabs.map(([tipo,label])=>
+    `<button type="button" class="equip-modal-tab" data-tab="${tipo}" onclick="switchEquipTab('${tipo}')"><span class="tab-dot" style="background:${_tabDotColor(tipo)}"></span>${esc(label)}</button>`
+  ).join('') + (faltantes.length
+    ? `<button type="button" class="equip-modal-tab tab-add" data-tab="__add" onclick="switchEquipTab('__add')" title="Documentos opcionais">+ Adicionar</button>` : '');
+  panelsEl.innerHTML = tabs.map(([tipo])=>
+    `<div class="equip-tab-panel" data-panel="${tipo}">${
+      tipo==='Checklist_Conferencia'?renderChecklistPanel()
+      : tipo==='Manual_Usuario'?renderManualPanel()
+      : renderTipoPanel(tipo)}</div>`
+  ).join('') + (faltantes.length
+    ? `<div class="equip-tab-panel" data-panel="__add">${renderAddOpcionaisPanel(faltantes)}</div>` : '');
 }
 
-// Painel de um tipo de documento
+// Painel da aba Checklists: seletor entre os 4 checklists sobre o mesmo painel
+let _chkSel = 'Checklist_Conferencia';
+function renderChecklistPanel(){
+  const btn=(t,txt)=>`<button type="button" class="btn btn-sm ${_chkSel===t?'btn-primary':'btn-ghost'}" onclick="setChkSel('${t}')">${txt}</button>`;
+  return `<div class="man-lang-toggle">${_CHK_TIPOS.map(([t,l])=>btn(t,l)).join('')}</div>` + renderTipoPanel(_chkSel);
+}
+function setChkSel(t){
+  _chkSel = t;
+  const p = document.querySelector('#equip-panels [data-panel="Checklist_Conferencia"]');
+  if(p){ p.innerHTML = renderChecklistPanel(); refreshMissoesSections(); }
+}
+
+// Painel da aba de manuais do usuário: toggle PT/ES sobre o mesmo painel
+let _manLang = 'PT';
+function renderManualPanel(){
+  const tipo = _manLang==='ES' ? 'Manual_ES' : 'Manual_Usuario';
+  const btn = (l,txt)=>`<button type="button" class="btn btn-sm ${_manLang===l?'btn-primary':'btn-ghost'}" onclick="setManLang('${l}')">${txt}</button>`;
+  return `<div class="man-lang-toggle">${btn('PT','Português')}${btn('ES','Español')}</div>` + renderTipoPanel(tipo);
+}
+function setManLang(l){
+  _manLang = l;
+  const p = document.querySelector('#equip-panels [data-panel="Manual_Usuario"]');
+  if(p){ p.innerHTML = renderManualPanel(); refreshMissoesSections(); }
+}
+
+// Painel "+ Adicionar": cria documentos opcionais sob demanda
+function renderAddOpcionaisPanel(faltantes){
+  return `<div style="padding:8px 0;color:var(--t3)">
+    <p style="margin-bottom:12px">Documentos opcionais — nem todo equipamento tem. Crie só os que se aplicam:</p>
+    ${faltantes.map(t=>`<button class="btn btn-ghost btn-sm" type="button" style="margin:0 8px 8px 0" onclick="createTipo('${t}')">+ ${esc(_tipoLabel(t))}</button>`).join('')}
+  </div>`;
+}
+
+// Stepper de etapas: um botão por status do pipeline; clique só grava no
+// Salvar (o input hidden et-st-<tipo> mantém o saveTipoDoc intocado).
+function renderStepper(tipo, sel){
+  const fluxo = _isPreTipo(tipo)?_PRE_STATUS:_MAN_STATUS;
+  const idx = fluxo.indexOf(sel);
+  return `<div class="doc-stepper" id="et-stepper-${tipo}">`+fluxo.map((s,i)=>{
+    const st = i<idx?'done':i===idx?'current':'pending';
+    return `<button type="button" class="doc-step ${st}" onclick="selStep('${tipo}',${i})" title="Marcar etapa: ${esc(s)}">
+      <span class="doc-step-dot">${i<idx?'✓':i+1}</span><span class="doc-step-label">${esc(s)}</span>
+    </button>`;
+  }).join('<span class="doc-step-line"></span>')+`</div>`;
+}
+function selStep(tipo, i){
+  const fluxo = _isPreTipo(tipo)?_PRE_STATUS:_MAN_STATUS;
+  const hid = document.getElementById('et-st-'+tipo);
+  if(hid) hid.value = fluxo[i];
+  const wrap = document.getElementById('et-stepper-'+tipo);
+  if(wrap){ const tmp=document.createElement('div'); tmp.innerHTML=renderStepper(tipo, fluxo[i]); wrap.replaceWith(tmp.firstElementChild); }
+}
+
+// Seção "Missões vinculadas" do painel (populada async pelo fetch batch)
+function renderMissoesDoc(tipo){
+  const d = _equipCtx.byTipo[tipo];
+  const map = _equipCtx.cartoesPorDoc;
+  if(!d || map===null) return '';                     // 403/erro → seção some
+  if(map===undefined) return '<span style="color:var(--t4);font-size:12px">Carregando…</span>';
+  const cartoes = map[d.id]||[];
+  if(!cartoes.length) return '<span style="color:var(--t4);font-size:12px">Nenhum cartão de missão vinculado a este documento.</span>';
+  return cartoes.map(c=>
+    `<a class="doc-missao-chip ${c.concluido?'done':''}" href="/missoes?missao=${c.missao_id}&cartao=${c.id}" title="Abrir no board de missões">🎯 ${esc(c.missao_nome)} · ${esc(c.coluna_nome)}${c.concluido?' ✓':''}</a>`
+  ).join('');
+}
+function refreshMissoesSections(){
+  document.querySelectorAll('[data-missoes-tipo]').forEach(el=>{
+    const tipo = el.dataset.missoesTipo;
+    const html = renderMissoesDoc(tipo);
+    const sec = el.closest('.doc-sec');
+    if(sec) sec.style.display = (html==='' ? 'none' : '');
+    el.innerHTML = html;
+  });
+}
+
+// Painel de um tipo de documento — 4 seções: identificação / progresso /
+// arquivos / missões vinculadas
 function renderTipoPanel(tipo){
   const label = _tipoLabel(tipo);
   const d = _equipCtx.byTipo[tipo];
@@ -1148,11 +1310,9 @@ function renderTipoPanel(tipo){
       <button class="btn btn-primary btn-sm" type="button" onclick="createTipo('${tipo}')">Criar ${esc(label)}</button>
     </div>`;
   }
-  const statusOpts = (isPre?_PRE_STATUS:_MAN_STATUS)
-    .map(s=>`<option value="${esc(s)}" ${d.status===s?'selected':''}>${esc(s)}</option>`).join('');
   const setorTag = `<span class="equip-tag">setor ${isPre?'PRE · 4 etapas':'Manuais · 3 etapas'}</span>`;
   const datasPre = isPre ? `
-    <div class="g2">
+    <div class="g2" style="margin-top:12px">
       <div class="form-group"><label class="form-label">Data Treinamento Piloto</label><input class="form-input" type="date" id="et-treino-${tipo}" value="${_dateToInput(d.data_treinamento)}"></div>
       <div class="form-group"><label class="form-label">Data Envio Homologação</label><input class="form-input" type="date" id="et-homol-${tipo}" value="${_dateToInput(d.data_homologacao)}"></div>
     </div>
@@ -1162,18 +1322,37 @@ function renderTipoPanel(tipo){
     </div>` : '';
   return `
     <div class="equip-panel-head"><span class="equip-panel-title">${esc(label)}</span>${setorTag}</div>
-    <div class="g2">
-      <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="et-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
-      <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="et-resp-${tipo}" value="${esc(d.responsavel)}"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="et-st-${tipo}">${statusOpts}</select></div>
-    ${datasPre}
-    <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label>
-      <div class="armazenamento-row">
-        <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento)}">
-        <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('et-arm-${tipo}').value, '${esc(label)} — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
+
+    <div class="doc-sec">
+      <div class="doc-sec-title">Identificação</div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="et-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
+        <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="et-resp-${tipo}" value="${esc(d.responsavel)}"></div>
       </div>
     </div>
+
+    <div class="doc-sec">
+      <div class="doc-sec-title">Progresso</div>
+      <input type="hidden" id="et-st-${tipo}" value="${esc(d.status)}">
+      ${renderStepper(tipo, d.status)}
+      ${datasPre}
+    </div>
+
+    <div class="doc-sec">
+      <div class="doc-sec-title">Arquivos</div>
+      <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label>
+        <div class="armazenamento-row">
+          <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento)}">
+          <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('et-arm-${tipo}').value, '${esc(label)} — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="doc-sec">
+      <div class="doc-sec-title">Missões vinculadas</div>
+      <div class="doc-missoes" data-missoes-tipo="${tipo}">${renderMissoesDoc(tipo)}</div>
+    </div>
+
     <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" type="button" onclick="saveTipoDoc('${tipo}')">Salvar alterações</button></div>`;
 }
 
@@ -1240,7 +1419,13 @@ async function createTipo(tipo){
   const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
     const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
-    if(res && res.ok){ showToast(`${_tipoLabel(tipo)} criado`,'success'); await refreshAll(); openEquipModal(reopenKey); }
+    if(res && res.ok){
+      showToast(`${_tipoLabel(tipo)} criado`,'success');
+      await refreshAll(); openEquipModal(reopenKey);
+      if(tipo==='Manual_ES'){ _manLang='ES'; setManLang('ES'); switchEquipTab('Manual_Usuario'); }
+      else if(_isChkTipo(tipo)){ setChkSel(tipo); switchEquipTab('Checklist_Conferencia'); }
+      else switchEquipTab(tipo);
+    }
     else { showToast('Erro ao criar documento','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
 }
@@ -1256,7 +1441,7 @@ async function submitNewEquip(){
   const sku = document.getElementById('new-equip-sku').value.trim();
   if(!nome){ showToast('Informe o nome do equipamento','error'); return; }
   try{
-    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify({setor:'PRE', equipamento:nome, sku, documento:`IT/Checklist - ${nome}`})});
+    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify({setor:'PRE', equipamento:nome, sku})});
     if(res && res.ok){ showToast('Equipamento criado','success'); closeModal('new-equip'); await refreshAll(); }
     else { showToast('Erro ao criar equipamento','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
@@ -1389,6 +1574,11 @@ initTheme();
 // quem veio do hub entra direto no app. Sem token: tela de login normal.
 (function bootstrapHub(){
   if(!getToken())return;
+  // deep-link /?doc=<id> (chip do board de missões) entra direto no módulo
+  if(new URLSearchParams(location.search).get('doc')){
+    sessionStorage.setItem('dt_module','docs');
+    sessionStorage.setItem('dt_area','pde');
+  }
   if(sessionStorage.getItem('dt_module')!=='docs'){window.location.href='/hub';return}
   try{
     const u=JSON.parse(localStorage.getItem('doctrack_user')||'{}');
