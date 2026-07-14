@@ -1115,8 +1115,8 @@ const _MAN_TIPOS = [
   ['QIQOQD','QI/QO/QD'],
 ];
 const _TODOS_TIPOS = [..._PRE_TIPOS, ..._MAN_TIPOS];
-// Opcionais: não são auto-criados; a aba só aparece se o documento existir
-// (criação sob demanda via "+ Adicionar").
+// Opcionais: os 12 documentos já existem no banco, mas estes nascem em N/A
+// (aplicavel=false). A aba só aparece quando o tipo é ligado na aba Escopo.
 const _TIPOS_OPCIONAIS = ['Spare_Parts','Dossie','QIQOQD'];
 // Os 4 checklists dividem UMA aba ("Checklists") com seletor interno,
 // como os manuais PT/ES. Rótulos curtos para o seletor.
@@ -1140,7 +1140,15 @@ function _dateToInput(br){ // "dd/mm/yyyy" -> "yyyy-mm-dd"
 }
 
 function switchEquipTab(tab){
-  document.querySelectorAll('#equip-tabs .equip-modal-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  const btns = Array.from(document.querySelectorAll('#equip-tabs .equip-modal-tab'));
+  // A aba pedida pode não existir: o tipo pode estar em N/A (fora do escopo do
+  // equipamento) — vale para a aba padrão do openEquipModal e para o deep-link
+  // /?doc=<id>. Cai na primeira aba visível e, se todas estiverem em N/A, no Escopo.
+  if(btns.length && !btns.some(b=>b.dataset.tab===tab)){
+    const primeira = btns.find(b=>b.dataset.tab!=='__escopo');
+    tab = primeira ? primeira.dataset.tab : '__escopo';
+  }
+  btns.forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
 }
 
@@ -1164,7 +1172,9 @@ function openEquipModal(key){
 
   renderEquipHeader();
   renderEquipModal();
-  switchEquipTab(_TODOS_TIPOS[0][0]);   // abre na aba "Instrução de Trabalho"
+  // abre na aba "Instrução de Trabalho"; se a IT estiver em N/A, o switchEquipTab
+  // cai na primeira aba visível (ou no Escopo, se tudo estiver em N/A)
+  switchEquipTab(_TODOS_TIPOS[0][0]);
   openBaseModal('equip');
   _loadCartoesVinculados();
 }
@@ -1214,27 +1224,33 @@ function renderEquipHeader(){
     <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
 }
 
-// Abas visíveis do modal: IT, Checklists (os 4 numa aba só), Manual do
-// Usuário (PT/ES numa aba só), Manual de Serviço, Guia de Instalação, e
-// opcionais só quando o documento existe. Ids das abas agregadas: o primeiro
-// tipo do grupo ('Checklist_Conferencia' / 'Manual_Usuario').
+// Um tipo está no escopo quando o documento existe e está marcado como aplicável.
+function _aplicavel(tipo){ const d=_equipCtx.byTipo[tipo]; return !!d && d.aplicavel!==false; }
+
+// Abas visíveis: só os tipos APLICÁVEIS. IT, Checklists (os 4 numa aba só), Manual
+// do Usuário (PT/ES numa aba só), Manual de Serviço, Guia de Instalação e os
+// opcionais que estiverem ligados. A aba Escopo (sempre última) liga/desliga tudo.
+// Ids das abas agregadas: o primeiro tipo do grupo.
 function _visibleTabs(){
-  const tabs = [
-    ['IT','Instrução de Trabalho'],
-    ['Checklist_Conferencia','Checklists'],
-    ['Manual_Usuario','Manual do Usuário'],
-    ['Manual_Servico','Manual de Serviço'],
-    ['Guia_Instalacao','Guia de Instalação'],
+  const grupos = [
+    ['IT','Instrução de Trabalho', ['IT']],
+    ['Checklist_Conferencia','Checklists', _CHK_TIPOS.map(x=>x[0])],
+    ['Manual_Usuario','Manual do Usuário', ['Manual_Usuario','Manual_ES']],
+    ['Manual_Servico','Manual de Serviço', ['Manual_Servico']],
+    ['Guia_Instalacao','Guia de Instalação', ['Guia_Instalacao']],
   ];
-  _TIPOS_OPCIONAIS.forEach(t=>{ if(_equipCtx.byTipo[t]) tabs.push([t,_tipoLabel(t)]); });
+  const tabs = grupos
+    .filter(([,,tipos]) => tipos.some(_aplicavel))   // aba some se todo o grupo é N/A
+    .map(([id,label]) => [id,label]);
+  _TIPOS_OPCIONAIS.forEach(t=>{ if(_aplicavel(t)) tabs.push([t,_tipoLabel(t)]); });
   return tabs;
 }
 function _tabDotColor(tipo){
-  // abas agregadas (checklists / manuais PT+ES): pior status do grupo
+  // abas agregadas (checklists / manuais PT+ES): pior status do grupo, só aplicáveis
   const grupo = (tipo==='Checklist_Conferencia') ? _CHK_TIPOS.map(x=>x[0])
               : (tipo==='Manual_Usuario') ? ['Manual_Usuario','Manual_ES']
               : [tipo];
-  const docs = grupo.map(t=>_equipCtx.byTipo[t]).filter(Boolean);
+  const docs = grupo.filter(_aplicavel).map(t=>_equipCtx.byTipo[t]);
   if(!docs.length) return 'var(--t4)';
   if(docs.some(d=>d.status==='Elaborar')) return 'var(--red)';
   if(docs.every(_docFinalizado)) return 'var(--green)';
@@ -1246,25 +1262,26 @@ function renderEquipModal(){
   const tabsEl = document.getElementById('equip-tabs');
   const panelsEl = document.getElementById('equip-panels');
   const tabs = _visibleTabs();
-  const faltantes = _TIPOS_OPCIONAIS.filter(t=>!_equipCtx.byTipo[t]);
   tabsEl.innerHTML = tabs.map(([tipo,label])=>
     `<button type="button" class="equip-modal-tab" data-tab="${tipo}" onclick="switchEquipTab('${tipo}')"><span class="tab-dot" style="background:${_tabDotColor(tipo)}"></span>${esc(label)}</button>`
-  ).join('') + (faltantes.length
-    ? `<button type="button" class="equip-modal-tab tab-add" data-tab="__add" onclick="switchEquipTab('__add')" title="Documentos opcionais">+ Adicionar</button>` : '');
+  ).join('') +
+    `<button type="button" class="equip-modal-tab tab-add" data-tab="__escopo" onclick="switchEquipTab('__escopo')" title="Escolher quais documentos se aplicam a este equipamento">⚙ Escopo</button>`;
   panelsEl.innerHTML = tabs.map(([tipo])=>
     `<div class="equip-tab-panel" data-panel="${tipo}">${
       tipo==='Checklist_Conferencia'?renderChecklistPanel()
       : tipo==='Manual_Usuario'?renderManualPanel()
       : renderTipoPanel(tipo)}</div>`
-  ).join('') + (faltantes.length
-    ? `<div class="equip-tab-panel" data-panel="__add">${renderAddOpcionaisPanel(faltantes)}</div>` : '');
+  ).join('') +
+    `<div class="equip-tab-panel" data-panel="__escopo">${renderEscopoPanel()}</div>`;
 }
 
 // Painel da aba Checklists: seletor entre os 4 checklists sobre o mesmo painel
 let _chkSel = 'Checklist_Conferencia';
 function renderChecklistPanel(){
+  const disp = _CHK_TIPOS.filter(([t])=>_aplicavel(t));   // os em N/A somem do seletor
+  if(!disp.some(([t])=>t===_chkSel)) _chkSel = disp.length ? disp[0][0] : 'Checklist_Conferencia';
   const btn=(t,txt)=>`<button type="button" class="btn btn-sm ${_chkSel===t?'btn-primary':'btn-ghost'}" onclick="setChkSel('${t}')">${txt}</button>`;
-  return `<div class="man-lang-toggle">${_CHK_TIPOS.map(([t,l])=>btn(t,l)).join('')}</div>` + renderTipoPanel(_chkSel);
+  return `<div class="man-lang-toggle">${disp.map(([t,l])=>btn(t,l)).join('')}</div>` + renderTipoPanel(_chkSel);
 }
 function setChkSel(t){
   _chkSel = t;
@@ -1275,9 +1292,13 @@ function setChkSel(t){
 // Painel da aba de manuais do usuário: toggle PT/ES sobre o mesmo painel
 let _manLang = 'PT';
 function renderManualPanel(){
+  const temPT = _aplicavel('Manual_Usuario'), temES = _aplicavel('Manual_ES');
+  if(_manLang==='ES' && !temES) _manLang='PT';       // idioma em N/A → cai no outro
+  if(_manLang==='PT' && !temPT) _manLang='ES';
   const tipo = _manLang==='ES' ? 'Manual_ES' : 'Manual_Usuario';
   const btn = (l,txt)=>`<button type="button" class="btn btn-sm ${_manLang===l?'btn-primary':'btn-ghost'}" onclick="setManLang('${l}')">${txt}</button>`;
-  return `<div class="man-lang-toggle">${btn('PT','Português')}${btn('ES','Español')}</div>` + renderTipoPanel(tipo);
+  const toggles = `${temPT?btn('PT','Português'):''}${temES?btn('ES','Español'):''}`;
+  return `<div class="man-lang-toggle">${toggles}</div>` + renderTipoPanel(tipo);
 }
 function setManLang(l){
   _manLang = l;
@@ -1285,12 +1306,51 @@ function setManLang(l){
   if(p){ p.innerHTML = renderManualPanel(); refreshMissoesSections(); }
 }
 
-// Painel "+ Adicionar": cria documentos opcionais sob demanda
-function renderAddOpcionaisPanel(faltantes){
-  return `<div style="padding:8px 0;color:var(--t3)">
-    <p style="margin-bottom:12px">Documentos opcionais — nem todo equipamento tem. Crie só os que se aplicam:</p>
-    ${faltantes.map(t=>`<button class="btn btn-ghost btn-sm" type="button" style="margin:0 8px 8px 0" onclick="createTipo('${t}')">+ ${esc(_tipoLabel(t))}</button>`).join('')}
-  </div>`;
+// Painel "Escopo": liga/desliga cada um dos 12 tipos para este equipamento.
+// Desligado = N/A: o documento continua existindo (status, código e histórico
+// intactos), mas sai da conta de completude. Só admin/gestor edita.
+function _podeEditarEscopo(){ return currentUser.role==='admin' || currentUser.role==='gestor'; }
+
+function renderEscopoPanel(){
+  const c = _equipCtx.g ? equipCompletude(_equipCtx.g) : {ok:0,total:0,na:0};
+  const editavel = _podeEditarEscopo();
+  const linha = ([tipo,label])=>{
+    const d = _equipCtx.byTipo[tipo];
+    if(!d) return '';                              // documento ainda não existe (equip. legado)
+    const apl = d.aplicavel!==false;
+    const dot = apl ? _statusDotColor(d) : 'var(--t4)';
+    const status = apl ? esc(d.status) : 'Não se aplica';
+    const motivo = (!apl && d.motivo_na) ? `<div class="escopo-motivo">${esc(d.motivo_na)}</div>` : '';
+    return `<div class="escopo-row${apl?'':' off'}">
+      <label class="escopo-toggle">
+        <input type="checkbox" ${apl?'checked':''} ${editavel?'':'disabled'}
+               onchange="toggleEscopo('${tipo}', this.checked)">
+        <span class="escopo-dot" style="background:${dot}"></span>
+        <span class="escopo-label">${esc(label)}</span>
+      </label>
+      <span class="escopo-status">${status}</span>
+      ${motivo}
+    </div>`;
+  };
+  const bloco = (titulo, tipos)=>`
+    <div class="doc-sec">
+      <div class="doc-sec-title">${titulo}</div>
+      ${tipos.map(linha).join('')}
+    </div>`;
+  const resumo = c.total
+    ? `${c.ok} de ${c.total} aplicáveis concluídos${c.na?` · ${c.na} N/A`:''}`
+    : 'Nenhum documento aplicável a este equipamento';
+  const aviso = editavel ? '' :
+    '<p class="muted" style="font-size:12px">Só admin e gestor podem alterar o escopo — mexer nele muda a completude de todo mundo.</p>';
+  return `
+    <div class="equip-panel-head">
+      <span class="equip-panel-title">Escopo de documentos</span>
+      <span class="equip-tag">${esc(resumo)}</span>
+    </div>
+    <p class="muted" style="font-size:12px;margin-bottom:8px">Desmarque o que não se aplica a este equipamento. O documento continua salvo (status, código, arquivos) — só sai da conta de completude.</p>
+    ${aviso}
+    ${bloco('PRE', _PRE_TIPOS)}
+    ${bloco('Manuais', _MAN_TIPOS)}`;
 }
 
 // Stepper de etapas: um botão por status do pipeline; clique só grava no
@@ -1341,10 +1401,11 @@ function renderTipoPanel(tipo){
   const label = _tipoLabel(tipo);
   const d = _equipCtx.byTipo[tipo];
   const isPre = _isPreTipo(tipo);
+  // Com os 12 tipos criados junto com o equipamento, este ramo só sobra para
+  // equipamentos legados ainda não sincronizados — não há mais o que criar aqui.
   if(!d){
     return `<div style="text-align:center;padding:24px;color:var(--t3)">
-      <p style="margin-bottom:12px">Este equipamento ainda não tem o documento "${esc(label)}".</p>
-      <button class="btn btn-primary btn-sm" type="button" onclick="createTipo('${tipo}')">Criar ${esc(label)}</button>
+      <p>Este equipamento ainda não tem o documento "${esc(label)}". Ele será criado na próxima sincronização; use a aba <b>Escopo</b> para definir o que se aplica.</p>
     </div>`;
   }
   const setorTag = `<span class="equip-tag">setor ${isPre?'PRE · 4 etapas':'Manuais · 3 etapas'}</span>`;
@@ -1447,24 +1508,35 @@ async function saveTipoDoc(tipo){
   }catch(e){ showToast('Erro de rede','error'); }
 }
 
-// Cria um tipo de documento ausente para o equipamento aberto
-async function createTipo(tipo){
-  const isPre = _isPreTipo(tipo);
-  const payload = { setor: isPre?'PRE':'Manuais', tipo_doc: tipo,
-    equipamento:_equipCtx.equipamento, sku:_equipCtx.sku, fabricante:_equipCtx.fabricante,
-    documento:`${_tipoLabel(tipo)} - ${_equipCtx.equipamento}` };
+// Liga/desliga um tipo no escopo do equipamento aberto. Ao desligar, pede o motivo
+// (opcional — dá pra deixar em branco). Reabre o modal na mesma aba.
+async function toggleEscopo(tipo, aplicavel){
+  const d = _equipCtx.byTipo[tipo];
+  if(!d) return;
+  let motivo = '';
+  if(!aplicavel){
+    // cancelar o prompt devolve null → motivo vazio, o N/A vale do mesmo jeito
+    motivo = (window.prompt(`Por que "${_tipoLabel(tipo)}" não se aplica a ${_equipCtx.equipamento}? (opcional)`) || '').trim();
+  }
   const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
-    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
+    const res = await apiFetch(`/documentos/${d.id}/aplicabilidade`,
+      {method:'PUT', body:JSON.stringify({aplicavel, motivo_na: motivo})});
     if(res && res.ok){
-      showToast(`${_tipoLabel(tipo)} criado`,'success');
-      await refreshAll(); openEquipModal(reopenKey);
-      if(tipo==='Manual_ES'){ _manLang='ES'; setManLang('ES'); switchEquipTab('Manual_Usuario'); }
-      else if(_isChkTipo(tipo)){ setChkSel(tipo); switchEquipTab('Checklist_Conferencia'); }
-      else switchEquipTab(tipo);
+      showToast(`${_tipoLabel(tipo)} ${aplicavel?'incluído no escopo':'marcado como N/A'}`,'success');
+      await refreshAll();
+      openEquipModal(reopenKey);
+      switchEquipTab('__escopo');
+    } else {
+      const e = res ? await res.json().catch(()=>({})) : {};
+      showToast(e.erro||'Erro ao atualizar o escopo','error');
+      renderEquipModal();            // desfaz o checkbox otimista
+      switchEquipTab('__escopo');
     }
-    else { showToast('Erro ao criar documento','error'); }
-  }catch(e){ showToast('Erro de rede','error'); }
+  }catch(e){
+    showToast('Erro de rede','error');
+    renderEquipModal(); switchEquipTab('__escopo');
+  }
 }
 
 function openNewEquip(){
