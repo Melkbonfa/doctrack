@@ -29,7 +29,7 @@ from flask_jwt_extended import get_jwt_identity
 
 from models import (db, Missao, MissaoColuna, MissaoCartao,
                     PRIORIDADES_CARTAO, REF_TIPOS_CARTAO, CATEGORIAS_COLUNA,
-                    Equipamento, Projeto, Documento, User)
+                    Equipamento, Projeto, Documento, User, STATUS_MAP)
 from auth import require_role, log_action, get_client_ip
 
 # SQLite não aplica String(n) — os limites precisam ser validados aqui.
@@ -85,6 +85,97 @@ def _validar_ref(ref_tipo, ref_id):
     return ref_tipo, rid, None
 
 
+# ── SINCRONIZAÇÃO DOCUMENTO → CARTÃO ─────────────────────────────────────────
+# O documento é a fonte da verdade: quando o status dele muda, os cartões
+# vinculados (ref_tipo='documento') movem-se para a coluna da categoria alvo.
+
+def _categoria_alvo(setor, status):
+    """Mapeia o status do documento para a categoria de coluna do kanban:
+    primeira etapa → 'todo'; etapa final → 'done'; intermediárias → 'doing'.
+    Status legado (fora do fluxo do setor) → None (no-op)."""
+    fluxo = STATUS_MAP.get(setor, [])
+    if status not in fluxo:
+        return None
+    if status == fluxo[0]:
+        return "todo"
+    if status == fluxo[-1]:
+        return "done"
+    return "doing"
+
+
+def sincronizar_cartoes_documento(doc, email):
+    """Move os cartões vinculados ao documento para a coluna da categoria alvo
+    da respectiva missão (menor `ordem` se houver mais de uma; missão sem coluna
+    da categoria → no-op). `concluido` acompanha o 'done' nos dois sentidos
+    (regressão do documento reabre o cartão). NÃO comita — roda na transação do
+    endpoint de documentos; devolve [(event_type, payload)] para o caller emitir
+    após o commit (payload["cartao"] é o objeto, serializar na emissão)."""
+    alvo = _categoria_alvo(doc.setor, doc.status)
+    if alvo is None:
+        return []
+    eventos = []
+    cartoes = MissaoCartao.query.filter_by(ref_tipo="documento", ref_id=doc.id).all()
+    for cartao in cartoes:
+        destino = (MissaoColuna.query
+                   .filter_by(missao_id=cartao.missao_id, categoria=alvo)
+                   .order_by(MissaoColuna.ordem).first())
+        if destino is None:
+            continue
+        mudou = False
+        origem_id = cartao.coluna_id
+        if destino.id != cartao.coluna_id:
+            ult = (MissaoCartao.query.filter_by(coluna_id=destino.id)
+                   .order_by(MissaoCartao.ordem.desc()).first())
+            cartao.coluna_id = destino.id
+            cartao.ordem = (ult.ordem + 1) if ult else 0   # append no fim
+            mudou = True
+        novo_concluido = (alvo == "done")
+        if bool(cartao.concluido) != novo_concluido:
+            cartao.concluido = novo_concluido
+            mudou = True
+        if mudou:
+            cartao.versao = (cartao.versao or 0) + 1   # invalida drags concorrentes
+            cartao.atualizado_por = email
+            cartao.atualizado_em = datetime.now()
+            eventos.append(("MISSAO_CARTAO_MOVIDO",
+                            {"missao_id": cartao.missao_id, "cartao": cartao,
+                             "coluna_origem_id": origem_id, "origem": "doc-sync",
+                             "documento_id": doc.id}))
+    return eventos
+
+
+def emitir_eventos_sync(eventos, email):
+    """Serializa e emite (pós-commit) os eventos devolvidos pelo sync."""
+    for ev, payload in eventos:
+        payload = dict(payload, cartao=payload["cartao"].to_dict())
+        _emit(ev, payload, email)
+
+
+def _mapa_refs(cartoes):
+    """Metadados dos vínculos em lote (no máx. 1 query IN por tipo) — evita o
+    N+1 do _ref_meta() por cartão em listagens. Chave: (ref_tipo, ref_id)."""
+    ids = {t: {c.ref_id for c in cartoes if c.ref_tipo == t and c.ref_id}
+           for t in REF_TIPOS_CARTAO}
+    mapa = {}
+    if ids["equipamento"]:
+        for e in Equipamento.query.filter(Equipamento.id.in_(ids["equipamento"]),
+                                          Equipamento.ativo == True):
+            mapa[("equipamento", e.id)] = {"label": e.nome, "status": "",
+                                           "status_global": ""}
+    if ids["projeto"]:
+        for p in Projeto.query.filter(Projeto.id.in_(ids["projeto"]),
+                                      Projeto.ativo == True):
+            mapa[("projeto", p.id)] = {"label": p.nome, "status": "",
+                                       "status_global": ""}
+    if ids["documento"]:
+        for d in Documento.query.filter(Documento.id.in_(ids["documento"]),
+                                        Documento.ativo == True):
+            mapa[("documento", d.id)] = {"label": d.documento,
+                                         "status": d.status or "",
+                                         "status_global": d.status_global}
+    return mapa
+
+
 # ── MISSÕES ──────────────────────────────────────────────────────────────────
 
 @missoes_bp.route("/api/missoes", methods=["GET"])
@@ -137,7 +228,8 @@ def detalhe_missao(mid):
     m = (Missao.query
          .options(db.selectinload(Missao.colunas).selectinload(MissaoColuna.cartoes))
          .get_or_404(mid))
-    return jsonify({"missao": m.to_dict(com_colunas=True)})
+    refs = _mapa_refs([c for col in m.colunas for c in col.cartoes])
+    return jsonify({"missao": m.to_dict(com_colunas=True, refs_map=refs)})
 
 
 @missoes_bp.route("/api/missoes/<int:mid>", methods=["PATCH"])
@@ -479,9 +571,11 @@ def meus_cartoes():
                .order_by(MissaoCartao.prazo == "", MissaoCartao.prazo,
                          MissaoCartao.missao_id, MissaoCartao.ordem)
                .all())
+    refs = _mapa_refs(cartoes)
+    vazio = {"label": "", "status": "", "status_global": ""}
     out = []
     for c in cartoes:
-        d = c.to_dict()
+        d = c.to_dict(ref_info=refs.get((c.ref_tipo, c.ref_id), vazio))
         d["missao_nome"] = c.missao.nome if c.missao else ""
         d["coluna_nome"] = c.coluna.nome if c.coluna else ""
         out.append(d)
@@ -518,3 +612,38 @@ def buscar_refs():
         out = [{"id": d.id, "label": d.documento} for d in
                query.order_by(Documento.documento).limit(20).all()]
     return jsonify({"itens": out})
+
+
+# ── CARTÕES VINCULADOS A UMA ENTIDADE (p/ a ficha do documento no dashboard) ──
+
+@missoes_bp.route("/api/missoes/cartoes-vinculados", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def cartoes_vinculados():
+    """Cartões (de missões ativas) vinculados às entidades pedidas, em lote:
+    ?tipo=documento&ids=1,2,3 — 1 chamada cobre os documentos do modal inteiro.
+    Nota: o dashboard aceita role `leitura`, que aqui recebe 403 — o front deve
+    degradar escondendo a seção."""
+    tipo = (request.args.get("tipo") or "").strip()
+    if tipo not in REF_TIPOS_CARTAO:
+        return jsonify({"erro": f"tipo inválido. Use: {', '.join(REF_TIPOS_CARTAO)}"}), 400
+    try:
+        ids = [int(i) for i in (request.args.get("ids") or "").split(",") if i.strip()]
+    except ValueError:
+        return jsonify({"erro": "ids deve ser lista de números separados por vírgula"}), 400
+    if not ids:
+        return jsonify({"cartoes": []})
+    cartoes = (MissaoCartao.query
+               .join(Missao, MissaoCartao.missao_id == Missao.id)
+               .filter(Missao.arquivado == False,
+                       MissaoCartao.ref_tipo == tipo,
+                       MissaoCartao.ref_id.in_(ids))
+               .order_by(MissaoCartao.missao_id, MissaoCartao.ordem)
+               .all())
+    out = [{"id": c.id, "titulo": (c.titulo or "").strip(),
+            "concluido": bool(c.concluido), "prioridade": c.prioridade or "media",
+            "ref_id": c.ref_id, "missao_id": c.missao_id,
+            "missao_nome": c.missao.nome if c.missao else "",
+            "coluna_nome": c.coluna.nome if c.coluna else "",
+            "coluna_categoria": (c.coluna.categoria or "") if c.coluna else ""}
+           for c in cartoes]
+    return jsonify({"cartoes": out})

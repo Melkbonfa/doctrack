@@ -1171,7 +1171,7 @@ class Missao(db.Model):
     cartoes = db.relationship("MissaoCartao", back_populates="missao",
                               cascade="all, delete-orphan")
 
-    def to_dict(self, com_colunas=False, n_cartoes=None):
+    def to_dict(self, com_colunas=False, n_cartoes=None, refs_map=None):
         d = {
             "id":         self.id,
             "nome":       (self.nome or "").strip(),
@@ -1185,7 +1185,8 @@ class Missao(db.Model):
             "n_cartoes":  len(self.cartoes) if n_cartoes is None else n_cartoes,
         }
         if com_colunas:
-            d["colunas"] = [c.to_dict(com_cartoes=True) for c in self.colunas]
+            d["colunas"] = [c.to_dict(com_cartoes=True, refs_map=refs_map)
+                            for c in self.colunas]
         return d
 
 
@@ -1207,7 +1208,7 @@ class MissaoColuna(db.Model):
                               cascade="all, delete-orphan",
                               order_by="MissaoCartao.ordem")
 
-    def to_dict(self, com_cartoes=False):
+    def to_dict(self, com_cartoes=False, refs_map=None):
         d = {
             "id":        self.id,
             "missao_id": self.missao_id,
@@ -1217,7 +1218,12 @@ class MissaoColuna(db.Model):
             "categoria": self.categoria or "",
         }
         if com_cartoes:
-            d["cartoes"] = [c.to_dict() for c in self.cartoes]
+            # refs_map (ver _mapa_refs em missoes.py) evita 1 query por cartão
+            vazio = {"label": "", "status": "", "status_global": ""}
+            d["cartoes"] = [
+                c.to_dict(ref_info=(refs_map.get((c.ref_tipo, c.ref_id), vazio)
+                                    if refs_map is not None else None))
+                for c in self.cartoes]
         return d
 
 
@@ -1251,25 +1257,37 @@ class MissaoCartao(db.Model):
     missao = db.relationship("Missao", back_populates="cartoes")
     coluna = db.relationship("MissaoColuna", back_populates="cartoes")
 
-    def ref_label(self):
-        """Rótulo leve do vínculo (chip): nome do equipamento/projeto/documento."""
+    def _ref_meta(self):
+        """Metadados leves do vínculo (chip): label + status vivo (documento).
+        1 query por cartão — em listagens grandes, passe ref_info pré-computado
+        ao to_dict (ver _mapa_refs em missoes.py) para evitar N+1."""
+        meta = {"label": "", "status": "", "status_global": ""}
         if not self.ref_tipo or not self.ref_id:
-            return ""
+            return meta
         try:
             if self.ref_tipo == "equipamento":
                 e = Equipamento.query.get(self.ref_id)
-                return e.nome if e and e.ativo else ""
-            if self.ref_tipo == "projeto":
+                if e and e.ativo:
+                    meta["label"] = e.nome
+            elif self.ref_tipo == "projeto":
                 p = Projeto.query.get(self.ref_id)
-                return p.nome if p and p.ativo else ""
-            if self.ref_tipo == "documento":
+                if p and p.ativo:
+                    meta["label"] = p.nome
+            elif self.ref_tipo == "documento":
                 doc = Documento.query.get(self.ref_id)
-                return doc.documento if doc and doc.ativo else ""
+                if doc and doc.ativo:
+                    meta.update(label=doc.documento, status=doc.status or "",
+                                status_global=doc.status_global)
         except Exception:
-            return ""
-        return ""
+            pass
+        return meta
 
-    def to_dict(self, com_descricao=False):
+    def ref_label(self):
+        """Rótulo leve do vínculo (compat; prefira _ref_meta)."""
+        return self._ref_meta()["label"]
+
+    def to_dict(self, com_descricao=False, ref_info=None):
+        ref = ref_info if ref_info is not None else self._ref_meta()
         d = {
             "id":             self.id,
             "missao_id":      self.missao_id,
@@ -1284,7 +1302,9 @@ class MissaoCartao(db.Model):
             "versao":         self.versao or 0,
             "ref_tipo":       self.ref_tipo or "",
             "ref_id":         self.ref_id,
-            "ref_label":      self.ref_label(),
+            "ref_label":      ref.get("label", ""),
+            "ref_status":     ref.get("status", ""),
+            "ref_status_global": ref.get("status_global", ""),
             "tem_descricao":  bool((self.descricao or "").strip()),
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",

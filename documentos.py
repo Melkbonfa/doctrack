@@ -31,6 +31,8 @@ from models import (
 from auth import require_role, log_action, get_client_ip
 from event_bus import EventType
 from utils import norm
+# Sync Documento → Cartão (import acíclico: missoes.py só importa models/auth)
+from missoes import sincronizar_cartoes_documento, emitir_eventos_sync
 
 documentos_bp = Blueprint("documentos", __name__)
 
@@ -225,7 +227,8 @@ def update_documento(doc_id):
     # regra da rota /status). Sem isto, um PATCH grava qualquer string em status
     # e quebra os KPIs / status_global. Só valida quando o valor muda, para não
     # rejeitar um edit de outro campo em documentos com status legado.
-    if "status" in data and str(data.get("status")) != str(doc.status):
+    status_mudou = ("status" in data and str(data.get("status")) != str(doc.status))
+    if status_mudou:
         setor_status = STATUS_MAP.get(doc.setor, [])
         if data.get("status") not in setor_status:
             return jsonify({"erro": f"Status inválido para o setor {doc.setor}. Use: {', '.join(setor_status)}"}), 400
@@ -252,10 +255,14 @@ def update_documento(doc_id):
 
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    # documento é a fonte da verdade: se o status mudou, move os cartões
+    # vinculados no kanban (mesma transação; eventos emitidos após o commit)
+    eventos_sync = sincronizar_cartoes_documento(doc, caller) if status_mudou else []
     db.session.commit()
     _emit(EventType.DOCUMENT_UPDATED,
           {"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
+    emitir_eventos_sync(eventos_sync, caller)
     return jsonify({"mensagem": "Documento atualizado", "documento": doc.to_dict()}), 200
 
 @documentos_bp.route("/api/documentos/<int:doc_id>", methods=["DELETE"])
@@ -496,9 +503,13 @@ def update_status(doc_id):
     doc.status = novo
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    # documento é a fonte da verdade: move os cartões vinculados no kanban
+    # (mesma transação; eventos emitidos após o commit)
+    eventos_sync = sincronizar_cartoes_documento(doc, caller) if novo != antigo else []
     db.session.commit()
     log_action(caller, "STATUS_CHANGE", entidade=doc.documento, campo="status", antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
     _emit(EventType.DOCUMENT_STATUS_UPDATED,
           {"documento_id": doc.id, "old_value": antigo, "new_value": novo, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
+    emitir_eventos_sync(eventos_sync, caller)
     return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200

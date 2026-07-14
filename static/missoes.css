@@ -41,6 +41,7 @@
 .chip.prazo{color:var(--t2)}
 .chip.prazo.vencido{color:#f87171;border-color:#f8717155;font-weight:700}
 .chip.ref{color:#22d3ee;border-color:#22d3ee44}
+.chip.ref .ref-dot{display:inline-block;width:7px;height:7px;border-radius:50%;vertical-align:middle;margin:0 3px 1px 0}
 .chip.resp{color:#fbbf24;border-color:#fbbf2444}
 .pri{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .pri-baixa{background:#64748b}.pri-media{background:#38bdf8}.pri-alta{background:#f59e0b}.pri-urgente{background:#ef4444}
