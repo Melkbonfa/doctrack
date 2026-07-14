@@ -1515,8 +1515,11 @@ async function toggleEscopo(tipo, aplicavel){
   if(!d) return;
   let motivo = '';
   if(!aplicavel){
-    // cancelar o prompt devolve null → motivo vazio, o N/A vale do mesmo jeito
-    motivo = (window.prompt(`Por que "${_tipoLabel(tipo)}" não se aplica a ${_equipCtx.equipamento}? (opcional)`) || '').trim();
+    // Cancelar o prompt (null) ABORTA a marcação — só o OK confirma, mesmo com o
+    // motivo em branco (o motivo é opcional; desistir do N/A não é).
+    const resp = window.prompt(`Por que "${_tipoLabel(tipo)}" não se aplica a ${_equipCtx.equipamento}? (opcional)`);
+    if(resp === null){ renderEquipModal(); switchEquipTab('__escopo'); return; }
+    motivo = resp.trim();
   }
   const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
