@@ -277,9 +277,12 @@ function _exportConfig(){
     manuais:(document.getElementById('exp-manuais')||{}).value||'',
   };
 }
+// Equipamento sem nenhum documento aplicável (tudo em N/A) não é pendente nem
+// finalizado: fica de fora das três faixas, como o idp() que devolve null.
 function _groupGlobalStatus(g){
   const c = equipStatusColor(g);
-  return c==='green' ? 'Finalizado' : c==='red' ? 'Pendente' : 'Em progresso';
+  return c==='green' ? 'Finalizado' : c==='red' ? 'Pendente'
+       : c==='neutro' ? 'Sem escopo' : 'Em progresso';
 }
 function _parseBR(str){
   if(!str) return null;
@@ -294,7 +297,7 @@ function _exportFilteredGroups(){
   return groupByEquip().filter(g=>{
     if(cfg.status && _groupGlobalStatus(g)!==cfg.status) return false;
     if(cfg.manuais){
-      const cnt=g.manuais.length, ok=equipManuaisOk(g);
+      const cnt=equipManuaisAplicaveis(g), ok=equipManuaisOk(g);
       if(cfg.manuais==='completos' && !(cnt>0 && ok===cnt)) return false;
       if(cfg.manuais==='incompletos' && !(cnt>0 && ok<cnt)) return false;
       if(cfg.manuais==='sem' && cnt>0) return false;
@@ -385,16 +388,20 @@ async function gerarRelatorioPDF(){
   const cfg = _exportConfig();
   const baseLabel = {data_homologacao:'Homologação', data_treinamento:'Treinamento', updated_em:'Últ. atualização'}[cfg.base]||cfg.base;
 
+  // Equipamentos sem escopo (todos os documentos em N/A) ficam fora das faixas:
+  // não são pendência nem conclusão, só não têm o que medir.
   let fin=0, prog=0, pend=0, preHom=0, man100=0;
   groups.forEach(g=>{
     const st=_groupGlobalStatus(g);
+    if(st==='Sem escopo') return;
     if(st==='Finalizado')fin++; else if(st==='Em progresso')prog++; else pend++;
     if(g.pre && g.pre.status==='Homologado') preHom++;
-    if(g.manuais.length>0 && equipManuaisOk(g)===g.manuais.length) man100++;
+    const cnt=equipManuaisAplicaveis(g);
+    if(cnt>0 && equipManuaisOk(g)===cnt) man100++;
   });
   const preStatuses=['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
   const preCounts=preStatuses.map(s=>groups.filter(g=>g.pre&&g.pre.status===s).length);
-  let manOk=0, manTot=0; groups.forEach(g=>{ manOk+=equipManuaisOk(g); manTot+=g.manuais.length; });
+  let manOk=0, manTot=0; groups.forEach(g=>{ manOk+=equipManuaisOk(g); manTot+=equipManuaisAplicaveis(g); });
   const manPend = Math.max(0, manTot-manOk);
   const manPct = manTot? Math.round(manOk/manTot*100) : 0;
 
@@ -547,11 +554,11 @@ async function gerarRelatorioPDF(){
     if(y+rowH > pageH-11){ doc.addPage(); paintBg(); y=margin+4; thead(); }
     if(idx%2===0){ doc.setFillColor(...C.rowAlt); doc.rect(margin,y,pageW-margin*2,rowH,'F'); }
     doc.setDrawColor(...C.border); doc.setLineWidth(0.15); doc.line(margin,y+rowH,pageW-margin,y+rowH);
-    const ok=equipManuaisOk(g);
+    const ok=equipManuaisOk(g), manTot=equipManuaisAplicaveis(g);
     const glob=_groupGlobalStatus(g);
     const row = {
       equip: g.equipamento, sku: g.sku||'—', resp: (g.pre&&g.pre.responsavel)||'—',
-      pre: g.pre? g.pre.status : '—', man: g.manuais.length? (ok+'/5') : '—',
+      pre: g.pre? g.pre.status : '—', man: manTot? (ok+'/'+manTot) : '—',
       glob: glob, data: g.pre? ((g.pre[cfg.base]||'—').split(' ')[0]||'—') : '—',
     };
     let cx=margin;
