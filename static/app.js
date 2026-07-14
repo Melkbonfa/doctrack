@@ -1166,6 +1166,7 @@ function openEquipModal(key){
   const equip_id = (g&&g.id) || (equip&&equip.id) || null;
   _equipCtx = { equipamento: (g&&g.equipamento)||'', equip, equip_id, byTipo, docs, sku, fabricante, g,
                 cartoesPorDoc: undefined };   // undefined=carregando, null=indisponível (403/erro)
+  _escopoPendente = null;   // nenhum N/A a meio caminho no modal recém-aberto
 
   const delBtn = document.getElementById('btn-del-equip');
   if(delBtn) delBtn.style.display = (currentUser.role==='admin'||currentUser.role==='gestor') ? 'inline-flex' : 'none';
@@ -1311,16 +1312,29 @@ function setManLang(l){
 // intactos), mas sai da conta de completude. Só admin/gestor edita.
 function _podeEditarEscopo(){ return currentUser.role==='admin' || currentUser.role==='gestor'; }
 
+// Tipo aguardando o motivo (o usuário desmarcou e ainda não confirmou). O N/A só
+// é gravado no "Confirmar" — desistir aqui devolve o checkbox ao lugar.
+let _escopoPendente = null;
+
 function renderEscopoPanel(){
   const c = _equipCtx.g ? equipCompletude(_equipCtx.g) : {ok:0,total:0,na:0};
   const editavel = _podeEditarEscopo();
   const linha = ([tipo,label])=>{
     const d = _equipCtx.byTipo[tipo];
     if(!d) return '';                              // documento ainda não existe (equip. legado)
-    const apl = d.aplicavel!==false;
+    const pend = (_escopoPendente === tipo);
+    const apl = pend ? false : d.aplicavel!==false;
     const dot = apl ? _statusDotColor(d) : 'var(--t4)';
     const status = apl ? esc(d.status) : 'Não se aplica';
-    const motivo = (!apl && d.motivo_na) ? `<div class="escopo-motivo">${esc(d.motivo_na)}</div>` : '';
+    const motivo = (!apl && !pend && d.motivo_na) ? `<div class="escopo-motivo">${esc(d.motivo_na)}</div>` : '';
+    // Ao desmarcar, a linha abre o campo de motivo (opcional) e só grava no Confirmar.
+    const formMotivo = pend ? `
+      <div class="escopo-na-form">
+        <input class="form-input" id="escopo-motivo-${tipo}" maxlength="300"
+               placeholder="Por que não se aplica? (opcional)" value="${esc(d.motivo_na||'')}">
+        <button type="button" class="btn btn-primary btn-sm" onclick="confirmarNA('${tipo}')">Confirmar N/A</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="cancelarNA()">Cancelar</button>
+      </div>` : '';
     return `<div class="escopo-row${apl?'':' off'}">
       <label class="escopo-toggle">
         <input type="checkbox" ${apl?'checked':''} ${editavel?'':'disabled'}
@@ -1330,6 +1344,7 @@ function renderEscopoPanel(){
       </label>
       <span class="escopo-status">${status}</span>
       ${motivo}
+      ${formMotivo}
     </div>`;
   };
   const bloco = (titulo, tipos)=>`
@@ -1508,19 +1523,33 @@ async function saveTipoDoc(tipo){
   }catch(e){ showToast('Erro de rede','error'); }
 }
 
-// Liga/desliga um tipo no escopo do equipamento aberto. Ao desligar, pede o motivo
-// (opcional — dá pra deixar em branco). Reabre o modal na mesma aba.
-async function toggleEscopo(tipo, aplicavel){
+// Liga/desliga um tipo no escopo do equipamento aberto.
+//   marcar   → grava direto (voltar ao escopo não pede justificativa)
+//   desmarcar→ abre o campo de motivo na linha; só grava no "Confirmar N/A"
+function toggleEscopo(tipo, aplicavel){
+  if(!_equipCtx.byTipo[tipo]) return;
+  if(!aplicavel){ _escopoPendente = tipo; _repintarEscopo(); return; }
+  _escopoPendente = null;
+  _gravarEscopo(tipo, true, '');
+}
+
+function cancelarNA(){ _escopoPendente = null; _repintarEscopo(); }
+
+function confirmarNA(tipo){
+  const el = document.getElementById('escopo-motivo-'+tipo);
+  const motivo = el ? el.value.trim() : '';
+  _escopoPendente = null;
+  _gravarEscopo(tipo, false, motivo);
+}
+
+// Repinta só o painel do escopo (sem reabrir o modal, para não perder o foco)
+function _repintarEscopo(){
+  const p = document.querySelector('#equip-panels [data-panel="__escopo"]');
+  if(p) p.innerHTML = renderEscopoPanel();
+}
+
+async function _gravarEscopo(tipo, aplicavel, motivo){
   const d = _equipCtx.byTipo[tipo];
-  if(!d) return;
-  let motivo = '';
-  if(!aplicavel){
-    // Cancelar o prompt (null) ABORTA a marcação — só o OK confirma, mesmo com o
-    // motivo em branco (o motivo é opcional; desistir do N/A não é).
-    const resp = window.prompt(`Por que "${_tipoLabel(tipo)}" não se aplica a ${_equipCtx.equipamento}? (opcional)`);
-    if(resp === null){ renderEquipModal(); switchEquipTab('__escopo'); return; }
-    motivo = resp.trim();
-  }
   const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
     const res = await apiFetch(`/documentos/${d.id}/aplicabilidade`,
@@ -1528,17 +1557,16 @@ async function toggleEscopo(tipo, aplicavel){
     if(res && res.ok){
       showToast(`${_tipoLabel(tipo)} ${aplicavel?'incluído no escopo':'marcado como N/A'}`,'success');
       await refreshAll();
-      openEquipModal(reopenKey);
+      openEquipModal(reopenKey);     // recarrega o contexto com os dados novos
       switchEquipTab('__escopo');
     } else {
       const e = res ? await res.json().catch(()=>({})) : {};
       showToast(e.erro||'Erro ao atualizar o escopo','error');
-      renderEquipModal();            // desfaz o checkbox otimista
-      switchEquipTab('__escopo');
+      _repintarEscopo();             // desfaz o checkbox otimista
     }
   }catch(e){
     showToast('Erro de rede','error');
-    renderEquipModal(); switchEquipTab('__escopo');
+    _repintarEscopo();
   }
 }
 

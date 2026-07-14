@@ -768,3 +768,6 @@ th:not(.sortable){cursor:default}
 .escopo-label{font-size:13px;color:var(--t2)}
 .escopo-status{font-size:12px;color:var(--t3);white-space:nowrap}
 .escopo-motivo{flex-basis:100%;font-size:11px;color:var(--t4);padding-left:26px}
+/* campo de motivo aberto ao desmarcar um tipo (o N/A só grava no Confirmar) */
+.escopo-na-form{flex-basis:100%;display:flex;gap:8px;align-items:center;padding:6px 0 2px 26px}
+.escopo-na-form .form-input{flex:1;font-size:12px;padding:6px 8px}
