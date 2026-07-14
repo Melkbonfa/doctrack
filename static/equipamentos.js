@@ -43,13 +43,20 @@ let EQUIP=[], DOCS_BY_EQ={}, TAX={categorias:[],linhas:[]}, selCatId=null;
 // ── completude (ICE) ───────────────────────────────────────────────────────
 const CAD = ["sku","sku_importacao","nome_tecnico","fabricante","categoria_id","familia_id"];
 const REG = ["anvisa","anvisa_registro","anvisa_validade"];
-const NDOC = 9;
+const NDOC = 9;   // fallback: equipamento sem documentos carregados
 const CAD_LABEL = {sku:"SKU de Venda",sku_importacao:"SKU de Importação",nome_tecnico:"Nome técnico",
   fabricante:"Fabricante",categoria_id:"Categoria",familia_id:"Família"};
 const REG_LABEL = {classificacao_reg:"Classificação (RUO/IVD)",anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",anvisa_validade:"Validade ANVISA"};
 function preenchido(e,f){ const v=e[f]; return f.endsWith("_id") ? !!v : !!(v&&String(v).trim()); }
 function docFinal(d){ return (d.setor==="PRE"&&d.status==="Homologado")||(d.setor==="Manuais"&&d.status==="Concluído"); }
-function docsFinais(eqId){ return (DOCS_BY_EQ[eqId]||[]).filter(docFinal).length; }
+// Só os documentos APLICÁVEIS entram na completude documental. Marcar N/A não
+// apaga o status do documento, então sem este filtro um doc N/A que ficou
+// "Homologado" continuaria contando como entrega.
+function docsAplicaveis(eqId){ return (DOCS_BY_EQ[eqId]||[]).filter(d=>d.aplicavel!==false); }
+function docsFinais(eqId){ return docsAplicaveis(eqId).filter(docFinal).length; }
+// Denominador = documentos aplicáveis do equipamento (o escopo é por equipamento,
+// não mais um número fixo). Sem documentos carregados, cai no fallback.
+function docsAlvo(eqId){ return docsAplicaveis(eqId).length || NDOC; }
 // Campos regulatórios exigidos dependem da classificação: RUO (uso em pesquisa)
 // não tem registro ANVISA → basta a classificação; IVD/sem classe exige ANVISA.
 function regFields(e){
@@ -60,7 +67,8 @@ function scores(e){
   const cad = Math.round(CAD.filter(f=>preenchido(e,f)).length/CAD.length*100);
   const rf  = regFields(e);
   const reg = Math.round(rf.filter(f=>preenchido(e,f)).length/rf.length*100);
-  const doc = Math.round(Math.min(NDOC, docsFinais(e.id))/NDOC*100);
+  const alvo = docsAlvo(e.id);
+  const doc = Math.round(Math.min(alvo, docsFinais(e.id))/alvo*100);
   return {cad,reg,doc,ice:Math.round((cad+reg+doc)/3)};
 }
 const faixa = i=> i>=85?"completo":i>=50?"parcial":"inicial";
@@ -166,7 +174,8 @@ function renderDashboard(){
   // bar horizontal: lacunas mais comuns
   const gaps={}; S.forEach(o=>{ CAD.forEach(f=>{ if(!preenchido(o.e,f)) gaps[CAD_LABEL[f]]=(gaps[CAD_LABEL[f]]||0)+1; });
     regFields(o.e).forEach(f=>{ if(!preenchido(o.e,f)) gaps[REG_LABEL[f]]=(gaps[REG_LABEL[f]]||0)+1; });
-    const falt=NDOC-Math.min(NDOC,docsFinais(o.e.id)); if(falt) gaps["Docs não finalizados"]=(gaps["Docs não finalizados"]||0)+falt; });
+    const alvo=docsAlvo(o.e.id);
+    const falt=alvo-Math.min(alvo,docsFinais(o.e.id)); if(falt) gaps["Docs não finalizados"]=(gaps["Docs não finalizados"]||0)+falt; });
   const top=Object.entries(gaps).sort((a,b)=>b[1]-a[1]).slice(0,6);
   if(chartInstances.gaps) chartInstances.gaps.destroy();
   const cg=document.getElementById("chartGaps");
