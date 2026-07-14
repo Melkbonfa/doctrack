@@ -265,3 +265,56 @@ def test_documento_nasce_aplicavel(client, admin_token, auth_headers):
     doc = res.get_json()["documento"]
     assert doc["aplicavel"] is True
     assert doc["motivo_na"] == ""
+
+
+def _doc_de_tipo(client, headers, equipamento, tipo):
+    docs = client.get("/api/documentos", headers=headers).get_json()
+    return next(d for d in docs if d["equipamento"] == equipamento and d["tipo_doc"] == tipo)
+
+
+def test_aplicabilidade_gestor_marca_na(client, admin_token, gestor_token, auth_headers):
+    ha, hg = auth_headers(admin_token), auth_headers(gestor_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA"}, headers=ha)
+    doc = _doc_de_tipo(client, ha, "MAQ-NA", "Manual_ES")
+
+    res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                     json={"aplicavel": False, "motivo_na": "produto sem versão ES"},
+                     headers=hg)
+    assert res.status_code == 200
+    d = res.get_json()["documento"]
+    assert d["aplicavel"] is False
+    assert d["motivo_na"] == "produto sem versão ES"
+    assert d["status"] == "Elaborar"        # marcar N/A não mexe no status
+
+
+def test_aplicabilidade_tecnico_negado(client, admin_token, tecnico_token, auth_headers):
+    ha, ht = auth_headers(admin_token), auth_headers(tecnico_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA2"}, headers=ha)
+    doc = _doc_de_tipo(client, ha, "MAQ-NA2", "Manual_ES")
+
+    res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                     json={"aplicavel": False}, headers=ht)
+    assert res.status_code == 403
+
+
+def test_religar_na_preserva_dados(client, admin_token, auth_headers):
+    """Religar um documento N/A devolve status, código e responsável intactos."""
+    h = auth_headers(admin_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA3"}, headers=h)
+    doc = _doc_de_tipo(client, h, "MAQ-NA3", "Manual_Servico")
+
+    client.patch(f"/api/documentos/{doc['id']}",
+                 json={"codigo_doc": "MS-77", "responsavel": "Ana", "status": "Em andamento"},
+                 headers=h)
+    client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+               json={"aplicavel": False, "motivo_na": "sem serviço em campo"}, headers=h)
+    res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                     json={"aplicavel": True}, headers=h)
+
+    assert res.status_code == 200
+    d = res.get_json()["documento"]
+    assert d["aplicavel"] is True
+    assert d["motivo_na"] == ""              # religar limpa o motivo
+    assert d["codigo_doc"] == "MS-77"
+    assert d["responsavel"] == "Ana"
+    assert d["status"] == "Em andamento"

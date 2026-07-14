@@ -7,6 +7,7 @@ Rotas:
   POST   /api/documentos                 — criar (gera os 9 tipos canônicos)
   PATCH  /api/documentos/<id>            — editar campos do próprio documento
   DELETE /api/documentos/<id>            — soft delete (admin/gestor)
+  PUT    /api/documentos/<id>/aplicabilidade — liga/desliga o tipo no escopo (N/A)
   POST   /api/documentos/abrir-pasta     — abre a pasta no servidor (acesso local)
   GET    /api/documentos/arquivos        — lista arquivos da pasta do equipamento
   GET    /api/documentos/arquivo         — serve um arquivo (preview/download)
@@ -278,6 +279,49 @@ def delete_documento(doc_id):
           {"documento_id": doc_id, "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
     return jsonify({"mensagem": f"Documento '{nome}' excluído"}), 200
+
+@documentos_bp.route("/api/documentos/<int:doc_id>/aplicabilidade", methods=["PUT"])
+@require_role("admin", "gestor")
+def update_aplicabilidade(doc_id):
+    """Liga/desliga um tipo de documento no escopo do equipamento (N/A).
+
+    Fora do PATCH genérico de propósito: o PATCH é tecnico+ (edita status e campos
+    do documento); mexer no escopo muda o denominador da completude de todo mundo,
+    então fica restrito a admin/gestor. Marcar N/A NÃO altera o status nem toca nos
+    cartões de missão vinculados — o documento só sai da conta.
+    """
+    caller = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    if "aplicavel" not in data:
+        return jsonify({"erro": "Informe 'aplicavel' (true/false)"}), 400
+
+    doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
+    if not doc:
+        return jsonify({"erro": "Não encontrado"}), 404
+
+    novo = bool(data.get("aplicavel"))
+    antigo = bool(doc.aplicavel)
+    # motivo só existe enquanto o documento está em N/A; religar limpa
+    motivo = (data.get("motivo_na") or "").strip()[:300] if not novo else ""
+
+    if novo == antigo and motivo == (doc.motivo_na or ""):
+        return jsonify({"mensagem": "Nada a alterar", "documento": doc.to_dict()}), 200
+
+    doc.aplicavel = novo
+    doc.motivo_na = motivo
+    doc.updated_em = datetime.now()
+    doc.version = (doc.version or 0) + 1
+    db.session.commit()
+
+    log_action(caller, "UPDATE", entidade=doc.documento, campo="aplicavel",
+               antigo="Aplica" if antigo else "N/A",
+               novo=("Aplica" if novo else f"N/A{(' — ' + motivo) if motivo else ''}"),
+               documento_id=doc.id, ip=get_client_ip())
+    _emit(EventType.DOCUMENT_UPDATED,
+          {"documento_id": doc.id, "documento": doc.to_dict(),
+           "setor": doc.setor, "equipamento": doc.equipamento},
+          caller)
+    return jsonify({"mensagem": "Escopo atualizado", "documento": doc.to_dict()}), 200
 
 @documentos_bp.route("/api/documentos/abrir-pasta", methods=["POST"])
 @jwt_required()
