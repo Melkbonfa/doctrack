@@ -25,7 +25,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import (
     db, Documento, Equipamento, AuditLog,
     SETORES, STATUS_MAP,
-    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_AUTO,
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS,
     SETOR_DO_TIPO, TIPOS_DOC_LABELS,
 )
 from auth import require_role, log_action, get_client_ip
@@ -161,12 +161,10 @@ def create_documento():
             existentes.setdefault(d.tipo_doc, d)
 
     doc = existentes.get(selected_tipo)
-    # Cria os tipos obrigatórios do equipamento que ainda não existem.
-    # Opcionais (Spare Parts / Dossiê / QIQOQD) só nascem se forem o tipo
-    # explicitamente selecionado (botão "Criar" do modal).
-    tipos_criar = [t for t in TIPOS_DOC_TODOS
-                   if t in TIPOS_DOC_AUTO or t == selected_tipo]
-    for t in tipos_criar:
+    # Todos os 12 tipos nascem com o equipamento. Os opcionais nascem em N/A
+    # (fora da completude); ligá-los é um toggle na aba Escopo. Se o opcional for
+    # o tipo explicitamente selecionado neste POST, ele já nasce aplicável.
+    for t in TIPOS_DOC_TODOS:
         if t in existentes:
             continue
         is_sel = (t == selected_tipo)
@@ -182,6 +180,7 @@ def create_documento():
             status=data.get("status", "Elaborar") if is_sel else "Elaborar",
             tipo_doc=t,
             fabricante=fab,
+            aplicavel=(is_sel or t not in TIPOS_DOC_OPCIONAIS),
             obs_treinamento=data.get("obs_treinamento", "") if is_sel else "",
             obs_homologacao=data.get("obs_homologacao", "") if is_sel else "",
             armazenamento=data.get("armazenamento", "") if is_sel else (equip_obj.armazenamento_base if equip_obj else ""),

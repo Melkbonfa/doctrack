@@ -90,7 +90,7 @@ from models import (
     CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
-    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_AUTO,
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_PADRAO_APLICAVEL,
     TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS, ESTADOS_REVISAO
 )
 from auth import auth_bp, log_action, require_role, get_client_ip
@@ -463,13 +463,14 @@ def get_equipamento(equip_id):
     return jsonify(d), 200
 
 def _ensure_docs_for_equip(equip):
-    """Garante os tipos obrigatórios de documento do equipamento (paridade com o
-    módulo Documentos). Opcionais (TIPOS_DOC_OPCIONAIS) não são auto-criados.
-    Cria só os que faltam. Retorna quantos criou. Idempotente."""
+    """Garante os 12 tipos de documento do equipamento (paridade com o módulo
+    Documentos). Os opcionais nascem em N/A (aplicavel=False) — existem, mas fora
+    da completude, até alguém ligá-los na aba Escopo. Cria só o que falta.
+    Retorna quantos criou. Idempotente."""
     existentes = {d.tipo_doc for d in Documento.query.filter(
         Documento.ativo == True, Documento.equipamento_id == equip.id).all() if d.tipo_doc}
     n = 0
-    for t in TIPOS_DOC_AUTO:
+    for t in TIPOS_DOC_TODOS:
         if t in existentes:
             continue
         label = TIPOS_DOC_LABELS.get(t, t)
@@ -477,6 +478,7 @@ def _ensure_docs_for_equip(equip):
             setor=SETOR_DO_TIPO[t], equipamento=equip.nome, equipamento_id=equip.id,
             sku=equip.sku, fabricante=equip.fabricante, codigo_doc="",
             documento=f"{label} - {equip.nome}", tipo_doc=t, status="Elaborar",
+            aplicavel=(t not in TIPOS_DOC_OPCIONAIS),
             armazenamento=equip.armazenamento_base))
         n += 1
     return n
@@ -1633,7 +1635,7 @@ def _migrar_taxonomia_docs():
        (soft delete) — deixam de ser auto-criados e voltam sob demanda pelo
        botão "Criar" do modal. Os que têm qualquer dado preenchido permanecem.
     Os 3 checklists novos que faltarem são criados pelo _backfill_equipamentos
-    (via TIPOS_DOC_AUTO), que roda logo depois."""
+    (via TIPOS_DOC_TODOS), que roda logo depois."""
     # 1) rename do tipo genérico, preservando dados
     renomeados = 0
     for d in Documento.query.filter(Documento.tipo_doc == "Checklist").all():

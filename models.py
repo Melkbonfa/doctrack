@@ -27,8 +27,9 @@ STATUS_MAP = {
     "Manuais": STATUS_FABRICANTE,
 }
 
-# Tipos de documento por setor. Cada equipamento tem 1 documento de cada tipo
-# obrigatório; os opcionais são criados sob demanda (nem todo equipamento tem).
+# Tipos de documento por setor. Todo equipamento nasce com 1 documento de cada um
+# dos 12 tipos; os opcionais nascem em N/A (aplicavel=False) e só entram na
+# completude quando alguém os liga.
 # Processo PRE: a IT finalizada vem vinculada a 4 checklists.
 TIPOS_DOC_PRE = [
     "IT", "Checklist_Conferencia", "Checklist_BurnIn",
@@ -40,9 +41,10 @@ TIPOS_DOC_FABRICANTE = [
 ]
 TIPOS_DOC_TODOS = TIPOS_DOC_PRE + TIPOS_DOC_FABRICANTE
 
-# Opcionais: não são auto-criados por equipamento (botão "Criar" no modal).
+# Opcionais: nascem marcados como "não se aplica" (aplicavel=False). O documento
+# existe (a aba Escopo do modal liga/desliga), mas fica fora da completude.
 TIPOS_DOC_OPCIONAIS = ["Spare_Parts", "Dossie", "QIQOQD"]
-TIPOS_DOC_AUTO = [t for t in TIPOS_DOC_TODOS if t not in TIPOS_DOC_OPCIONAIS]
+TIPOS_DOC_PADRAO_APLICAVEL = [t for t in TIPOS_DOC_TODOS if t not in TIPOS_DOC_OPCIONAIS]
 
 # setor (pipeline de status) de cada tipo de documento
 SETOR_DO_TIPO = {t: "PRE" for t in TIPOS_DOC_PRE}
