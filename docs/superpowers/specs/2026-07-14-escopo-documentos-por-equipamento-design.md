@@ -54,11 +54,29 @@ Alternativas descartadas:
 - Documentos existentes: `aplicavel = TRUE` (inclusive os opcionais já criados —
   existirem significa que se aplicam).
 - `_ensure_docs_for_equip` (servidor.py) e a criação em `documentos.py` passam a
-  gerar os **12** tipos: `TIPOS_DOC_AUTO` com `aplicavel=True`, `TIPOS_DOC_OPCIONAIS`
+  gerar os **12** tipos: os obrigatórios com `aplicavel=True`, `TIPOS_DOC_OPCIONAIS`
   com `aplicavel=False`.
-- `TIPOS_DOC_AUTO` deixa de significar "os que são criados" e passa a significar
-  "os que nascem aplicáveis". Renomear para `TIPOS_DOC_PADRAO_APLICAVEL` para o
-  nome não mentir.
+- `TIPOS_DOC_AUTO` some: com os 12 tipos sempre criados, o que a lista distinguia
+  ("quais são auto-criados") deixou de existir. A criação decide pelo
+  `TIPOS_DOC_OPCIONAIS`.
+
+### Migração — o que NÃO fazer (aprendido na implementação)
+
+A versão anterior de `_migrar_taxonomia_docs` fazia soft delete dos opcionais em
+branco. Com os 12 tipos sempre criados, isso vira um ciclo: a migração oculta, o
+backfill (que só enxerga os ativos) recria, o boot seguinte oculta de novo — cada
+boot soma uma linha. No banco de dev isso produziu até 9 cópias de "Dossiê" no
+mesmo equipamento.
+
+A correção óbvia — "então a migração ressuscita o que ela mesma ocultou" — é pior:
+um `ativo=False` não diz *quem* apagou. Ressuscitar todo opcional em branco inativo
+desfaz, a cada boot, exclusões manuais, o cascade de equipamento excluído e qualquer
+deduplicação. Verificado na prática: ela reativou 2495 duplicatas recém-limpas.
+
+Regra final: **a migração só marca N/A nos documentos ATIVOS e nunca toca em
+`ativo`.** Se um tipo ficar sem documento ativo, o backfill cria UMA linha nova em
+N/A. Isso preserva os dois invariantes ao mesmo tempo — 1 documento ativo por
+(equipamento × tipo), e soft delete é decisão de quem apagou.
 
 ## API
 
