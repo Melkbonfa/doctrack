@@ -1704,9 +1704,16 @@ def _backfill_equipamentos():
                 return v
         return ""
 
-    novos_equip = novos_docs = 0
+    novos_equip = novos_docs = revinculados = 0
+    # A busca do equipamento precisa considerar SÓ os ativos. Sem esse filtro, um
+    # documento ativo se prendia a uma entidade já excluída: seguia visível em
+    # Documentos e invisível em Equipamentos — foi essa a origem da divergência
+    # entre os dois módulos (18 equipamentos, 139 documentos, jul/2026).
+    ativos_por_nome = {e.nome: e for e in
+                       Equipamento.query.filter(Equipamento.ativo == True).all()}
+
     for nome, docs in grupos.items():
-        equip = Equipamento.query.filter_by(nome=nome).first()
+        equip = ativos_por_nome.get(nome)
         if not equip:
             equip = Equipamento(
                 nome=nome,
@@ -1716,11 +1723,18 @@ def _backfill_equipamentos():
             )
             db.session.add(equip)
             db.session.flush()           # garante equip.id
+            ativos_por_nome[nome] = equip
             novos_equip += 1
 
-        for d in docs:                   # vincula só documentos ainda soltos
-            if not d.equipamento_id:     # (não reatribui já vinculados — evita
-                d.equipamento_id = equip.id  #  "pingar" entre entidades homônimas)
+        for d in docs:
+            if not d.equipamento_id:     # documento ainda solto
+                d.equipamento_id = equip.id
+            elif d.equipamento_id != equip.id and not (
+                    d.equipamento_rel and d.equipamento_rel.ativo):
+                # Preso a um equipamento excluído: devolve ao ativo de mesmo nome.
+                # Homônimos ATIVOS não são reatribuídos — evita "pingar" entre eles.
+                d.equipamento_id = equip.id
+                revinculados += 1
 
     db.session.flush()
 
@@ -1732,8 +1746,9 @@ def _backfill_equipamentos():
         novos_docs += _ensure_docs_for_equip(equip)
 
     db.session.commit()
-    if novos_equip or novos_docs:
-        print(f"[INFO] Equipamentos: {novos_equip} criados; {novos_docs} documentos completados.")
+    if novos_equip or novos_docs or revinculados:
+        print(f"[INFO] Equipamentos: {novos_equip} criados; {novos_docs} documentos "
+              f"completados; {revinculados} documentos revinculados a equipamento ativo.")
 
 
 def _seed_tipos_consumivel():
