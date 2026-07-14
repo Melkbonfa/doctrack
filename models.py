@@ -44,7 +44,6 @@ TIPOS_DOC_TODOS = TIPOS_DOC_PRE + TIPOS_DOC_FABRICANTE
 # Opcionais: nascem marcados como "não se aplica" (aplicavel=False). O documento
 # existe (a aba Escopo do modal liga/desliga), mas fica fora da completude.
 TIPOS_DOC_OPCIONAIS = ["Spare_Parts", "Dossie", "QIQOQD"]
-TIPOS_DOC_PADRAO_APLICAVEL = [t for t in TIPOS_DOC_TODOS if t not in TIPOS_DOC_OPCIONAIS]
 
 # setor (pipeline de status) de cada tipo de documento
 SETOR_DO_TIPO = {t: "PRE" for t in TIPOS_DOC_PRE}

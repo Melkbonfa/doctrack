@@ -2,17 +2,17 @@
 
 
 def test_constantes_taxonomia():
-    from models import (TIPOS_DOC_PRE, TIPOS_DOC_PADRAO_APLICAVEL, TIPOS_DOC_OPCIONAIS,
-                        TIPOS_DOC_TODOS, SETOR_DO_TIPO)
+    from models import (TIPOS_DOC_PRE, TIPOS_DOC_OPCIONAIS, TIPOS_DOC_TODOS,
+                        SETOR_DO_TIPO)
     # PRE = IT + 4 checklists, todos no pipeline de 4 etapas
     assert TIPOS_DOC_PRE == ["IT", "Checklist_Conferencia", "Checklist_BurnIn",
                              "Checklist_Limpeza_Embalagem", "Checklist_Produto"]
     for t in TIPOS_DOC_PRE:
         assert SETOR_DO_TIPO[t] == "PRE"
-    # opcionais nascem fora do conjunto aplicável por padrão
+    # os 12 tipos existem sempre; estes 3 é que nascem em N/A
+    assert len(TIPOS_DOC_TODOS) == 12
     assert set(TIPOS_DOC_OPCIONAIS) == {"Spare_Parts", "Dossie", "QIQOQD"}
-    assert not set(TIPOS_DOC_OPCIONAIS) & set(TIPOS_DOC_PADRAO_APLICAVEL)
-    assert set(TIPOS_DOC_PADRAO_APLICAVEL) | set(TIPOS_DOC_OPCIONAIS) == set(TIPOS_DOC_TODOS)
+    assert set(TIPOS_DOC_OPCIONAIS) < set(TIPOS_DOC_TODOS)
 
 
 def test_post_cria_12_tipos_com_opcionais_em_na(client, admin_token, auth_headers):
