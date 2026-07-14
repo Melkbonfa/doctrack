@@ -74,9 +74,22 @@ function norm(s){
 
 function getToken(){return localStorage.getItem('doctrack_token')||''}
 function setToken(t){localStorage.setItem('doctrack_token',t)}
-function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_user')}
+function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_refresh');localStorage.removeItem('doctrack_user')}
 function authHeader(){return{'Content-Type':'application/json','Authorization':'Bearer '+getToken()}}
-async function apiFetch(url,opts={}){try{const res=await fetch(API+url,{headers:authHeader(),...opts});if(res.status===401){doLogout();return null}return res}catch(e){return null}}
+// 401 → tenta renovar o access token com o refresh e repete a chamada uma vez.
+// Só desloga (limpo) se o refresh também venceu/foi revogado.
+async function apiFetch(url,opts={}){
+  try{
+    let res=await fetch(API+url,{headers:authHeader(),...opts});
+    if(res.status===401){
+      if(window.DT_AUTH&&await window.DT_AUTH.refresh()){
+        res=await fetch(API+url,{headers:authHeader(),...opts});
+      }
+      if(res.status===401){ if(window.DT_AUTH)window.DT_AUTH.gotoLogin(true); else doLogout(); return null; }
+    }
+    return res;
+  }catch(e){return null}
+}
 
 async function doLogin(){
   const btn=document.getElementById('login-btn-text'),email=document.getElementById('login-email').value.trim(),senha=document.getElementById('login-pass').value;
@@ -90,7 +103,7 @@ async function doLogin(){
       showPrimeiroAcesso(email);return;
     }
     if(!res.ok){btn.textContent='Entrar no DocTrack';showToast(data.erro||data.error||'Falha no login','error');return}
-    setToken(data.access_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
+    setToken(data.access_token);if(data.refresh_token)localStorage.setItem('doctrack_refresh',data.refresh_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
     const u=data.usuario;currentUser={name:u.nome,email:u.email,role:u.role,initials:u.nome.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};
     window.location.href='/hub';
   }catch(e){
@@ -126,7 +139,7 @@ async function doPrimeiroAcesso(){
     const res=await fetch(API+'/auth/primeiro-acesso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,codigo,senha})});
     const data=await res.json().catch(()=>({}));
     if(!res.ok){btn.textContent=original;showToast(data.erro||'Não foi possível definir a senha','error');return}
-    setToken(data.access_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
+    setToken(data.access_token);if(data.refresh_token)localStorage.setItem('doctrack_refresh',data.refresh_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
     showToast('Senha definida! Entrando...','success');
     window.location.href='/hub';
   }catch(e){
@@ -1572,14 +1585,26 @@ initTheme();
 // ═══ BOOTSTRAP: hub de módulos ═══
 // Com token: quem não veio do hub (dt_module!=='docs') é levado ao hub;
 // quem veio do hub entra direto no app. Sem token: tela de login normal.
-(function bootstrapHub(){
-  if(!getToken())return;
+(async function bootstrapHub(){
+  // Sem token nem refresh: mostra a tela de login (com aviso se a sessão expirou).
+  if(!getToken()&&!(window.DT_AUTH&&window.DT_AUTH.getRefresh())){
+    if(window.DT_AUTH&&window.DT_AUTH.consumeExpiredFlag()){
+      showToast('Sua sessão expirou. Faça login novamente.','info');
+    }
+    return;
+  }
   // deep-link /?doc=<id> (chip do board de missões) entra direto no módulo
   if(new URLSearchParams(location.search).get('doc')){
     sessionStorage.setItem('dt_module','docs');
     sessionStorage.setItem('dt_area','pde');
   }
   if(sessionStorage.getItem('dt_module')!=='docs'){window.location.href='/hub';return}
+  // Access token vencido? Renova em silêncio antes de montar o app; se o refresh
+  // também venceu, cai numa tela de login limpa com aviso (sem app pela metade).
+  if(window.DT_AUTH&&window.DT_AUTH.isExpired()){
+    const ok=await window.DT_AUTH.refresh();
+    if(!ok){ window.DT_AUTH.gotoLogin(true); return; }
+  }
   try{
     const u=JSON.parse(localStorage.getItem('doctrack_user')||'{}');
     if(u&&u.nome)currentUser={name:u.nome,email:u.email,role:u.role,initials:u.nome.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};

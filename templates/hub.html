@@ -103,6 +103,7 @@
     <div id="empty" class="empty" style="display:none">Você ainda não tem acesso a nenhuma área. Fale com um administrador.</div>
     <div class="foot"><span id="foot-email"></span><a id="config-link" href="/config" title="Configurações (auditoria e sistema)" style="display:none">⚙️ Configurações</a><a id="theme-toggle" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a><a id="logout">Sair</a></div>
   </div>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
 <script>
 // ═══ TEMA CLARO/ESCURO (mesma chave dos módulos) ═══
 function applyTheme(theme){
@@ -118,9 +119,16 @@ function toggleTheme(){
 }
 applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
 
-(function(){
+(async function(){
   var token = localStorage.getItem('doctrack_token') || '';
-  if(!token){ window.location.href = '/'; return; }
+  var refresh = localStorage.getItem('doctrack_refresh') || '';
+  if(!token && !refresh){ window.location.href = '/'; return; }
+  // Sessão presente mas access token vencido: renova em silêncio (refresh de 7 dias).
+  // Só volta ao login — de forma limpa e com aviso — se o refresh também venceu.
+  if(window.DT_AUTH && window.DT_AUTH.isExpired()){
+    var ok = await window.DT_AUTH.refresh();
+    if(!ok){ window.DT_AUTH.gotoLogin(true); return; }
+  }
 
   var user = {};
   try { user = JSON.parse(localStorage.getItem('doctrack_user') || '{}') || {}; } catch(e){}
@@ -158,6 +166,7 @@ applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
 
   document.getElementById('logout').addEventListener('click', function(){
     localStorage.removeItem('doctrack_token');
+    localStorage.removeItem('doctrack_refresh');
     localStorage.removeItem('doctrack_user');
     window.location.href = '/';
   });

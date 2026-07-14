@@ -351,7 +351,7 @@ def _import_excel_to_db():
 def _static_version():
     """Token de cache-busting baseado no mtime dos estáticos (muda só quando o arquivo muda)."""
     try:
-        files = ["static/app.js", "static/style.css"]
+        files = ["static/app.js", "static/auth.js", "static/style.css"]
         latest = max(os.path.getmtime(os.path.join(BASE_DIR, f)) for f in files if os.path.exists(os.path.join(BASE_DIR, f)))
         return str(int(latest))
     except Exception:
