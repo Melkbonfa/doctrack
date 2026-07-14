@@ -51,6 +51,10 @@ TIPOS_DOC_LABELS = {
     "QIQOQD":          "QI/QO/QD",
 }
 
+# Estados de cada item de revisão do Índice de Desenvolvimento de Produto (IDP).
+# O índice conta só "Revisado"; "N/A" sai do denominador (item não se aplica).
+ESTADOS_REVISAO = ["Pendente", "Em revisão", "Revisado", "N/A"]
+
 ACOES_AUDIT = [
     "CREATE", "UPDATE", "DELETE", "STATUS_CHANGE", "LOGIN", "REIMPORT",
     "DOCUMENT_CREATED", "DOCUMENT_UPDATED", "DOCUMENT_DELETED",
@@ -297,6 +301,15 @@ class Equipamento(db.Model):
     bloqueado          = db.Column(db.Boolean, default=False, nullable=False, index=True)
     observacoes        = db.Column(db.Text, default="")
     armazenamento_base = db.Column(db.String(500), default="")
+    # Revisões manuais do IDP (Índice de Desenvolvimento de Produto). Os itens
+    # Manual do usuário / IT / Checklists são derivados do status dos documentos
+    # (não persistidos aqui); estes três são marcados à mão. Valores: ESTADOS_REVISAO.
+    rev_cadastro       = db.Column(db.String(20), default="Pendente")
+    rev_estrutura      = db.Column(db.String(20), default="Pendente")
+    rev_descritivo     = db.Column(db.String(20), default="Pendente")
+    # Retrato do último import da planilha Pareto (priorização comercial).
+    pareto_classe      = db.Column(db.String(1), default="")   # "A" | "B" | "C" | ""
+    qtd_saidas         = db.Column(db.Integer, default=0)
     # Taxonomia gerenciada (família aninhada na categoria)
     categoria_id       = db.Column(db.Integer, db.ForeignKey("categorias_equipamento.id"), nullable=True, index=True)
     familia_id         = db.Column(db.Integer, db.ForeignKey("familias_equipamento.id"), nullable=True, index=True)
@@ -329,6 +342,11 @@ class Equipamento(db.Model):
             "bloqueado":          bool(self.bloqueado),
             "observacoes":        self.observacoes or "",
             "armazenamento_base": self.armazenamento_base or "",
+            "rev_cadastro":       self.rev_cadastro or "Pendente",
+            "rev_estrutura":      self.rev_estrutura or "Pendente",
+            "rev_descritivo":     self.rev_descritivo or "Pendente",
+            "pareto_classe":      self.pareto_classe or "",
+            "qtd_saidas":         self.qtd_saidas or 0,
             "categoria_id":       self.categoria_id,
             "categoria":          (self.categoria_rel.nome if self.categoria_rel else ""),
             "familia_id":         self.familia_id,

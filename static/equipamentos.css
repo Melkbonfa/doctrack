@@ -110,3 +110,13 @@
 .tipo-cons-row{padding:12px 4px;border-bottom:1px solid var(--border-dim);}
 .tipo-cons-row:last-child{border-bottom:none;}
 .tipo-cons-name{font-size:14px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:10px;}
+
+/* ── Aba Desenvolvimento (IDP): chips de revisão + matriz ─────────────────── */
+.rev-chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;white-space:nowrap;}
+.rev-sel{font-size:11px;font-weight:700;padding:3px 8px;border-radius:7px;border:1px solid var(--border-dim);cursor:pointer;appearance:none;-webkit-appearance:none;text-align:center;}
+.rev-sel:focus{outline:2px solid var(--cyan);outline-offset:1px;}
+.rev-sel option{background:var(--bg-card);color:var(--t1);font-weight:600;}
+.abc-badge{display:inline-block;min-width:20px;text-align:center;font-size:11px;font-weight:800;padding:2px 7px;border-radius:6px;color:#fff;}
+.abc-A{background:#10b981;} .abc-B{background:#f59e0b;} .abc-C{background:#64748b;}
+table.dev-matriz td,table.dev-matriz th{white-space:nowrap;}
+table.dev-matriz td.num,table.dev-matriz th.num{text-align:right;}

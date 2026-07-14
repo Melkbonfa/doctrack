@@ -71,8 +71,9 @@ function navigate(page){
   document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active", el.dataset.page===page));
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   const el=document.getElementById("page-"+page); if(el) el.classList.add("active");
-  document.getElementById("breadcrumb-current").textContent={dashboard:"Dashboard",lista:"Equipamentos",cat:"Categorias",consumiveis:"Consumíveis","tipos-cons":"Tipos de consumível"}[page]||"";
+  document.getElementById("breadcrumb-current").textContent={dashboard:"Dashboard",dev:"Desenvolvimento",lista:"Equipamentos",cat:"Categorias",consumiveis:"Consumíveis","tipos-cons":"Tipos de consumível"}[page]||"";
   if(page==="dashboard") renderDashboard();
+  if(page==="dev") renderDev();
   if(page==="lista") renderLista();
   if(page==="cat") renderCategorias();
   if(page==="consumiveis" && typeof renderConsumiveis==="function") renderConsumiveis();
@@ -95,13 +96,14 @@ async function loadAll(){
   document.getElementById("nav-role").textContent=(u.role||"").toUpperCase();
   document.getElementById("nav-avatar").textContent=ini; document.getElementById("top-avatar").textContent=ini;
   if(podeEditar) document.getElementById("btn-novo-eq").style.display="";
-  if(podeGerir) document.getElementById("btn-import").style.display="";
+  if(podeGerir){ document.getElementById("btn-import").style.display=""; const bp=document.getElementById("btn-import-pareto"); if(bp) bp.style.display=""; }
   preencherSelects();
-  renderDashboard(); renderLista(); renderCategorias();
+  renderDashboard(); renderDev(); renderLista(); renderCategorias();
 }
 function preencherSelects(){
   const opts='<option value="">Todas as categorias</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join("");
   const dc=document.getElementById("dash-cat"); if(dc){ const v=dc.value; dc.innerHTML=opts; dc.value=v; }
+  const vc=document.getElementById("dev-cat"); if(vc){ const v=vc.value; vc.innerHTML=opts; vc.value=v; }
   const fc=document.getElementById("eq-f-cat"); if(fc){ const v=fc.value; fc.innerHTML='<option value="">Categoria: todas</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join(""); fc.value=v; }
   const st=[...new Set(EQUIP.map(e=>e.status).filter(Boolean))];
   const fs=document.getElementById("eq-f-status"); if(fs){ const v=fs.value; fs.innerHTML='<option value="">Status: todos</option>'+st.map(s=>`<option>${esc(s)}</option>`).join(""); fs.value=v; }
@@ -177,6 +179,146 @@ function renderDashboard(){
   document.getElementById("dash-table").innerHTML=rank.map(o=>`<tr onclick="openView(${o.e.id})" style="cursor:pointer"><td class="bold">${esc(o.e.nome)}</td><td class="mono">${esc(o.e.sku||"—")}</td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="sg-badge ${o.s.ice>=85?'sg-finalizado':o.s.ice>=50?'sg-progresso':'sg-pendente'}">${o.s.ice}%</span></td></tr>`).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
 }
 
+// ══ DESENVOLVIMENTO (IDP — 6 revisões + Pareto) ════════════════════════════
+// 3 itens são marcados à mão (rev_*); 3 derivam do status dos documentos.
+const DEV_ITENS = ["cadastro","estrutura","it","checklists","manual_usuario","descritivo"];
+const DEV_ITEM_LABEL = {cadastro:"Cadastro",estrutura:"Estrutura",it:"IT",checklists:"Checklists",manual_usuario:"Manual usuário",descritivo:"Descritivo"};
+const DEV_ITEM_CAMPO = {cadastro:"rev_cadastro",estrutura:"rev_estrutura",descritivo:"rev_descritivo"};  // só os manuais
+const EST_COR = {"Revisado":"#10b981","Em revisão":"#f59e0b","Pendente":"#f43f5e","N/A":"#64748b"};
+const EST_BG  = {"Revisado":"rgba(16,185,129,.15)","Em revisão":"rgba(245,158,11,.15)","Pendente":"rgba(244,63,94,.15)","N/A":"rgba(100,116,139,.15)"};
+const EST_TODOS = ["Pendente","Em revisão","Revisado","N/A"];
+// status do doc → estado de revisão (PRE: Elaborar→…→Homologado; Manuais: Elaborar→Em andamento→Concluído)
+function _estPRE(st){ return st==="Homologado"?"Revisado":(!st||st==="Elaborar")?"Pendente":"Em revisão"; }
+function _estManuais(st){ return st==="Concluído"?"Revisado":(!st||st==="Elaborar")?"Pendente":"Em revisão"; }
+function _docsDoTipo(eqId,tipos){ return (DOCS_BY_EQ[eqId]||[]).filter(d=>tipos.includes(d.tipo_doc)); }
+// estado de cada um dos 6 itens de revisão
+function revState(e,item){
+  if(item==="cadastro")   return e.rev_cadastro||"Pendente";
+  if(item==="estrutura")  return e.rev_estrutura||"Pendente";
+  if(item==="descritivo") return e.rev_descritivo||"Pendente";
+  if(item==="it"){ const d=_docsDoTipo(e.id,["IT"])[0]; return _estPRE(d&&d.status); }
+  if(item==="manual_usuario"){ const d=_docsDoTipo(e.id,["Manual_Usuario"])[0]; return _estManuais(d&&d.status); }
+  if(item==="checklists"){
+    const ds=_docsDoTipo(e.id,["Checklist_Conferencia","Checklist_BurnIn","Checklist_Limpeza_Embalagem","Checklist_Produto"]);
+    if(!ds.length) return "Pendente";
+    const est=ds.map(d=>_estPRE(d.status));
+    if(est.every(x=>x==="Revisado")) return "Revisado";
+    if(est.every(x=>x==="Pendente")) return "Pendente";
+    return "Em revisão";
+  }
+  return "Pendente";
+}
+// IDP = Revisados / (6 − nº de N/A) × 100. null quando todos os itens são N/A.
+function idp(e){ let rev=0, apl=0;
+  DEV_ITENS.forEach(it=>{ const s=revState(e,it); if(s==="N/A") return; apl++; if(s==="Revisado") rev++; });
+  return apl ? Math.round(rev/apl*100) : null;
+}
+const _CLASSE_ORD={"A":0,"B":1,"C":2,"":3};
+function _prioridade(a,b){
+  const ca=_CLASSE_ORD[a.pareto_classe||""]??3, cb=_CLASSE_ORD[b.pareto_classe||""]??3;
+  if(ca!==cb) return ca-cb;
+  const qa=a.qtd_saidas||0, qb=b.qtd_saidas||0;
+  if(qa!==qb) return qb-qa;                                   // mais vendidos primeiro
+  const ia=idp(a), ib=idp(b);
+  return (ia==null?101:ia)-(ib==null?101:ib);                 // menos completos primeiro
+}
+async function setRev(id,campo,valor){
+  try{ await api("/api/equipamentos/"+id,{method:"PATCH",body:JSON.stringify({[campo]:valor})});
+    const e=_eqById(id); if(e) e[campo]=valor; renderDev();
+  }catch(err){ toast(err.message||"Erro ao gravar",true); }
+}
+function _chipAuto(estado){
+  return `<span class="rev-chip" title="Derivado do status do documento" style="color:${EST_COR[estado]};background:${EST_BG[estado]}">${estado}</span>`;
+}
+function _chipManual(id,campo,estado){
+  if(!podeEditar) return `<span class="rev-chip" style="color:${EST_COR[estado]};background:${EST_BG[estado]}">${estado}</span>`;
+  const opts=EST_TODOS.map(s=>`<option${s===estado?" selected":""}>${s}</option>`).join("");
+  return `<select class="rev-sel" style="color:${EST_COR[estado]};background:${EST_BG[estado]}" onchange="setRev(${id},'${campo}',this.value)" aria-label="${DEV_ITEM_LABEL[campo==='rev_cadastro'?'cadastro':campo==='rev_estrutura'?'estrutura':'descritivo']}">${opts}</select>`;
+}
+function _idpBadge(v){ if(v==null) return '<span class="sg-badge">—</span>';
+  return `<span class="sg-badge ${v>=85?'sg-finalizado':v>=50?'sg-progresso':'sg-pendente'}">${v}%</span>`; }
+function renderDev(){
+  if(typeof Chart==="undefined") return;
+  const cls=val("dev-classe"), cat=val("dev-cat"), inc=(document.getElementById("dev-bloq")||{}).checked;
+  let list=EQUIP.filter(e=> (inc||!ehBloqueado(e)) && (!cat||String(e.categoria_id)===String(cat)));
+  if(cls) list=list.filter(e=> cls==="-" ? !(e.pareto_classe||"") : (e.pareto_classe||"")===cls );
+  const S=list.map(e=>({e, idp:idp(e)})).sort((a,b)=>_prioridade(a.e,b.e));
+  const comIdp=S.filter(o=>o.idp!=null);
+  const media=comIdp.length?Math.round(comIdp.reduce((x,o)=>x+o.idp,0)/comIdp.length):0;
+  document.getElementById("dev-idp-badge").textContent="IDP médio "+media+"%";
+
+  // KPIs (rings por faixa + Classe A pendente)
+  const cnt={completo:0,parcial:0,inicial:0}; comIdp.forEach(o=>cnt[faixa(o.idp)]++);
+  const classeApend=S.filter(o=>(o.e.pareto_classe||"")==="A" && o.idp!=null && o.idp<85).length;
+  const kpis=[["completo","Completo ≥85%",cnt.completo,comIdp.length],
+              ["parcial","Parcial 50–84%",cnt.parcial,comIdp.length],
+              ["inicial","Inicial <50%",cnt.inicial,comIdp.length]];
+  let kh=kpis.map(([k,l,v,tot],i)=>{ const pct=tot?Math.round(v/tot*100):0;
+    return `<div class="kpi-ring"><div class="kpi-ring-canvas" style="width:110px;height:110px"><canvas id="dring${i}" width="110" height="110"></canvas><div class="kpi-ring-val" style="color:${FCOLOR[k]}">${v}</div></div><div class="kpi-ring-label">${l}</div><div class="kpi-ring-delta" style="color:${FCOLOR[k]}">${pct}% dos avaliados</div></div>`;
+  }).join("");
+  kh+=`<div class="kpi-ring"><div class="kpi-ring-canvas" style="width:110px;height:110px;display:flex;align-items:center;justify-content:center"><div class="kpi-ring-val" style="position:static;color:${classeApend?'#f43f5e':'#10b981'};font-size:34px">${classeApend}</div></div><div class="kpi-ring-label">Classe A incompletos</div><div class="kpi-ring-delta muted">prioridade máxima</div></div>`;
+  document.getElementById("dev-kpi-grid").innerHTML=kh;
+  kpis.forEach(([k,l,v,tot],i)=>{ const pct=tot?v/tot:0;
+    if(chartInstances["dring"+i]) chartInstances["dring"+i].destroy();
+    chartInstances["dring"+i]=new Chart(document.getElementById("dring"+i),{type:"doughnut",
+      data:{datasets:[{data:[pct*100,100-pct*100],backgroundColor:[FCOLOR[k],FBG[k]],borderWidth:0}]},
+      options:{responsive:false,cutout:"78%",plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{animateRotate:true,duration:800}}}); });
+
+  // barra empilhada: faixa de IDP por classe ABC
+  const classesLbl=["A","B","C","Sem classe"];
+  const porClasse=classesLbl.map(c=>{ const key=c==="Sem classe"?"":c;
+    const grp=comIdp.filter(o=>(o.e.pareto_classe||"")===key);
+    return {completo:grp.filter(o=>o.idp>=85).length,parcial:grp.filter(o=>o.idp>=50&&o.idp<85).length,inicial:grp.filter(o=>o.idp<50).length}; });
+  if(chartInstances.devClasse) chartInstances.devClasse.destroy();
+  const cc=document.getElementById("devChartClasse");
+  if(cc){ chartInstances.devClasse=new Chart(cc,{type:"bar",
+    data:{labels:classesLbl,datasets:[
+      {label:"Completo",data:porClasse.map(p=>p.completo),backgroundColor:FCOLOR.completo,borderRadius:6,stack:"s"},
+      {label:"Parcial", data:porClasse.map(p=>p.parcial), backgroundColor:FCOLOR.parcial, borderRadius:6,stack:"s"},
+      {label:"Inicial", data:porClasse.map(p=>p.inicial), backgroundColor:FCOLOR.inicial, borderRadius:6,stack:"s"}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#94a3ff",font:{size:10,family:"Inter"},boxWidth:10}}},
+      scales:{x:{stacked:true,ticks:{color:"#94a3ff",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}},
+              y:{stacked:true,ticks:{color:"#94a3ff",font:{size:10,family:"Inter"},precision:0},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}}}}}); }
+
+  // barra horizontal: revisões mais pendentes (por item, na frota filtrada)
+  const pend=DEV_ITENS.map(it=>[DEV_ITEM_LABEL[it], S.filter(o=>{const s=revState(o.e,it); return s!=="Revisado"&&s!=="N/A";}).length]).sort((a,b)=>b[1]-a[1]);
+  if(chartInstances.devItens) chartInstances.devItens.destroy();
+  const ci=document.getElementById("devChartItens");
+  if(ci){ chartInstances.devItens=new Chart(ci,{type:"bar",
+    data:{labels:pend.map(p=>p[0]),datasets:[{data:pend.map(p=>p[1]),backgroundColor:"#a78bfa",borderRadius:8}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"},precision:0},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}},
+              y:{ticks:{color:"#c7d2fe",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
+
+  // matriz priorizada
+  const classeBadge=c=> c?`<span class="abc-badge abc-${c}">${c}</span>`:'<span class="muted">—</span>';
+  document.getElementById("dev-table").innerHTML=S.map(o=>{ const e=o.e;
+    const cel=it=> DEV_ITEM_CAMPO[it] ? _chipManual(e.id,DEV_ITEM_CAMPO[it],revState(e,it)) : _chipAuto(revState(e,it));
+    return `<tr><td class="bold">${esc(e.nome)}${e.sku?`<div class="muted mono" style="font-size:10px">${esc(e.sku)}</div>`:""}</td>`+
+      `<td>${classeBadge(e.pareto_classe||"")}</td><td class="num mono">${e.qtd_saidas||"—"}</td>`+
+      `<td>${cel("cadastro")}</td><td>${cel("estrutura")}</td><td>${cel("it")}</td><td>${cel("checklists")}</td><td>${cel("manual_usuario")}</td><td>${cel("descritivo")}</td>`+
+      `<td>${_idpBadge(o.idp)}</td></tr>`;
+  }).join("")||'<tr><td colspan="10" style="text-align:center;color:var(--t4);padding:32px">Sem equipamentos no filtro</td></tr>';
+}
+// import Pareto (Qtd de saídas + Classe ABC)
+function abrirImportPareto(){ document.getElementById("pareto-preview").innerHTML="—";
+  document.getElementById("btn-pareto-aplicar").style.display="none"; document.getElementById("pareto-file").value=""; openBaseModal("pareto"); }
+async function rodarImportPareto(dryrun){
+  const f=document.getElementById("pareto-file").files[0];
+  if(!f){ document.getElementById("pareto-preview").innerHTML='<span style="color:#f43f5e">Selecione o arquivo do Pareto.</span>'; return; }
+  const fd=new FormData(); fd.append("arquivo",f);
+  document.getElementById("pareto-preview").innerHTML="Processando…";
+  try{
+    const res=await fetch("/api/equipamentos/import-pareto?dryrun="+(dryrun?"1":"0"),{method:"POST",headers:{"Authorization":"Bearer "+token()},body:fd});
+    const rel=await res.json();
+    if(!res.ok){ document.getElementById("pareto-preview").innerHTML=`<span style="color:#f43f5e">${esc(rel.erro||"Falha")}</span>`; return; }
+    const sm=(rel.sem_match||[]).slice(0,6).map(x=>`${esc(x.sku)} (${esc(x.classe||"—")})`).join(", ");
+    document.getElementById("pareto-preview").innerHTML=`<b>${rel.aplicado?"Importação aplicada":"Prévia"}</b> — aba "${esc(rel.aba)}", ${rel.total_linhas} linhas<br>A atualizar: <b>${rel.a_atualizar}</b> · Sem equipamento: <b>${rel.sem_match_n}</b> · Zerados: <b>${rel.limpos_n}</b>${sm?`<div class="muted" style="font-size:11px;margin-top:8px">Sem match: ${sm}${rel.sem_match_n>6?"…":""}</div>`:""}`;
+    document.getElementById("btn-pareto-aplicar").style.display=(dryrun)?"inline-flex":"none";
+    if(!dryrun){ toast(`Pareto: ${rel.a_atualizar} atualizados`); await loadAll(); navigate("dev"); setTimeout(()=>closeModal("pareto"),1200); }
+  }catch(e){ document.getElementById("pareto-preview").innerHTML=`<span style="color:#f43f5e">${esc(e.message)}</span>`; }
+}
+
 // ══ LISTA ══════════════════════════════════════════════════════════════════
 function renderLista(){
   const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"), st=val("eq-f-status"), inc=(document.getElementById("eq-f-bloq")||{}).checked;
@@ -219,7 +361,7 @@ async function abrirFicha(id, fromView){
       <div class="eq-fsub">${e.sku?("SKU "+esc(e.sku)+" · "):""}ICE ${s.ice}% · ${esc(e.status||"Ativo")}</div></div>
       <button class="btn btn-ghost btn-sm" onclick="fecharFicha()" aria-label="Fechar" style="padding:4px 10px">✕</button>
     </div>`;
-  const tabs=[["geral","Geral"],["tecnico","Técnico"],["reg","Regulatório"],["consumivel","Consumíveis"],["acessorio","Acessórios"],["hist","Histórico"]];
+  const tabs=[["geral","Geral"],["tecnico","Técnico"],["reg","Regulatório"],["dev","Desenvolvimento"],["consumivel","Consumíveis"],["acessorio","Acessórios"],["hist","Histórico"]];
   document.getElementById("eq-ficha-tabs").innerHTML=tabs.map(([k,l])=>`<button class="equip-modal-tab ${k===fichaTab?'active':''}" onclick="fichaSwitch('${k}')">${l}</button>`).join("");
   document.getElementById("eq-ficha-panels").innerHTML=tabs.map(([k])=>`<div class="equip-tab-panel ${k===fichaTab?'active':''}" data-panel="${k}">${painelFicha(k,e)}</div>`).join("");
   onCatChange(true);
@@ -260,6 +402,18 @@ function painelFicha(k,e){
       </div>
       <div class="g2"><div class="form-group"><label class="form-label">Data de registro</label><input class="form-input" type="date" id="f-anvisa_registro" value="${esc(e.anvisa_registro||"")}"></div><div class="form-group"><label class="form-label">Validade</label><input class="form-input" type="date" id="f-anvisa_validade" value="${esc(e.anvisa_validade||"")}"></div></div>
       <p class="muted" style="font-size:12px" id="reg-hint">RUO (uso em pesquisa) não exige registro ANVISA. Classe de risco e alertas de vencimento entram na Fase 3.</p>`;
+  }
+  if(k==="dev"){
+    const selRev=(campo,label)=>{ const cur=e[campo]||"Pendente";
+      const opts=EST_TODOS.map(s=>`<option${s===cur?" selected":""}>${s}</option>`).join("");
+      return `<div class="form-group"><label class="form-label">${label}</label><select class="form-input" id="f-${campo}">${opts}</select></div>`; };
+    const auto=(item,label)=>{ const st=e.id?revState(e,item):"Pendente";
+      return `<div class="form-group"><label class="form-label">${label}</label><div style="padding-top:6px">${_chipAuto(st)}</div></div>`; };
+    const v=e.id?idp(e):null;
+    return `<div class="g2">${selRev("rev_cadastro","Revisão de cadastro")}${selRev("rev_estrutura","Revisão de estrutura")}</div>
+      <div class="g2">${selRev("rev_descritivo","Revisão de descritivo técnico")}<div class="form-group"><label class="form-label">IDP atual</label><div style="padding-top:6px">${_idpBadge(v)}</div></div></div>
+      <div class="g2" style="grid-template-columns:1fr 1fr 1fr">${auto("it","Revisão de IT")}${auto("checklists","Revisão de checklists")}${auto("manual_usuario","Revisão de manual de usuário")}</div>
+      <p class="muted" style="font-size:12px">IT, Checklists e Manual derivam do status dos documentos (edite no módulo Documentos). O IDP recalcula ao salvar.</p>`;
   }
   if(k==="consumivel") return painelConsVinc(e);
   if(k==="acessorio") return painelItens(k,e);
@@ -394,6 +548,7 @@ async function salvarFicha(){
     fabricante:val("f-fabricante"), codigo_fabricante:val("f-codigo_fabricante"),
     armazenamento_base:val("f-armazenamento_base"), classificacao_reg:val("f-classificacao_reg"),
     anvisa:val("f-anvisa"), anvisa_registro:val("f-anvisa_registro"), anvisa_validade:val("f-anvisa_validade"),
+    rev_cadastro:val("f-rev_cadastro"), rev_estrutura:val("f-rev_estrutura"), rev_descritivo:val("f-rev_descritivo"),
     categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null };
   try{
     if(fichaId) await api("/api/equipamentos/"+fichaId,{method:"PATCH",body:JSON.stringify(payload)});
