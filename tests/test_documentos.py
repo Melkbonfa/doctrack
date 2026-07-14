@@ -318,3 +318,18 @@ def test_religar_na_preserva_dados(client, admin_token, auth_headers):
     assert d["codigo_doc"] == "MS-77"
     assert d["responsavel"] == "Ana"
     assert d["status"] == "Em andamento"
+
+
+def test_kpis_ignoram_documentos_na(client, admin_token, auth_headers):
+    """Documento em N/A sai do total e da contagem de pendentes."""
+    h = auth_headers(admin_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-KPI"}, headers=h)
+
+    antes = client.get("/api/metrics", headers=h).get_json()
+    doc = _doc_de_tipo(client, h, "MAQ-KPI", "Manual_Servico")
+    client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+               json={"aplicavel": False}, headers=h)
+    depois = client.get("/api/metrics", headers=h).get_json()
+
+    assert depois["total"] == antes["total"] - 1
+    assert depois["pendentes"] == antes["pendentes"] - 1

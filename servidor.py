@@ -172,6 +172,10 @@ def add_security_headers(response):
 # de perfil (apenas login exigido).
 
 def compute_kpis(docs):
+    # Documentos em N/A ("não se aplica a este equipamento") ficam fora de TODA a
+    # contagem: não são backlog, não são pendência e não puxam o pct_concluidos
+    # para baixo. O escopo é definido na aba Escopo do modal do equipamento.
+    docs = [d for d in docs if d.get("aplicavel", True)]
     total = len(docs)
     por_setor = {s: 0 for s in SETORES}
     status_counts = {s: {} for s in SETORES}
