@@ -73,7 +73,7 @@ def test_migracao_renomeia_checklist_e_marca_opcionais_em_branco_como_na(app):
             Documento(setor="Manuais", equipamento="MAQ-MIG", equipamento_id=equip.id,
                       documento="QI/QO/QD - MAQ-MIG", tipo_doc="QIQOQD",
                       codigo_doc="QQ-9", status="Elaborar"),
-            # opcional já ocultado por uma migração anterior → volta ativo, em N/A
+            # opcional apagado (soft delete) → a migração NÃO ressuscita
             Documento(setor="Manuais", equipamento="MAQ-MIG", equipamento_id=equip.id,
                       documento="Spare Parts - MAQ-MIG", tipo_doc="Spare_Parts",
                       status="Elaborar", ativo=False, deleted_at=datetime.now()),
@@ -95,8 +95,8 @@ def test_migracao_renomeia_checklist_e_marca_opcionais_em_branco_como_na(app):
         assert docs["QIQOQD"].aplicavel is True                     # tinha dado → aplica
 
         spare = docs["Spare_Parts"]
-        assert spare.ativo is True and spare.aplicavel is False     # ressuscitado em N/A
-        assert spare.deleted_at is None
+        assert spare.ativo is False                  # apagado continua apagado
+        assert spare.deleted_at is not None
 
         # idempotência: rodar de novo não muda nada
         _migrar_taxonomia_docs()
@@ -104,15 +104,50 @@ def test_migracao_renomeia_checklist_e_marca_opcionais_em_branco_como_na(app):
         assert Documento.query.filter_by(tipo_doc="Dossie").count() == 1
         assert docs["Dossie"].aplicavel is False       # não alterna de volta
         assert docs["QIQOQD"].aplicavel is True
-        assert docs["Spare_Parts"].ativo is True and docs["Spare_Parts"].aplicavel is False
+        assert docs["Spare_Parts"].ativo is False
+
+
+def test_migracao_nao_ressuscita_documento_apagado(app):
+    """Soft delete é decisão de alguém — a migração nunca desfaz.
+
+    Regressão real: uma versão desta migração reativava todo opcional em branco
+    que estivesse inativo. Isso ressuscitava, a cada boot, documentos excluídos de
+    propósito (exclusão manual, cascade do equipamento, deduplicação) — e desfazia
+    qualquer limpeza de duplicatas.
+    """
+    from datetime import datetime
+    from models import db, Documento, Equipamento
+    from servidor import _migrar_taxonomia_docs
+
+    with app.app_context():
+        equip = Equipamento(nome="MAQ-DEL", sku="SKU-DEL")
+        db.session.add(equip)
+        db.session.flush()
+        # duplicata em branco que alguém desativou numa limpeza
+        apagado = Documento(setor="Manuais", equipamento="MAQ-DEL", equipamento_id=equip.id,
+                            documento="Dossiê - MAQ-DEL (duplicata)", tipo_doc="Dossie",
+                            status="Elaborar", ativo=False, deleted_at=datetime.now())
+        # o sobrevivente do mesmo tipo, ativo
+        vivo = Documento(setor="Manuais", equipamento="MAQ-DEL", equipamento_id=equip.id,
+                         documento="Dossiê - MAQ-DEL", tipo_doc="Dossie", status="Elaborar")
+        db.session.add_all([apagado, vivo])
+        db.session.commit()
+
+        for _ in range(2):                            # dois boots
+            _migrar_taxonomia_docs()
+
+        assert apagado.ativo is False                 # continua apagado
+        assert Documento.query.filter_by(tipo_doc="Dossie", ativo=True).count() == 1
+        assert vivo.aplicavel is False                # em branco → N/A
 
 
 def test_migracao_mais_backfill_nao_duplica_documentos(app):
-    """Migração + _ensure_docs_for_equip: 1 documento ativo por tipo, sem duplicatas.
+    """Boots repetidos mantêm 1 documento ATIVO por (equipamento, tipo).
 
-    Os opcionais que a versão antiga da migração soft-deletou voltam ativos em N/A;
-    se continuassem inativos, o backfill (que só enxerga os ativos) criaria uma
-    segunda linha do mesmo tipo.
+    Regressão real: quando a migração desativava o opcional em branco e o backfill
+    o recriava, cada boot somava uma linha nova — no banco de dev deu até 9 cópias
+    de "Dossiê" no mesmo equipamento. O invariante que prende o par é este: por mais
+    boots que rodem, existe exatamente 1 documento ativo de cada tipo.
     """
     from datetime import datetime
     from models import db, Documento, Equipamento, TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS
@@ -130,24 +165,21 @@ def test_migracao_mais_backfill_nao_duplica_documentos(app):
                 ativo=False, deleted_at=datetime.now()))
         db.session.commit()
 
-        for _ in range(2):                       # dois boots seguidos
+        for _ in range(3):                       # três boots seguidos
             _migrar_taxonomia_docs()
             _ensure_docs_for_equip(equip)
             db.session.commit()
 
-        todos, ativos = {}, {}
-        for d in Documento.query.filter(Documento.equipamento_id == equip.id).all():
-            todos.setdefault(d.tipo_doc, []).append(d)
-            if d.ativo:
-                ativos.setdefault(d.tipo_doc, []).append(d)
+        ativos = {}
+        for d in Documento.query.filter(Documento.equipamento_id == equip.id,
+                                        Documento.ativo == True).all():
+            ativos.setdefault(d.tipo_doc, []).append(d)
 
         assert set(ativos) == set(TIPOS_DOC_TODOS)            # os 12 tipos
-        assert all(len(v) == 1 for v in ativos.values())      # exatamente 1 ativo por tipo
-        # e nenhuma linha órfã: o opcional ocultado foi RESSUSCITADO, não recriado
-        assert all(len(v) == 1 for v in todos.values()), \
-            {t: len(v) for t, v in todos.items() if len(v) > 1}
+        assert all(len(v) == 1 for v in ativos.values()), \
+            {t: len(v) for t, v in ativos.items() if len(v) > 1}
+        # o backfill repôs os opcionais apagados como UMA linha nova em N/A
         for t in TIPOS_DOC_OPCIONAIS:
-            d = ativos[t][0]
-            assert d.aplicavel is False and d.deleted_at is None
+            assert ativos[t][0].aplicavel is False
         for t in set(TIPOS_DOC_TODOS) - set(TIPOS_DOC_OPCIONAIS):
             assert ativos[t][0].aplicavel is True

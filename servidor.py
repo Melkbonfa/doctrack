@@ -1635,13 +1635,18 @@ def _migrar_taxonomia_docs():
     """Migração one-time da taxonomia de tipos (idempotente, roda a cada boot):
     1) 'Checklist' genérico → 'Checklist_Conferencia' (o processo real tem 4
        checklists por IT; o genérico herda os dados no de Conferência).
-    2) Opcionais (Spare Parts / Dossiê / QIQOQD) em branco viram N/A: ficam
-       ATIVOS com aplicavel=False — existem, mas fora da completude, até alguém
+    2) Opcionais (Spare Parts / Dossiê / QIQOQD) ATIVOS e em branco viram N/A
+       (aplicavel=False): continuam existindo, fora da completude, até alguém
        ligá-los na aba Escopo. Os que têm qualquer dado preenchido continuam
-       aplicáveis. Também ressuscita os que a versão anterior desta migração
-       ocultou (soft delete): _ensure_docs_for_equip só enxerga os ativos, então
-       um opcional inativo faria o backfill criar uma SEGUNDA linha do mesmo tipo.
-    Os 3 checklists novos que faltarem são criados pelo _backfill_equipamentos
+       aplicáveis.
+
+    Documentos INATIVOS nunca são tocados. A migração não ressuscita nada: um
+    soft delete é uma decisão de alguém (exclusão manual, cascade do equipamento,
+    deduplicação) e desfazê-la a cada boot ressuscitaria o que foi apagado de
+    propósito. Se um tipo ficar sem documento ativo, quem repõe é o
+    _backfill_equipamentos, criando UMA linha nova em N/A — o que também evita
+    a duplicata (só existe 1 documento ativo por equipamento × tipo).
+    Os 3 checklists novos que faltarem são criados pelo mesmo backfill
     (via TIPOS_DOC_TODOS), que roda logo depois."""
     # 1) rename do tipo genérico, preservando dados
     renomeados = 0
@@ -1653,13 +1658,13 @@ def _migrar_taxonomia_docs():
                 "Checklist - ", "Checklist de Conferência - ", 1)
         renomeados += 1
 
-    # 2) opcionais em branco → N/A ativo (critério conservador: qualquer dado salva).
-    #    Inclui os inativos: os que a versão anterior ocultou voltam a existir em
-    #    N/A, senão o backfill criaria um segundo documento do mesmo tipo.
+    # 2) opcionais ATIVOS e em branco → N/A (critério conservador: qualquer dado salva).
+    #    Os inativos ficam como estão — ver docstring: nada é ressuscitado aqui.
     marcados = 0
     base_por_equip = {e.id: (e.armazenamento_base or "").strip()
                       for e in Equipamento.query.all()}
     candidatos = Documento.query.filter(
+        Documento.ativo == True,
         Documento.tipo_doc.in_(TIPOS_DOC_OPCIONAIS)).all()
     for d in candidatos:
         arm = (d.armazenamento or "").strip()
@@ -1675,15 +1680,8 @@ def _migrar_taxonomia_docs():
         )
         if not em_branco:
             continue                     # tem dado → aplicável, não se mexe
-        mudou = False
-        if not d.ativo:                  # ocultado pela migração antiga → ressuscita
-            d.ativo = True
-            d.deleted_at = None
-            mudou = True
-        if d.aplicavel:
+        if d.aplicavel:                   # idempotente: só conta quem de fato mudou
             d.aplicavel = False
-            mudou = True
-        if mudou:
             marcados += 1
 
     if renomeados or marcados:
