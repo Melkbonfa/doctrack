@@ -573,9 +573,13 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,
 .equip-card.st-green{border-top-color:var(--green);}
 .equip-card.st-amber{border-top-color:var(--amber);}
 .equip-card.st-red{border-top-color:var(--red);}
+/* Sem nenhum documento aplicável (tudo N/A) → card neutro, em cinza */
+.equip-card.st-neutro{border-top-color:var(--t4);}
 .equip-card-name{font-size:15px;font-weight:700;color:var(--t1);line-height:1.25;letter-spacing:-.2px}
 .equip-card-sku{font-family:var(--font-mono);font-size:12px;color:var(--t3);letter-spacing:.3px}
 .equip-card-sku .muted{font-family:var(--font-body);color:var(--t4);font-style:italic;letter-spacing:0}
+/* Completude do card: "x/y concluídos · n N/A" */
+.equip-card-compl{font-size:11px;color:var(--t3);margin-top:4px}
 
 /* Filtro de datas do Audit Log */
 .audit-date-field{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
@@ -751,3 +755,19 @@ th:not(.sortable){cursor:default}
 .dash-equipsel{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
 .dash-equipsel-lbl{font-size:12px;font-weight:600;color:var(--t3);letter-spacing:.2px}
 .dash-equipsel .filter-sel{min-width:240px;max-width:360px}
+
+/* ── Aba Escopo (quais documentos se aplicam ao equipamento) ── */
+/* style.css não tem um `.muted` global (só o do card): escopa o texto de apoio */
+.equip-tab-panel[data-panel="__escopo"] .muted{color:var(--t3)}
+.escopo-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:7px 0;border-bottom:1px solid var(--border-soft)}
+.escopo-row:last-child{border-bottom:0}
+.escopo-row.off .escopo-label{color:var(--t4);text-decoration:line-through}
+.escopo-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;flex:1}
+.escopo-toggle input[disabled]{cursor:not-allowed}
+.escopo-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.escopo-label{font-size:13px;color:var(--t2)}
+.escopo-status{font-size:12px;color:var(--t3);white-space:nowrap}
+.escopo-motivo{flex-basis:100%;font-size:11px;color:var(--t4);padding-left:26px}
+/* campo de motivo aberto ao desmarcar um tipo (o N/A só grava no Confirmar) */
+.escopo-na-form{flex-basis:100%;display:flex;gap:8px;align-items:center;padding:6px 0 2px 26px}
+.escopo-na-form .form-input{flex:1;font-size:12px;padding:6px 8px}

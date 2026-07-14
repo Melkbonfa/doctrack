@@ -277,9 +277,12 @@ function _exportConfig(){
     manuais:(document.getElementById('exp-manuais')||{}).value||'',
   };
 }
+// Equipamento sem nenhum documento aplicável (tudo em N/A) não é pendente nem
+// finalizado: fica de fora das três faixas, como o idp() que devolve null.
 function _groupGlobalStatus(g){
   const c = equipStatusColor(g);
-  return c==='green' ? 'Finalizado' : c==='red' ? 'Pendente' : 'Em progresso';
+  return c==='green' ? 'Finalizado' : c==='red' ? 'Pendente'
+       : c==='neutro' ? 'Sem escopo' : 'Em progresso';
 }
 function _parseBR(str){
   if(!str) return null;
@@ -294,7 +297,7 @@ function _exportFilteredGroups(){
   return groupByEquip().filter(g=>{
     if(cfg.status && _groupGlobalStatus(g)!==cfg.status) return false;
     if(cfg.manuais){
-      const cnt=g.manuais.length, ok=equipManuaisOk(g);
+      const cnt=equipManuaisAplicaveis(g), ok=equipManuaisOk(g);
       if(cfg.manuais==='completos' && !(cnt>0 && ok===cnt)) return false;
       if(cfg.manuais==='incompletos' && !(cnt>0 && ok<cnt)) return false;
       if(cfg.manuais==='sem' && cnt>0) return false;
@@ -385,16 +388,20 @@ async function gerarRelatorioPDF(){
   const cfg = _exportConfig();
   const baseLabel = {data_homologacao:'Homologação', data_treinamento:'Treinamento', updated_em:'Últ. atualização'}[cfg.base]||cfg.base;
 
+  // Equipamentos sem escopo (todos os documentos em N/A) ficam fora das faixas:
+  // não são pendência nem conclusão, só não têm o que medir.
   let fin=0, prog=0, pend=0, preHom=0, man100=0;
   groups.forEach(g=>{
     const st=_groupGlobalStatus(g);
+    if(st==='Sem escopo') return;
     if(st==='Finalizado')fin++; else if(st==='Em progresso')prog++; else pend++;
     if(g.pre && g.pre.status==='Homologado') preHom++;
-    if(g.manuais.length>0 && equipManuaisOk(g)===g.manuais.length) man100++;
+    const cnt=equipManuaisAplicaveis(g);
+    if(cnt>0 && equipManuaisOk(g)===cnt) man100++;
   });
   const preStatuses=['Elaborar','Treinamento Piloto','Enviado para Homologação','Homologado'];
   const preCounts=preStatuses.map(s=>groups.filter(g=>g.pre&&g.pre.status===s).length);
-  let manOk=0, manTot=0; groups.forEach(g=>{ manOk+=equipManuaisOk(g); manTot+=g.manuais.length; });
+  let manOk=0, manTot=0; groups.forEach(g=>{ manOk+=equipManuaisOk(g); manTot+=equipManuaisAplicaveis(g); });
   const manPend = Math.max(0, manTot-manOk);
   const manPct = manTot? Math.round(manOk/manTot*100) : 0;
 
@@ -547,11 +554,11 @@ async function gerarRelatorioPDF(){
     if(y+rowH > pageH-11){ doc.addPage(); paintBg(); y=margin+4; thead(); }
     if(idx%2===0){ doc.setFillColor(...C.rowAlt); doc.rect(margin,y,pageW-margin*2,rowH,'F'); }
     doc.setDrawColor(...C.border); doc.setLineWidth(0.15); doc.line(margin,y+rowH,pageW-margin,y+rowH);
-    const ok=equipManuaisOk(g);
+    const ok=equipManuaisOk(g), manTot=equipManuaisAplicaveis(g);
     const glob=_groupGlobalStatus(g);
     const row = {
       equip: g.equipamento, sku: g.sku||'—', resp: (g.pre&&g.pre.responsavel)||'—',
-      pre: g.pre? g.pre.status : '—', man: g.manuais.length? (ok+'/5') : '—',
+      pre: g.pre? g.pre.status : '—', man: manTot? (ok+'/'+manTot) : '—',
       glob: glob, data: g.pre? ((g.pre[cfg.base]||'—').split(' ')[0]||'—') : '—',
     };
     let cx=margin;
@@ -987,26 +994,38 @@ function groupByEquip(){
   return Object.values(groups).sort((a,b)=>a.equipamento.localeCompare(b.equipamento));
 }
 
-// Documentos de equipamento (PRE + Manuais) do grupo
-function _equipDocs(g){ return g.docs.filter(d=>d.setor==='PRE'||d.setor==='Manuais'); }
+// Documentos de equipamento (PRE + Manuais) do grupo. `_equipDocs` devolve só os
+// APLICÁVEIS: documentos em N/A ("não se aplica a este equipamento") estão fora da
+// completude — não pintam o card, não entram nos chips, não contam nos KPIs.
+function _equipDocs(g){ return g.docs.filter(d=>(d.setor==='PRE'||d.setor==='Manuais') && d.aplicavel!==false); }
+function _equipDocsNA(g){ return g.docs.filter(d=>d.aplicavel===false); }
 function _docFinalizado(d){
   return (d.setor==='PRE' && d.status==='Homologado') || (d.setor==='Manuais' && d.status==='Concluído');
 }
-function equipManuaisOk(g){ return g.manuais.filter(d=>d.status==='Concluído').length; }
+function equipManuaisOk(g){ return g.manuais.filter(d=>d.aplicavel!==false && d.status==='Concluído').length; }
+function equipManuaisAplicaveis(g){ return g.manuais.filter(d=>d.aplicavel!==false).length; }
 
-// Cor do card = PIOR status entre os documentos do equipamento.
+// Cor do card = PIOR status entre os documentos APLICÁVEIS do equipamento.
+// Equipamento sem nenhum aplicável (tudo N/A) fica neutro — como o idp() que
+// devolve null quando todos os itens são N/A.
 function equipStatusColor(g){
   const docs = _equipDocs(g);
-  if(!docs.length) return 'amber';
+  if(!docs.length) return 'neutro';
   if(docs.some(d=>d.status==='Elaborar')) return 'red';   // algum não iniciado
   if(docs.every(_docFinalizado)) return 'green';          // tudo finalizado
   return 'amber';
 }
 
+// Completude do equipamento: finalizados / aplicáveis (+ quantos estão em N/A)
+function equipCompletude(g){
+  const docs = _equipDocs(g);
+  return { ok: docs.filter(_docFinalizado).length, total: docs.length, na: _equipDocsNA(g).length };
+}
+
 function equipMatchesChip(g, chip){
   const docs = _equipDocs(g);
   const color = equipStatusColor(g);
-  const ok = equipManuaisOk(g), cnt = g.manuais.length;
+  const ok = equipManuaisOk(g), cnt = equipManuaisAplicaveis(g);
   switch(chip){
     case 'todos': return true;
     case 'pendente': return color==='red';
@@ -1059,9 +1078,14 @@ function renderGrid(){
   }
   grid.innerHTML = filtered.map(g => {
     const color = equipStatusColor(g);
+    const c = equipCompletude(g);
+    const resumo = c.total
+      ? `${c.ok}/${c.total} concluídos${c.na?` · ${c.na} N/A`:''}`
+      : 'nenhum documento aplicável';
     return `<div class="equip-card st-${color}" data-equip="${esc(g.key)}" onclick="openEquipModal('${esc(g.key).replace(/'/g,"\\'")}')">
       <div class="equip-card-name">${esc(g.equipamento)}</div>
       <div class="equip-card-sku">${g.sku?esc(g.sku):'<span class="muted">sem SKU</span>'}</div>
+      <div class="equip-card-compl">${esc(resumo)}</div>
     </div>`;
   }).join('');
 }
@@ -1091,8 +1115,8 @@ const _MAN_TIPOS = [
   ['QIQOQD','QI/QO/QD'],
 ];
 const _TODOS_TIPOS = [..._PRE_TIPOS, ..._MAN_TIPOS];
-// Opcionais: não são auto-criados; a aba só aparece se o documento existir
-// (criação sob demanda via "+ Adicionar").
+// Opcionais: os 12 documentos já existem no banco, mas estes nascem em N/A
+// (aplicavel=false). A aba só aparece quando o tipo é ligado na aba Escopo.
 const _TIPOS_OPCIONAIS = ['Spare_Parts','Dossie','QIQOQD'];
 // Os 4 checklists dividem UMA aba ("Checklists") com seletor interno,
 // como os manuais PT/ES. Rótulos curtos para o seletor.
@@ -1116,7 +1140,15 @@ function _dateToInput(br){ // "dd/mm/yyyy" -> "yyyy-mm-dd"
 }
 
 function switchEquipTab(tab){
-  document.querySelectorAll('#equip-tabs .equip-modal-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  const btns = Array.from(document.querySelectorAll('#equip-tabs .equip-modal-tab'));
+  // A aba pedida pode não existir: o tipo pode estar em N/A (fora do escopo do
+  // equipamento) — vale para a aba padrão do openEquipModal e para o deep-link
+  // /?doc=<id>. Cai na primeira aba visível e, se todas estiverem em N/A, no Escopo.
+  if(btns.length && !btns.some(b=>b.dataset.tab===tab)){
+    const primeira = btns.find(b=>b.dataset.tab!=='__escopo');
+    tab = primeira ? primeira.dataset.tab : '__escopo';
+  }
+  btns.forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
 }
 
@@ -1134,13 +1166,16 @@ function openEquipModal(key){
   const equip_id = (g&&g.id) || (equip&&equip.id) || null;
   _equipCtx = { equipamento: (g&&g.equipamento)||'', equip, equip_id, byTipo, docs, sku, fabricante, g,
                 cartoesPorDoc: undefined };   // undefined=carregando, null=indisponível (403/erro)
+  _escopoPendente = null;   // nenhum N/A a meio caminho no modal recém-aberto
 
   const delBtn = document.getElementById('btn-del-equip');
   if(delBtn) delBtn.style.display = (currentUser.role==='admin'||currentUser.role==='gestor') ? 'inline-flex' : 'none';
 
   renderEquipHeader();
   renderEquipModal();
-  switchEquipTab(_TODOS_TIPOS[0][0]);   // abre na aba "Instrução de Trabalho"
+  // abre na aba "Instrução de Trabalho"; se a IT estiver em N/A, o switchEquipTab
+  // cai na primeira aba visível (ou no Escopo, se tudo estiver em N/A)
+  switchEquipTab(_TODOS_TIPOS[0][0]);
   openBaseModal('equip');
   _loadCartoesVinculados();
 }
@@ -1169,7 +1204,7 @@ async function _loadCartoesVinculados(){
 function renderEquipHeader(){
   const e = _equipCtx.equip || {};
   const color = _equipCtx.g ? equipStatusColor(_equipCtx.g) : 'amber';
-  const dot = color==='green'?'var(--green)':color==='red'?'var(--red)':'var(--amber)';
+  const dot = color==='green'?'var(--green)':color==='red'?'var(--red)':color==='neutro'?'var(--t4)':'var(--amber)';
   const reg = (e.anvisa_registro||e.anvisa_validade)
     ? `Registro ${e.anvisa_registro||'—'} · val. ${e.anvisa_validade||'—'}` : '';
   const badges = [
@@ -1190,27 +1225,33 @@ function renderEquipHeader(){
     <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
 }
 
-// Abas visíveis do modal: IT, Checklists (os 4 numa aba só), Manual do
-// Usuário (PT/ES numa aba só), Manual de Serviço, Guia de Instalação, e
-// opcionais só quando o documento existe. Ids das abas agregadas: o primeiro
-// tipo do grupo ('Checklist_Conferencia' / 'Manual_Usuario').
+// Um tipo está no escopo quando o documento existe e está marcado como aplicável.
+function _aplicavel(tipo){ const d=_equipCtx.byTipo[tipo]; return !!d && d.aplicavel!==false; }
+
+// Abas visíveis: só os tipos APLICÁVEIS. IT, Checklists (os 4 numa aba só), Manual
+// do Usuário (PT/ES numa aba só), Manual de Serviço, Guia de Instalação e os
+// opcionais que estiverem ligados. A aba Escopo (sempre última) liga/desliga tudo.
+// Ids das abas agregadas: o primeiro tipo do grupo.
 function _visibleTabs(){
-  const tabs = [
-    ['IT','Instrução de Trabalho'],
-    ['Checklist_Conferencia','Checklists'],
-    ['Manual_Usuario','Manual do Usuário'],
-    ['Manual_Servico','Manual de Serviço'],
-    ['Guia_Instalacao','Guia de Instalação'],
+  const grupos = [
+    ['IT','Instrução de Trabalho', ['IT']],
+    ['Checklist_Conferencia','Checklists', _CHK_TIPOS.map(x=>x[0])],
+    ['Manual_Usuario','Manual do Usuário', ['Manual_Usuario','Manual_ES']],
+    ['Manual_Servico','Manual de Serviço', ['Manual_Servico']],
+    ['Guia_Instalacao','Guia de Instalação', ['Guia_Instalacao']],
   ];
-  _TIPOS_OPCIONAIS.forEach(t=>{ if(_equipCtx.byTipo[t]) tabs.push([t,_tipoLabel(t)]); });
+  const tabs = grupos
+    .filter(([,,tipos]) => tipos.some(_aplicavel))   // aba some se todo o grupo é N/A
+    .map(([id,label]) => [id,label]);
+  _TIPOS_OPCIONAIS.forEach(t=>{ if(_aplicavel(t)) tabs.push([t,_tipoLabel(t)]); });
   return tabs;
 }
 function _tabDotColor(tipo){
-  // abas agregadas (checklists / manuais PT+ES): pior status do grupo
+  // abas agregadas (checklists / manuais PT+ES): pior status do grupo, só aplicáveis
   const grupo = (tipo==='Checklist_Conferencia') ? _CHK_TIPOS.map(x=>x[0])
               : (tipo==='Manual_Usuario') ? ['Manual_Usuario','Manual_ES']
               : [tipo];
-  const docs = grupo.map(t=>_equipCtx.byTipo[t]).filter(Boolean);
+  const docs = grupo.filter(_aplicavel).map(t=>_equipCtx.byTipo[t]);
   if(!docs.length) return 'var(--t4)';
   if(docs.some(d=>d.status==='Elaborar')) return 'var(--red)';
   if(docs.every(_docFinalizado)) return 'var(--green)';
@@ -1222,25 +1263,26 @@ function renderEquipModal(){
   const tabsEl = document.getElementById('equip-tabs');
   const panelsEl = document.getElementById('equip-panels');
   const tabs = _visibleTabs();
-  const faltantes = _TIPOS_OPCIONAIS.filter(t=>!_equipCtx.byTipo[t]);
   tabsEl.innerHTML = tabs.map(([tipo,label])=>
     `<button type="button" class="equip-modal-tab" data-tab="${tipo}" onclick="switchEquipTab('${tipo}')"><span class="tab-dot" style="background:${_tabDotColor(tipo)}"></span>${esc(label)}</button>`
-  ).join('') + (faltantes.length
-    ? `<button type="button" class="equip-modal-tab tab-add" data-tab="__add" onclick="switchEquipTab('__add')" title="Documentos opcionais">+ Adicionar</button>` : '');
+  ).join('') +
+    `<button type="button" class="equip-modal-tab tab-add" data-tab="__escopo" onclick="switchEquipTab('__escopo')" title="Escolher quais documentos se aplicam a este equipamento">⚙ Escopo</button>`;
   panelsEl.innerHTML = tabs.map(([tipo])=>
     `<div class="equip-tab-panel" data-panel="${tipo}">${
       tipo==='Checklist_Conferencia'?renderChecklistPanel()
       : tipo==='Manual_Usuario'?renderManualPanel()
       : renderTipoPanel(tipo)}</div>`
-  ).join('') + (faltantes.length
-    ? `<div class="equip-tab-panel" data-panel="__add">${renderAddOpcionaisPanel(faltantes)}</div>` : '');
+  ).join('') +
+    `<div class="equip-tab-panel" data-panel="__escopo">${renderEscopoPanel()}</div>`;
 }
 
 // Painel da aba Checklists: seletor entre os 4 checklists sobre o mesmo painel
 let _chkSel = 'Checklist_Conferencia';
 function renderChecklistPanel(){
+  const disp = _CHK_TIPOS.filter(([t])=>_aplicavel(t));   // os em N/A somem do seletor
+  if(!disp.some(([t])=>t===_chkSel)) _chkSel = disp.length ? disp[0][0] : 'Checklist_Conferencia';
   const btn=(t,txt)=>`<button type="button" class="btn btn-sm ${_chkSel===t?'btn-primary':'btn-ghost'}" onclick="setChkSel('${t}')">${txt}</button>`;
-  return `<div class="man-lang-toggle">${_CHK_TIPOS.map(([t,l])=>btn(t,l)).join('')}</div>` + renderTipoPanel(_chkSel);
+  return `<div class="man-lang-toggle">${disp.map(([t,l])=>btn(t,l)).join('')}</div>` + renderTipoPanel(_chkSel);
 }
 function setChkSel(t){
   _chkSel = t;
@@ -1251,9 +1293,13 @@ function setChkSel(t){
 // Painel da aba de manuais do usuário: toggle PT/ES sobre o mesmo painel
 let _manLang = 'PT';
 function renderManualPanel(){
+  const temPT = _aplicavel('Manual_Usuario'), temES = _aplicavel('Manual_ES');
+  if(_manLang==='ES' && !temES) _manLang='PT';       // idioma em N/A → cai no outro
+  if(_manLang==='PT' && !temPT) _manLang='ES';
   const tipo = _manLang==='ES' ? 'Manual_ES' : 'Manual_Usuario';
   const btn = (l,txt)=>`<button type="button" class="btn btn-sm ${_manLang===l?'btn-primary':'btn-ghost'}" onclick="setManLang('${l}')">${txt}</button>`;
-  return `<div class="man-lang-toggle">${btn('PT','Português')}${btn('ES','Español')}</div>` + renderTipoPanel(tipo);
+  const toggles = `${temPT?btn('PT','Português'):''}${temES?btn('ES','Español'):''}`;
+  return `<div class="man-lang-toggle">${toggles}</div>` + renderTipoPanel(tipo);
 }
 function setManLang(l){
   _manLang = l;
@@ -1261,12 +1307,65 @@ function setManLang(l){
   if(p){ p.innerHTML = renderManualPanel(); refreshMissoesSections(); }
 }
 
-// Painel "+ Adicionar": cria documentos opcionais sob demanda
-function renderAddOpcionaisPanel(faltantes){
-  return `<div style="padding:8px 0;color:var(--t3)">
-    <p style="margin-bottom:12px">Documentos opcionais — nem todo equipamento tem. Crie só os que se aplicam:</p>
-    ${faltantes.map(t=>`<button class="btn btn-ghost btn-sm" type="button" style="margin:0 8px 8px 0" onclick="createTipo('${t}')">+ ${esc(_tipoLabel(t))}</button>`).join('')}
-  </div>`;
+// Painel "Escopo": liga/desliga cada um dos 12 tipos para este equipamento.
+// Desligado = N/A: o documento continua existindo (status, código e histórico
+// intactos), mas sai da conta de completude. Só admin/gestor edita.
+function _podeEditarEscopo(){ return currentUser.role==='admin' || currentUser.role==='gestor'; }
+
+// Tipo aguardando o motivo (o usuário desmarcou e ainda não confirmou). O N/A só
+// é gravado no "Confirmar" — desistir aqui devolve o checkbox ao lugar.
+let _escopoPendente = null;
+
+function renderEscopoPanel(){
+  const c = _equipCtx.g ? equipCompletude(_equipCtx.g) : {ok:0,total:0,na:0};
+  const editavel = _podeEditarEscopo();
+  const linha = ([tipo,label])=>{
+    const d = _equipCtx.byTipo[tipo];
+    if(!d) return '';                              // documento ainda não existe (equip. legado)
+    const pend = (_escopoPendente === tipo);
+    const apl = pend ? false : d.aplicavel!==false;
+    const dot = apl ? _statusDotColor(d) : 'var(--t4)';
+    const status = apl ? esc(d.status) : 'Não se aplica';
+    const motivo = (!apl && !pend && d.motivo_na) ? `<div class="escopo-motivo">${esc(d.motivo_na)}</div>` : '';
+    // Ao desmarcar, a linha abre o campo de motivo (opcional) e só grava no Confirmar.
+    const formMotivo = pend ? `
+      <div class="escopo-na-form">
+        <input class="form-input" id="escopo-motivo-${tipo}" maxlength="300"
+               placeholder="Por que não se aplica? (opcional)" value="${esc(d.motivo_na||'')}">
+        <button type="button" class="btn btn-primary btn-sm" onclick="confirmarNA('${tipo}')">Confirmar N/A</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="cancelarNA()">Cancelar</button>
+      </div>` : '';
+    return `<div class="escopo-row${apl?'':' off'}">
+      <label class="escopo-toggle">
+        <input type="checkbox" ${apl?'checked':''} ${editavel?'':'disabled'}
+               onchange="toggleEscopo('${tipo}', this.checked)">
+        <span class="escopo-dot" style="background:${dot}"></span>
+        <span class="escopo-label">${esc(label)}</span>
+      </label>
+      <span class="escopo-status">${status}</span>
+      ${motivo}
+      ${formMotivo}
+    </div>`;
+  };
+  const bloco = (titulo, tipos)=>`
+    <div class="doc-sec">
+      <div class="doc-sec-title">${titulo}</div>
+      ${tipos.map(linha).join('')}
+    </div>`;
+  const resumo = c.total
+    ? `${c.ok} de ${c.total} aplicáveis concluídos${c.na?` · ${c.na} N/A`:''}`
+    : 'Nenhum documento aplicável a este equipamento';
+  const aviso = editavel ? '' :
+    '<p class="muted" style="font-size:12px">Só admin e gestor podem alterar o escopo — mexer nele muda a completude de todo mundo.</p>';
+  return `
+    <div class="equip-panel-head">
+      <span class="equip-panel-title">Escopo de documentos</span>
+      <span class="equip-tag">${esc(resumo)}</span>
+    </div>
+    <p class="muted" style="font-size:12px;margin-bottom:8px">Desmarque o que não se aplica a este equipamento. O documento continua salvo (status, código, arquivos) — só sai da conta de completude.</p>
+    ${aviso}
+    ${bloco('PRE', _PRE_TIPOS)}
+    ${bloco('Manuais', _MAN_TIPOS)}`;
 }
 
 // Stepper de etapas: um botão por status do pipeline; clique só grava no
@@ -1317,10 +1416,11 @@ function renderTipoPanel(tipo){
   const label = _tipoLabel(tipo);
   const d = _equipCtx.byTipo[tipo];
   const isPre = _isPreTipo(tipo);
+  // Com os 12 tipos criados junto com o equipamento, este ramo só sobra para
+  // equipamentos legados ainda não sincronizados — não há mais o que criar aqui.
   if(!d){
     return `<div style="text-align:center;padding:24px;color:var(--t3)">
-      <p style="margin-bottom:12px">Este equipamento ainda não tem o documento "${esc(label)}".</p>
-      <button class="btn btn-primary btn-sm" type="button" onclick="createTipo('${tipo}')">Criar ${esc(label)}</button>
+      <p>Este equipamento ainda não tem o documento "${esc(label)}". Ele será criado na próxima sincronização; use a aba <b>Escopo</b> para definir o que se aplica.</p>
     </div>`;
   }
   const setorTag = `<span class="equip-tag">setor ${isPre?'PRE · 4 etapas':'Manuais · 3 etapas'}</span>`;
@@ -1423,24 +1523,51 @@ async function saveTipoDoc(tipo){
   }catch(e){ showToast('Erro de rede','error'); }
 }
 
-// Cria um tipo de documento ausente para o equipamento aberto
-async function createTipo(tipo){
-  const isPre = _isPreTipo(tipo);
-  const payload = { setor: isPre?'PRE':'Manuais', tipo_doc: tipo,
-    equipamento:_equipCtx.equipamento, sku:_equipCtx.sku, fabricante:_equipCtx.fabricante,
-    documento:`${_tipoLabel(tipo)} - ${_equipCtx.equipamento}` };
+// Liga/desliga um tipo no escopo do equipamento aberto.
+//   marcar   → grava direto (voltar ao escopo não pede justificativa)
+//   desmarcar→ abre o campo de motivo na linha; só grava no "Confirmar N/A"
+function toggleEscopo(tipo, aplicavel){
+  if(!_equipCtx.byTipo[tipo]) return;
+  if(!aplicavel){ _escopoPendente = tipo; _repintarEscopo(); return; }
+  _escopoPendente = null;
+  _gravarEscopo(tipo, true, '');
+}
+
+function cancelarNA(){ _escopoPendente = null; _repintarEscopo(); }
+
+function confirmarNA(tipo){
+  const el = document.getElementById('escopo-motivo-'+tipo);
+  const motivo = el ? el.value.trim() : '';
+  _escopoPendente = null;
+  _gravarEscopo(tipo, false, motivo);
+}
+
+// Repinta só o painel do escopo (sem reabrir o modal, para não perder o foco)
+function _repintarEscopo(){
+  const p = document.querySelector('#equip-panels [data-panel="__escopo"]');
+  if(p) p.innerHTML = renderEscopoPanel();
+}
+
+async function _gravarEscopo(tipo, aplicavel, motivo){
+  const d = _equipCtx.byTipo[tipo];
   const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
-    const res = await apiFetch('/documentos', {method:'POST', body:JSON.stringify(payload)});
+    const res = await apiFetch(`/documentos/${d.id}/aplicabilidade`,
+      {method:'PUT', body:JSON.stringify({aplicavel, motivo_na: motivo})});
     if(res && res.ok){
-      showToast(`${_tipoLabel(tipo)} criado`,'success');
-      await refreshAll(); openEquipModal(reopenKey);
-      if(tipo==='Manual_ES'){ _manLang='ES'; setManLang('ES'); switchEquipTab('Manual_Usuario'); }
-      else if(_isChkTipo(tipo)){ setChkSel(tipo); switchEquipTab('Checklist_Conferencia'); }
-      else switchEquipTab(tipo);
+      showToast(`${_tipoLabel(tipo)} ${aplicavel?'incluído no escopo':'marcado como N/A'}`,'success');
+      await refreshAll();
+      openEquipModal(reopenKey);     // recarrega o contexto com os dados novos
+      switchEquipTab('__escopo');
+    } else {
+      const e = res ? await res.json().catch(()=>({})) : {};
+      showToast(e.erro||'Erro ao atualizar o escopo','error');
+      _repintarEscopo();             // desfaz o checkbox otimista
     }
-    else { showToast('Erro ao criar documento','error'); }
-  }catch(e){ showToast('Erro de rede','error'); }
+  }catch(e){
+    showToast('Erro de rede','error');
+    _repintarEscopo();
+  }
 }
 
 function openNewEquip(){

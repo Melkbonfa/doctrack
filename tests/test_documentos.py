@@ -15,7 +15,7 @@ def test_listagem_so_ativos(client, admin_token, auth_headers):
 
 
 def test_create_documento(client, admin_token, auth_headers):
-    from models import TIPOS_DOC_AUTO
+    from models import TIPOS_DOC_TODOS
     h = auth_headers(admin_token)
     res = client.post("/api/documentos",
                       json={"setor": "PRE", "equipamento": "MAQ-NEW", "documento": "POP-NEW",
@@ -24,12 +24,13 @@ def test_create_documento(client, admin_token, auth_headers):
     assert res.status_code == 201
     assert res.get_json()["documento"]["equipamento"] == "MAQ-NEW"
 
-    # Criar um documento para um equipamento novo gera automaticamente os tipos
-    # obrigatórios (equipamento = entidade central); opcionais ficam de fora.
+    # Criar um documento para um equipamento novo gera automaticamente os 12 tipos
+    # (equipamento = entidade central); os opcionais nascem em N/A (aplicavel=False),
+    # existem mas ficam fora da completude — ver tests/test_taxonomia_docs.py.
     docs = client.get("/api/documentos", headers=h).get_json()
     maq_new = [d for d in docs if d["equipamento"] == "MAQ-NEW"]
-    assert len(maq_new) == len(TIPOS_DOC_AUTO)
-    assert {d["tipo_doc"] for d in maq_new} == set(TIPOS_DOC_AUTO)
+    assert len(maq_new) == len(TIPOS_DOC_TODOS)
+    assert {d["tipo_doc"] for d in maq_new} == set(TIPOS_DOC_TODOS)
 
     # O tipo selecionado (IT, primeiro do setor PRE) recebe os dados do payload;
     # os demais nascem em branco.
@@ -103,10 +104,10 @@ def test_get_documento_soft_deleted(client, admin_token, auth_headers):
 def test_propagacao_global_sku(client, admin_token, auth_headers):
     """A identidade (SKU) é canônica no Equipamento e imutável pelo documento.
     Editar o SKU do equipamento propaga para todos os documentos vinculados."""
-    from models import TIPOS_DOC_AUTO
+    from models import TIPOS_DOC_TODOS
     h = auth_headers(admin_token)
 
-    # 1. Criar um documento para "MAQ-A" gera os tipos obrigatórios que faltam;
+    # 1. Criar um documento para "MAQ-A" gera os 12 tipos canônicos que faltam;
     #    todos herdam o SKU do equipamento (SKU-A). O documento do seed tem tipo_doc
     #    vazio (não canônico e sem equipamento_id), então filtramos pelos canônicos.
     res_create = client.post("/api/documentos",
@@ -117,8 +118,8 @@ def test_propagacao_global_sku(client, admin_token, auth_headers):
     assert res_create.status_code == 201
 
     docs = client.get("/api/documentos", headers=h).get_json()
-    canonicos = [d for d in docs if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_AUTO]
-    assert len(canonicos) == len(TIPOS_DOC_AUTO)
+    canonicos = [d for d in docs if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_TODOS]
+    assert len(canonicos) == len(TIPOS_DOC_TODOS)
     for d in canonicos:
         assert d["sku"] == "SKU-A"
 
@@ -131,8 +132,8 @@ def test_propagacao_global_sku(client, admin_token, auth_headers):
 
     # 3. Todos os documentos canônicos de "MAQ-A" agora têm SKU "SKU-NOVO".
     docs_after = client.get("/api/documentos", headers=h).get_json()
-    canonicos_after = [d for d in docs_after if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_AUTO]
-    assert len(canonicos_after) == len(TIPOS_DOC_AUTO)
+    canonicos_after = [d for d in docs_after if d["equipamento"] == "MAQ-A" and d["tipo_doc"] in TIPOS_DOC_TODOS]
+    assert len(canonicos_after) == len(TIPOS_DOC_TODOS)
     for d in canonicos_after:
         assert d["sku"] == "SKU-NOVO"
 
@@ -252,3 +253,83 @@ def test_abrir_pasta_acesso_remoto(client, admin_token, auth_headers):
 
 
 
+
+
+def test_documento_nasce_aplicavel(client, admin_token, auth_headers):
+    """Todo documento nasce aplicável; o dict expõe aplicavel/motivo_na."""
+    h = auth_headers(admin_token)
+    res = client.post("/api/documentos",
+                      json={"setor": "PRE", "equipamento": "MAQ-APL", "sku": "SKU-APL"},
+                      headers=h)
+    assert res.status_code == 201
+    doc = res.get_json()["documento"]
+    assert doc["aplicavel"] is True
+    assert doc["motivo_na"] == ""
+
+
+def _doc_de_tipo(client, headers, equipamento, tipo):
+    docs = client.get("/api/documentos", headers=headers).get_json()
+    return next(d for d in docs if d["equipamento"] == equipamento and d["tipo_doc"] == tipo)
+
+
+def test_aplicabilidade_gestor_marca_na(client, admin_token, gestor_token, auth_headers):
+    ha, hg = auth_headers(admin_token), auth_headers(gestor_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA"}, headers=ha)
+    doc = _doc_de_tipo(client, ha, "MAQ-NA", "Manual_ES")
+
+    res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                     json={"aplicavel": False, "motivo_na": "produto sem versão ES"},
+                     headers=hg)
+    assert res.status_code == 200
+    d = res.get_json()["documento"]
+    assert d["aplicavel"] is False
+    assert d["motivo_na"] == "produto sem versão ES"
+    assert d["status"] == "Elaborar"        # marcar N/A não mexe no status
+
+
+def test_aplicabilidade_tecnico_negado(client, admin_token, tecnico_token, auth_headers):
+    ha, ht = auth_headers(admin_token), auth_headers(tecnico_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA2"}, headers=ha)
+    doc = _doc_de_tipo(client, ha, "MAQ-NA2", "Manual_ES")
+
+    res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                     json={"aplicavel": False}, headers=ht)
+    assert res.status_code == 403
+
+
+def test_religar_na_preserva_dados(client, admin_token, auth_headers):
+    """Religar um documento N/A devolve status, código e responsável intactos."""
+    h = auth_headers(admin_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA3"}, headers=h)
+    doc = _doc_de_tipo(client, h, "MAQ-NA3", "Manual_Servico")
+
+    client.patch(f"/api/documentos/{doc['id']}",
+                 json={"codigo_doc": "MS-77", "responsavel": "Ana", "status": "Em andamento"},
+                 headers=h)
+    client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+               json={"aplicavel": False, "motivo_na": "sem serviço em campo"}, headers=h)
+    res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                     json={"aplicavel": True}, headers=h)
+
+    assert res.status_code == 200
+    d = res.get_json()["documento"]
+    assert d["aplicavel"] is True
+    assert d["motivo_na"] == ""              # religar limpa o motivo
+    assert d["codigo_doc"] == "MS-77"
+    assert d["responsavel"] == "Ana"
+    assert d["status"] == "Em andamento"
+
+
+def test_kpis_ignoram_documentos_na(client, admin_token, auth_headers):
+    """Documento em N/A sai do total e da contagem de pendentes."""
+    h = auth_headers(admin_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-KPI"}, headers=h)
+
+    antes = client.get("/api/metrics", headers=h).get_json()
+    doc = _doc_de_tipo(client, h, "MAQ-KPI", "Manual_Servico")
+    client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+               json={"aplicavel": False}, headers=h)
+    depois = client.get("/api/metrics", headers=h).get_json()
+
+    assert depois["total"] == antes["total"] - 1
+    assert depois["pendentes"] == antes["pendentes"] - 1

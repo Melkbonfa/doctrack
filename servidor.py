@@ -90,7 +90,7 @@ from models import (
     CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
     SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
-    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_AUTO,
+    TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS,
     TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS, ESTADOS_REVISAO
 )
 from auth import auth_bp, log_action, require_role, get_client_ip
@@ -172,6 +172,10 @@ def add_security_headers(response):
 # de perfil (apenas login exigido).
 
 def compute_kpis(docs):
+    # Documentos em N/A ("não se aplica a este equipamento") ficam fora de TODA a
+    # contagem: não são backlog, não são pendência e não puxam o pct_concluidos
+    # para baixo. O escopo é definido na aba Escopo do modal do equipamento.
+    docs = [d for d in docs if d.get("aplicavel", True)]
     total = len(docs)
     por_setor = {s: 0 for s in SETORES}
     status_counts = {s: {} for s in SETORES}
@@ -463,13 +467,14 @@ def get_equipamento(equip_id):
     return jsonify(d), 200
 
 def _ensure_docs_for_equip(equip):
-    """Garante os tipos obrigatórios de documento do equipamento (paridade com o
-    módulo Documentos). Opcionais (TIPOS_DOC_OPCIONAIS) não são auto-criados.
-    Cria só os que faltam. Retorna quantos criou. Idempotente."""
+    """Garante os 12 tipos de documento do equipamento (paridade com o módulo
+    Documentos). Os opcionais nascem em N/A (aplicavel=False) — existem, mas fora
+    da completude, até alguém ligá-los na aba Escopo. Cria só o que falta.
+    Retorna quantos criou. Idempotente."""
     existentes = {d.tipo_doc for d in Documento.query.filter(
         Documento.ativo == True, Documento.equipamento_id == equip.id).all() if d.tipo_doc}
     n = 0
-    for t in TIPOS_DOC_AUTO:
+    for t in TIPOS_DOC_TODOS:
         if t in existentes:
             continue
         label = TIPOS_DOC_LABELS.get(t, t)
@@ -477,6 +482,7 @@ def _ensure_docs_for_equip(equip):
             setor=SETOR_DO_TIPO[t], equipamento=equip.nome, equipamento_id=equip.id,
             sku=equip.sku, fabricante=equip.fabricante, codigo_doc="",
             documento=f"{label} - {equip.nome}", tipo_doc=t, status="Elaborar",
+            aplicavel=(t not in TIPOS_DOC_OPCIONAIS),
             armazenamento=equip.armazenamento_base))
         n += 1
     return n
@@ -1477,6 +1483,7 @@ def _sync_schema():
     existentes = set(insp.get_table_names())
     # Boolean DEFAULT difere entre dialetos (Postgres exige FALSE, SQLite aceita 0)
     _bool_false = "FALSE" if db.engine.dialect.name == "postgresql" else "0"
+    _bool_true  = "TRUE"  if db.engine.dialect.name == "postgresql" else "1"
     novas_colunas = {
         "users": [
             ("precisa_definir_senha", f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
@@ -1500,8 +1507,12 @@ def _sync_schema():
         "projeto_mensal": [
             ("custo_mes", "FLOAT DEFAULT 0"),
         ],
+        # Documentos já existentes nascem aplicavel=TRUE pelo DEFAULT da coluna —
+        # é o backfill que queremos: existir significa que se aplica.
         "documentos": [
             ("equipamento_id", "INTEGER"),
+            ("aplicavel",      f"BOOLEAN DEFAULT {_bool_true} NOT NULL"),
+            ("motivo_na",      "VARCHAR(300) DEFAULT ''"),
         ],
         "equipamentos": [
             ("nome_tecnico",      "VARCHAR(400) DEFAULT ''"),
@@ -1624,11 +1635,19 @@ def _migrar_taxonomia_docs():
     """Migração one-time da taxonomia de tipos (idempotente, roda a cada boot):
     1) 'Checklist' genérico → 'Checklist_Conferencia' (o processo real tem 4
        checklists por IT; o genérico herda os dados no de Conferência).
-    2) Opcionais (Spare Parts / Dossiê / QIQOQD) em branco são ocultados
-       (soft delete) — deixam de ser auto-criados e voltam sob demanda pelo
-       botão "Criar" do modal. Os que têm qualquer dado preenchido permanecem.
-    Os 3 checklists novos que faltarem são criados pelo _backfill_equipamentos
-    (via TIPOS_DOC_AUTO), que roda logo depois."""
+    2) Opcionais (Spare Parts / Dossiê / QIQOQD) ATIVOS e em branco viram N/A
+       (aplicavel=False): continuam existindo, fora da completude, até alguém
+       ligá-los na aba Escopo. Os que têm qualquer dado preenchido continuam
+       aplicáveis.
+
+    Documentos INATIVOS nunca são tocados. A migração não ressuscita nada: um
+    soft delete é uma decisão de alguém (exclusão manual, cascade do equipamento,
+    deduplicação) e desfazê-la a cada boot ressuscitaria o que foi apagado de
+    propósito. Se um tipo ficar sem documento ativo, quem repõe é o
+    _backfill_equipamentos, criando UMA linha nova em N/A — o que também evita
+    a duplicata (só existe 1 documento ativo por equipamento × tipo).
+    Os 3 checklists novos que faltarem são criados pelo mesmo backfill
+    (via TIPOS_DOC_TODOS), que roda logo depois."""
     # 1) rename do tipo genérico, preservando dados
     renomeados = 0
     for d in Documento.query.filter(Documento.tipo_doc == "Checklist").all():
@@ -1639,8 +1658,9 @@ def _migrar_taxonomia_docs():
                 "Checklist - ", "Checklist de Conferência - ", 1)
         renomeados += 1
 
-    # 2) oculta opcionais em branco (critério conservador: qualquer dado salva)
-    ocultados = 0
+    # 2) opcionais ATIVOS e em branco → N/A (critério conservador: qualquer dado salva).
+    #    Os inativos ficam como estão — ver docstring: nada é ressuscitado aqui.
+    marcados = 0
     base_por_equip = {e.id: (e.armazenamento_base or "").strip()
                       for e in Equipamento.query.all()}
     candidatos = Documento.query.filter(
@@ -1658,15 +1678,16 @@ def _migrar_taxonomia_docs():
             and not (d.obs_homologacao or "").strip()
             and (not arm or arm == arm_base)
         )
-        if em_branco:
-            d.ativo = False
-            d.deleted_at = datetime.now()
-            ocultados += 1
+        if not em_branco:
+            continue                     # tem dado → aplicável, não se mexe
+        if d.aplicavel:                   # idempotente: só conta quem de fato mudou
+            d.aplicavel = False
+            marcados += 1
 
-    if renomeados or ocultados:
+    if renomeados or marcados:
         db.session.commit()
         print(f"[INFO] Taxonomia de documentos: {renomeados} 'Checklist' renomeados; "
-              f"{ocultados} opcionais em branco ocultados.")
+              f"{marcados} opcionais em branco marcados como N/A.")
 
 
 def _backfill_equipamentos():
@@ -1699,9 +1720,16 @@ def _backfill_equipamentos():
                 return v
         return ""
 
-    novos_equip = novos_docs = 0
+    novos_equip = novos_docs = revinculados = 0
+    # A busca do equipamento precisa considerar SÓ os ativos. Sem esse filtro, um
+    # documento ativo se prendia a uma entidade já excluída: seguia visível em
+    # Documentos e invisível em Equipamentos — foi essa a origem da divergência
+    # entre os dois módulos (18 equipamentos, 139 documentos, jul/2026).
+    ativos_por_nome = {e.nome: e for e in
+                       Equipamento.query.filter(Equipamento.ativo == True).all()}
+
     for nome, docs in grupos.items():
-        equip = Equipamento.query.filter_by(nome=nome).first()
+        equip = ativos_por_nome.get(nome)
         if not equip:
             equip = Equipamento(
                 nome=nome,
@@ -1711,11 +1739,18 @@ def _backfill_equipamentos():
             )
             db.session.add(equip)
             db.session.flush()           # garante equip.id
+            ativos_por_nome[nome] = equip
             novos_equip += 1
 
-        for d in docs:                   # vincula só documentos ainda soltos
-            if not d.equipamento_id:     # (não reatribui já vinculados — evita
-                d.equipamento_id = equip.id  #  "pingar" entre entidades homônimas)
+        for d in docs:
+            if not d.equipamento_id:     # documento ainda solto
+                d.equipamento_id = equip.id
+            elif d.equipamento_id != equip.id and not (
+                    d.equipamento_rel and d.equipamento_rel.ativo):
+                # Preso a um equipamento excluído: devolve ao ativo de mesmo nome.
+                # Homônimos ATIVOS não são reatribuídos — evita "pingar" entre eles.
+                d.equipamento_id = equip.id
+                revinculados += 1
 
     db.session.flush()
 
@@ -1727,8 +1762,9 @@ def _backfill_equipamentos():
         novos_docs += _ensure_docs_for_equip(equip)
 
     db.session.commit()
-    if novos_equip or novos_docs:
-        print(f"[INFO] Equipamentos: {novos_equip} criados; {novos_docs} documentos completados.")
+    if novos_equip or novos_docs or revinculados:
+        print(f"[INFO] Equipamentos: {novos_equip} criados; {novos_docs} documentos "
+              f"completados; {revinculados} documentos revinculados a equipamento ativo.")
 
 
 def _seed_tipos_consumivel():
