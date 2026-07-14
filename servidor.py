@@ -1631,9 +1631,12 @@ def _migrar_taxonomia_docs():
     """Migração one-time da taxonomia de tipos (idempotente, roda a cada boot):
     1) 'Checklist' genérico → 'Checklist_Conferencia' (o processo real tem 4
        checklists por IT; o genérico herda os dados no de Conferência).
-    2) Opcionais (Spare Parts / Dossiê / QIQOQD) em branco são ocultados
-       (soft delete) — deixam de ser auto-criados e voltam sob demanda pelo
-       botão "Criar" do modal. Os que têm qualquer dado preenchido permanecem.
+    2) Opcionais (Spare Parts / Dossiê / QIQOQD) em branco viram N/A: ficam
+       ATIVOS com aplicavel=False — existem, mas fora da completude, até alguém
+       ligá-los na aba Escopo. Os que têm qualquer dado preenchido continuam
+       aplicáveis. Também ressuscita os que a versão anterior desta migração
+       ocultou (soft delete): _ensure_docs_for_equip só enxerga os ativos, então
+       um opcional inativo faria o backfill criar uma SEGUNDA linha do mesmo tipo.
     Os 3 checklists novos que faltarem são criados pelo _backfill_equipamentos
     (via TIPOS_DOC_TODOS), que roda logo depois."""
     # 1) rename do tipo genérico, preservando dados
@@ -1646,12 +1649,13 @@ def _migrar_taxonomia_docs():
                 "Checklist - ", "Checklist de Conferência - ", 1)
         renomeados += 1
 
-    # 2) oculta opcionais em branco (critério conservador: qualquer dado salva)
-    ocultados = 0
+    # 2) opcionais em branco → N/A ativo (critério conservador: qualquer dado salva).
+    #    Inclui os inativos: os que a versão anterior ocultou voltam a existir em
+    #    N/A, senão o backfill criaria um segundo documento do mesmo tipo.
+    marcados = 0
     base_por_equip = {e.id: (e.armazenamento_base or "").strip()
                       for e in Equipamento.query.all()}
     candidatos = Documento.query.filter(
-        Documento.ativo == True,
         Documento.tipo_doc.in_(TIPOS_DOC_OPCIONAIS)).all()
     for d in candidatos:
         arm = (d.armazenamento or "").strip()
@@ -1665,15 +1669,23 @@ def _migrar_taxonomia_docs():
             and not (d.obs_homologacao or "").strip()
             and (not arm or arm == arm_base)
         )
-        if em_branco:
-            d.ativo = False
-            d.deleted_at = datetime.now()
-            ocultados += 1
+        if not em_branco:
+            continue                     # tem dado → aplicável, não se mexe
+        mudou = False
+        if not d.ativo:                  # ocultado pela migração antiga → ressuscita
+            d.ativo = True
+            d.deleted_at = None
+            mudou = True
+        if d.aplicavel:
+            d.aplicavel = False
+            mudou = True
+        if mudou:
+            marcados += 1
 
-    if renomeados or ocultados:
+    if renomeados or marcados:
         db.session.commit()
         print(f"[INFO] Taxonomia de documentos: {renomeados} 'Checklist' renomeados; "
-              f"{ocultados} opcionais em branco ocultados.")
+              f"{marcados} opcionais em branco marcados como N/A.")
 
 
 def _backfill_equipamentos():
