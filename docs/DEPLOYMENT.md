@@ -84,24 +84,56 @@ Para garantir que a aplicação inicie automaticamente se o Windows Server for r
 
 ---
 
-## 💾 Passo 5: Agendar Backup Diário do Banco de Dados
+## 💾 Passo 5: Backup Diário do Banco de Dados
 
-Criamos o script `scripts/backup_doctrack.ps1` que realiza cópias rotativas do banco de dados na pasta `backups/` dentro do projeto, guardando os últimos 15 dias.
+O banco de produção é **PostgreSQL** (`localhost:5432/doctrack`). O backup é feito
+por `scripts/gerar_backup.ps1`, que roda `pg_dump` e guarda um `.sql` completo em
+`backups/`, mantendo os últimos 30 dias.
 
-Para agendar a execução automática desse backup todos os dias às **22:00**:
+> **Atenção:** até jul/2026 esta seção mandava agendar `scripts/backup_doctrack.ps1`,
+> que copiava o arquivo SQLite `doctrack.db` — abandonado na migração para o
+> PostgreSQL. Quem seguisse a instrução ficaria com um backup vazio de dados novos,
+> acreditando estar protegido. O script foi removido; use apenas `gerar_backup.ps1`.
 
-1. Abra o **Agendador de Tarefas do Windows (Task Scheduler)**.
-2. No menu direito, clique em **Criar Tarefa Básica... (Create Basic Task...)**.
-3. **Nome:** `DocTrack - Backup Diário do Banco`
-4. **Disparador (Trigger):** Diário (Daily) -> Defina o horário desejado (ex: `22:00:00`).
-5. **Ação:** Iniciar um programa (Start a program).
-6. No campo **Programa/script:** digite `powershell.exe`
-7. No campo **Adicionar argumentos (opcional):** digite:
-   ```plaintext
-   -ExecutionPolicy Bypass -File "C:\caminho\completo\do-projeto\scripts\backup_doctrack.ps1"
-   ```
-8. No campo **Iniciar em (opcional):** digite o caminho completo da pasta do projeto (ex: `C:\caminho\completo\do-projeto`).
-9. Finalize a criação. Nas propriedades da tarefa criada, marque a opção **"Executar estando o usuário conectado ou não"** e selecione a opção **"Executar com privilégios mais altos"**.
+A tarefa agendada já existe no servidor (**`DocTrack - Backup Diario`**, diária às
+02:00). Para recriá-la numa máquina nova, em um PowerShell **como Administrador**:
+
+```powershell
+$acao    = New-ScheduledTaskAction -Execute "powershell.exe" `
+           -Argument '-ExecutionPolicy Bypass -File "C:\Apps\doctrack\scripts\gerar_backup.ps1"' `
+           -WorkingDirectory "C:\Apps\doctrack"
+$gatilho = New-ScheduledTaskTrigger -Daily -At 02:00
+Register-ScheduledTask -TaskName "DocTrack - Backup Diario" -Action $acao -Trigger $gatilho `
+    -User "SYSTEM" -RunLevel Highest -Description "pg_dump diario do banco doctrack"
+```
+
+Conferir quando rodou pela última vez e se deu certo (`LastTaskResult = 0`):
+
+```powershell
+Get-ScheduledTask "DocTrack - Backup Diario" | Get-ScheduledTaskInfo
+```
+
+### O que o backup NÃO cobre
+
+O banco guarda apenas o **caminho** dos documentos, não os arquivos. Os `.docx`/`.pdf`
+vivem em `\\loccus-srv03\Projetos$\Engenharia` e dependem do backup próprio daquele
+servidor. Restaurar o `pg_dump` traz o sistema de volta, não os arquivos.
+
+Além disso, os dumps ficam **no mesmo disco do banco**. Uma falha de disco leva os
+dois juntos — copiar os `.sql` para fora da máquina continua pendente.
+
+### Restauração
+
+```powershell
+# banco novo, vazio, e restaura o dump por cima
+psql -U postgres -c "CREATE DATABASE doctrack_restore;"
+psql -U postgres -d doctrack_restore -f "C:\Apps\doctrack\backups\doctrack_AAAA-MM-DD_HHMM.sql"
+```
+
+Lembre que o DocTrack usa **soft delete**: excluir um registro pela interface apenas
+marca `ativo=False` e grava `deleted_at`. Exclusão acidental de usuário se desfaz no
+banco, sem restaurar backup — o dump protege contra o cenário pior (disco, corrupção,
+migração malfeita).
 
 ---
 
