@@ -1152,9 +1152,12 @@ function switchEquipTab(tab){
   document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
 }
 
-function openEquipModal(key){
+function openEquipModal(key, opts){
   // `key` é a chave do grupo ('id:<n>' ou 'nome:<nome>'). Retrocompat: se vier um
   // nome puro (chamadas antigas), tenta casar por nome.
+  // opts.manterAberto → re-hidrata o modal já aberto (após salvar) sem reabri-lo,
+  // preservando a aba ativa (opts.aba). O card fecha só quando o usuário pedir.
+  opts = opts || {};
   const groups = groupByEquip();
   const g = groups.find(x=>x.key===key) || groups.find(x=>x.equipamento===key) || null;
   const docs = g ? g.docs.slice() : [];
@@ -1174,9 +1177,10 @@ function openEquipModal(key){
   renderEquipHeader();
   renderEquipModal();
   // abre na aba "Instrução de Trabalho"; se a IT estiver em N/A, o switchEquipTab
-  // cai na primeira aba visível (ou no Escopo, se tudo estiver em N/A)
-  switchEquipTab(_TODOS_TIPOS[0][0]);
-  openBaseModal('equip');
+  // cai na primeira aba visível (ou no Escopo, se tudo estiver em N/A). Ao re-hidratar
+  // após salvar, preserva a aba que o usuário estava vendo.
+  switchEquipTab(opts.aba || _TODOS_TIPOS[0][0]);
+  if(!opts.manterAberto) openBaseModal('equip');
   _loadCartoesVinculados();
 }
 
@@ -1518,7 +1522,16 @@ async function saveTipoDoc(tipo){
   }
   try{
     const res = await _patchDoc(d.id, payload);
-    if(res && res.ok){ showToast(`${_tipoLabel(tipo)} salvo`,'success'); closeModal('equip'); await refreshAll(); }
+    if(res && res.ok){
+      showToast(`${_tipoLabel(tipo)} salvo`,'success');
+      // Mantém o card aberto: recarrega os dados e re-hidrata o modal no lugar,
+      // preservando a aba ativa. O card fecha só quando o usuário pedir.
+      const key = _equipCtx.g && _equipCtx.g.key;
+      const abaEl = document.querySelector('#equip-tabs .equip-modal-tab.active');
+      const aba = abaEl ? abaEl.dataset.tab : null;
+      await refreshAll();
+      if(key) openEquipModal(key, { aba, manterAberto:true });
+    }
     else { const e = await res.json().catch(()=>({})); showToast(e.erro||'Erro ao salvar','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
 }
