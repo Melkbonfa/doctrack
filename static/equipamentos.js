@@ -37,6 +37,34 @@ function _darken(hex,f){ const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=
   r=Math.round(r*(1-f)); g=Math.round(g*(1-f)); b=Math.round(b*(1-f)); return `rgb(${r},${g},${b})`; }
 function donutGrad(ctx,hex){ const g=ctx.createLinearGradient(0,0,0,160); g.addColorStop(0,hex); g.addColorStop(1,_darken(hex,0.5)); return g; }
 
+/* Tooltip HTML externo ao canvas — mesmo card usado em Documentos e Entregáveis */
+function donutTooltipExternal(context){
+  const { chart, tooltip } = context;
+  let el = document.getElementById("eq-donut-tip");
+  if (!el){
+    el = document.createElement("div");
+    el.id = "eq-donut-tip";
+    el.style.cssText = "position:fixed;pointer-events:none;z-index:9999;opacity:0;transition:opacity .1s ease;background:#232847;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:7px 10px;font:500 12px/1.2 Inter,system-ui,sans-serif;color:#f1f5f9;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;align-items:center;gap:7px";
+    document.body.appendChild(el);
+  }
+  if (!tooltip || tooltip.opacity === 0){ el.style.opacity = "0"; return; }
+  const dp = tooltip.dataPoints && tooltip.dataPoints[0];
+  if (!dp){ el.style.opacity = "0"; return; }
+  const dot = (dp.dataset.dotColors && dp.dataset.dotColors[dp.dataIndex]) || "#22d3ee";
+  const body = (tooltip.body && tooltip.body[0] && tooltip.body[0].lines[0]) ||
+               (dp.label + ": " + dp.formattedValue);
+  el.innerHTML = `<span style="width:9px;height:9px;border-radius:50%;background:${dot};flex-shrink:0"></span><span>${esc(body)}</span>`;
+  el.style.opacity = "1";
+  const rect = chart.canvas.getBoundingClientRect();
+  const tw = el.offsetWidth, th = el.offsetHeight;
+  let left = rect.left + tooltip.caretX + 14;
+  let top = rect.top + tooltip.caretY - th - 8;
+  if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+  if (top < 8) top = rect.top + tooltip.caretY + 16;
+  el.style.left = left + "px";
+  el.style.top = top + "px";
+}
+
 // ── estado ───────────────────────────────────────────────────────────────
 let EQUIP=[], DOCS_BY_EQ={}, TAX={categorias:[],linhas:[]}, selCatId=null;
 
@@ -154,8 +182,8 @@ function renderDashboard(){
   const elD=document.getElementById("cDonut");
   if(elD && cLabels.length){ const bg=dColors.map(c=>donutGrad(elD.getContext("2d"),c));
     chartInstances.donut=new Chart(elD,{type:"doughnut",
-      data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:bg,borderWidth:0,borderRadius:8,spacing:3,hoverOffset:6}]},
-      options:{responsive:false,cutout:"78%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed}`}}},animation:{animateRotate:true,duration:1000}}}); }
+      data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:bg,dotColors:dColors,borderWidth:0,borderRadius:8,spacing:3,hoverOffset:6}]},
+      options:{responsive:false,cutout:"78%",plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${cLabels[ctx.dataIndex]}: ${ctx.parsed} equipamentos`}}},animation:{animateRotate:true,duration:1000}}}); }
 
   // prog-list = dimensões
   const dims=[["Cadastro",cadAvg],["Regulatório",regAvg],["Documental",docAvg]];
@@ -166,8 +194,8 @@ function renderDashboard(){
   if(chartInstances.bar) chartInstances.bar.destroy();
   const cb=document.getElementById("chartBar");
   if(cb){ const ctx=cb.getContext("2d"); const grad=ctx.createLinearGradient(0,0,0,200); grad.addColorStop(0,"#22d3ee"); grad.addColorStop(1,"#3b82f6");
-    chartInstances.bar=new Chart(ctx,{type:"bar",data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:grad,borderRadius:8,borderWidth:0}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    chartInstances.bar=new Chart(ctx,{type:"bar",data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:grad,dotColors:dColors,borderRadius:8,borderWidth:0}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.y} equipamentos`}}},
         scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{display:false},border:{display:false}},
                 y:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}}}}}); }
 
@@ -180,8 +208,8 @@ function renderDashboard(){
   if(chartInstances.gaps) chartInstances.gaps.destroy();
   const cg=document.getElementById("chartGaps");
   if(cg){ chartInstances.gaps=new Chart(cg,{type:"bar",
-      data:{labels:top.map(t=>t[0]),datasets:[{data:top.map(t=>t[1]),backgroundColor:"#a78bfa",borderRadius:8,borderWidth:0}]},
-      options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      data:{labels:top.map(t=>t[0]),datasets:[{data:top.map(t=>t[1]),backgroundColor:"#a78bfa",dotColors:top.map(()=>"#a78bfa"),borderRadius:8,borderWidth:0}]},
+      options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.x}`}}},
         scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}},
                 y:{ticks:{color:"#c7d2fe",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
 
@@ -298,10 +326,10 @@ function renderDev(){
   const cc=document.getElementById("devChartClasse");
   if(cc){ chartInstances.devClasse=new Chart(cc,{type:"bar",
     data:{labels:classesLbl,datasets:[
-      {label:"Completo",data:porClasse.map(p=>p.completo),backgroundColor:FCOLOR.completo,borderRadius:6,stack:"s"},
-      {label:"Parcial", data:porClasse.map(p=>p.parcial), backgroundColor:FCOLOR.parcial, borderRadius:6,stack:"s"},
-      {label:"Inicial", data:porClasse.map(p=>p.inicial), backgroundColor:FCOLOR.inicial, borderRadius:6,stack:"s"}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#94a3ff",font:{size:10,family:"Inter"},boxWidth:10}}},
+      {label:"Completo",data:porClasse.map(p=>p.completo),backgroundColor:FCOLOR.completo,dotColors:classesLbl.map(()=>FCOLOR.completo),borderRadius:6,stack:"s"},
+      {label:"Parcial", data:porClasse.map(p=>p.parcial), backgroundColor:FCOLOR.parcial, dotColors:classesLbl.map(()=>FCOLOR.parcial), borderRadius:6,stack:"s"},
+      {label:"Inicial", data:porClasse.map(p=>p.inicial), backgroundColor:FCOLOR.inicial, dotColors:classesLbl.map(()=>FCOLOR.inicial), borderRadius:6,stack:"s"}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#94a3ff",font:{size:10,family:"Inter"},boxWidth:10}},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y}`}}},
       scales:{x:{stacked:true,ticks:{color:"#94a3ff",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}},
               y:{stacked:true,ticks:{color:"#94a3ff",font:{size:10,family:"Inter"},precision:0},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}}}}}); }
 
@@ -310,8 +338,8 @@ function renderDev(){
   if(chartInstances.devItens) chartInstances.devItens.destroy();
   const ci=document.getElementById("devChartItens");
   if(ci){ chartInstances.devItens=new Chart(ci,{type:"bar",
-    data:{labels:pend.map(p=>p[0]),datasets:[{data:pend.map(p=>p[1]),backgroundColor:"#a78bfa",borderRadius:8}]},
-    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+    data:{labels:pend.map(p=>p[0]),datasets:[{data:pend.map(p=>p[1]),backgroundColor:"#a78bfa",dotColors:pend.map(()=>"#a78bfa"),borderRadius:8}]},
+    options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.x} pendentes`}}},
       scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"},precision:0},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}},
               y:{ticks:{color:"#c7d2fe",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
 
