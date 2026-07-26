@@ -20,11 +20,10 @@ acessível pela **rede interna** da empresa, usando banco **PostgreSQL**.
 
 ---
 
-## PASSO 1 — Instalar os 3 programas base
+## PASSO 1 — Instalar os 2 programas base
 
-**O que é:** três instaladores que o dash precisa.
-**Por que:** sem eles nada roda (Python executa o código, PostgreSQL guarda os dados,
-GTK gera os PDFs).
+**O que é:** dois instaladores que o dash precisa.
+**Por que:** sem eles nada roda (Python executa o código, PostgreSQL guarda os dados).
 
 **O que fazer — baixe e instale, nesta ordem:**
 
@@ -40,14 +39,16 @@ GTK gera os PDFs).
      **Anote essa senha**, vamos precisar dela.
    - Pode aceitar a porta padrão `5432` e desmarcar o "Stack Builder" no final.
 
-3. **GTK3 Runtime** (necessário só para gerar PDF)
-   - Site: https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases
-   - Baixe o `.exe` mais recente e instale com as opções padrão.
-   - 💡 Se não instalar isso, o dash funciona normalmente, **só a exportação de
-     PDF deixa de funcionar**. Pode deixar para depois se quiser.
-
 > **Depois de instalar, FECHE e ABRA o PowerShell de novo** (para ele "enxergar"
 > o Python). Teste digitando `python --version` — deve aparecer `Python 3.11.x`.
+
+> **Não instale o GTK3 Runtime.** Até jul/2026 este guia pedia o GTK3 como terceiro
+> item, dizendo que sem ele "a exportação de PDF deixa de funcionar". Não é verdade:
+> o PDF é gerado **no navegador** com jsPDF. O caminho que usava GTK
+> (`/api/report/pdf` → WeasyPrint) continua no código, mas quem o chamaria é
+> `exportKPIs()` em `static/app.js`, uma função que nenhum botão invoca — o botão
+> "Exportar relatório" chama `openExportModal()`. Instalar o GTK3 são ~200 MB que
+> não mudam nada.
 
 ---
 

@@ -5,12 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard PDR — Lista Mestra de Reagentes</title>
 <meta name="description" content="Controle de P&D de reagentes — produtos, apresentações e documentação">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/pdr/static/style.css?v={{ asset_v }}">
-<script src="/pdr/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
-<script src="/pdr/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
+<!-- Vendor compartilhado com o app mestre (static/vendor). O PDR e um blueprint
+     do mesmo Flask, entao /static ja esta servido: manter uma segunda copia em
+     pdr/static/vendor so criava duas versoes livres para divergir.
+     Sem CDN de fonte: a rede fabril nao tem saida para a internet e o link do
+     Google Fonts bloqueava a renderizacao ate dar timeout. O stack de --font-body
+     ja cai em Segoe UI / system-ui. -->
+<script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
+<script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
 <script>
   // Sessão única do DocTrack: sem token, volta para o login do mestre.
   if (!localStorage.getItem("doctrack_token")) { window.location.replace("/"); }
