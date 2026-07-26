@@ -1,9 +1,9 @@
 """
 servidor.py — DocTrack v4.0 Enterprise Backend
 """
-import os, sys, json, argparse, io, csv, zipfile
+import os, sys, json, argparse, io, csv, re, zipfile
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, send_file
 from flask_cors import CORS
@@ -84,18 +84,26 @@ app.config["JWT_REFRESH_TOKEN_EXPIRES"]      = timedelta(days=7)
 app.config["SECRET_KEY"]                     = _jwt_secret
 app.config["JWT_TOKEN_LOCATION"]             = ["headers", "query_string"]
 app.config["JWT_QUERY_STRING_NAME"]          = "token"
+# Custo do bcrypt. 12 é o padrão e o valor de produção; a suíte de testes baixa
+# para 4 via ambiente (187ms -> 1ms por hash). Precisa estar no config ANTES do
+# bcrypt.init_app() abaixo — o Flask-Bcrypt lê o valor uma única vez.
+app.config["BCRYPT_LOG_ROUNDS"]              = int(os.environ.get("BCRYPT_LOG_ROUNDS", "12"))
 
 from models import (
-    db, bcrypt, User, Documento, Equipamento, AuditLog, RevokedToken, Responsavel,
+    db, bcrypt, User, Documento, DocumentoHistorico, Equipamento, AuditLog, RevokedToken,
+    EquipamentoHistorico, EquipamentoSnapshot, ParetoHistorico, ImportacaoLog,
     CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
-    SETORES, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
+    SETORES, SETOR_PROCESSO, SETORES_TODOS, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS,
-    TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS, ESTADOS_REVISAO
+    TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS, ESTADOS_REVISAO,
+    MOTIVOS_NA, MOTIVO_NA_LIVRE
 )
 from auth import auth_bp, log_action, require_role, get_client_ip
 from event_bus import publish_event, get_events_since, EventType
 from utils import norm, norm_sku
+from scheduler import iniciar_agendador, rodar_uma_vez, agendador_habilitado
+import equipamentos_core as eqcore
 
 db.init_app(app)
 bcrypt.init_app(app)
@@ -154,11 +162,16 @@ def add_security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    # Sem CDN em nenhuma diretiva: as bibliotecas JS já eram servidas de
+    # /static/vendor porque o app roda em rede fabril, que pode não ter saída
+    # externa — mas o Google Fonts continuava liberado em style-src/font-src e
+    # os templates ainda o carregavam. As fontes agora vêm da pilha do sistema
+    # (ver --font-body em static/style.css), então a política fecha de vez.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://cdn.socket.io; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
         "img-src 'self' data:; "
         "connect-src 'self' ws: wss: http: https:;"
     )
@@ -172,33 +185,46 @@ def add_security_headers(response):
 # de perfil (apenas login exigido).
 
 def compute_kpis(docs):
-    # Documentos em N/A ("não se aplica a este equipamento") ficam fora de TODA a
-    # contagem: não são backlog, não são pendência e não puxam o pct_concluidos
-    # para baixo. O escopo é definido na aba Escopo do modal do equipamento.
+    """KPIs dos documentos DE EQUIPAMENTO (PRE + Manuais).
+
+    Dois filtros, nesta ordem:
+      1) N/A ("não se aplica a este equipamento") sai de TODA a contagem — não é
+         backlog, não é pendência e não puxa o pct_concluidos para baixo.
+      2) Setor fora de SETORES (documentos de processo, setor 'PDE') também sai.
+         Antes eles entravam no `total` e no `global_counts` mas não no
+         `por_setor` — o card dizia 475 documentos e o donut somava 469.
+    A contagem dos documentos de processo vai separada em `processos`.
+    """
     docs = [d for d in docs if d.get("aplicavel", True)]
+    processos = sum(1 for d in docs if d.get("setor") not in SETORES)
+    docs = [d for d in docs if d.get("setor") in SETORES]
     total = len(docs)
     por_setor = {s: 0 for s in SETORES}
     status_counts = {s: {} for s in SETORES}
     global_counts = {"Pendente": 0, "Em progresso": 0, "Finalizado": 0}
-    
+    atrasados = 0
+
     for d in docs:
         setor = d.get("setor")
-        if setor in por_setor:
-            por_setor[setor] += 1
-            st = d.get("status") or "Elaborar"
-            status_counts[setor][st] = status_counts[setor].get(st, 0) + 1
-        
+        por_setor[setor] += 1
+        st = d.get("status") or "Elaborar"
+        status_counts[setor][st] = status_counts[setor].get(st, 0) + 1
+
         sg = d.get("status_global") or "Pendente"
         global_counts[sg] = global_counts.get(sg, 0) + 1
+        if d.get("atrasado"):
+            atrasados += 1
 
     fin = global_counts.get("Finalizado", 0)
-    
+
     return {
-        "total": total, 
-        "finalizados": fin, 
-        "em_progresso": global_counts.get("Em progresso", 0), 
+        "total": total,
+        "finalizados": fin,
+        "em_progresso": global_counts.get("Em progresso", 0),
         "pendentes": global_counts.get("Pendente", 0),
         "backlog": total - fin,
+        "atrasados": atrasados,
+        "processos": processos,
         "pct_concluidos": round(fin / total * 100, 1) if total else 0,
         "por_setor": por_setor,
         "status_counts": status_counts,
@@ -331,31 +357,36 @@ def _import_excel_to_db():
                     armazenamento=s("Armazenamento - Pasta de Projetos")
                 ))
 
-        # Soft delete existing docs se o schema estiver OK, ou drop/create se houver mudança.
-        # Para forçar a atualização do banco em nuvem (Render), nós dropamos as tabelas e recriamos com as novas colunas.
-        try:
-            Responsavel.__table__.drop(db.engine, checkfirst=True)
-            Documento.__table__.drop(db.engine, checkfirst=True)
-            Documento.__table__.create(db.engine)
-            Responsavel.__table__.create(db.engine)
-        except Exception as e:
-            print(f"Erro ao recriar tabelas: {e}")
-            pass # fallback caso sqlite local reclame
-            
+        # SÓ SEMEIA BANCO VAZIO. Aqui existia um
+        # DROP TABLE documento_historico + DROP TABLE documentos + CREATE,
+        # herdado de quando o schema mudava a cada deploy no Render. Com o banco
+        # em uso isso apagava os 522 documentos e as 526 linhas de trilha, junto
+        # com tudo que a planilha não tem (prazo, aplicavel, motivo_na_codigo,
+        # equipamento_id, version) e deixava os cartões de missão apontando para
+        # ids inexistentes. A planilha é a origem do seed, não a fonte da verdade.
+        existentes = Documento.query.count()
+        if existentes:
+            print(f"[SKIP] Planilha ignorada: já existem {existentes} documentos "
+                  f"no banco (o seed por planilha só roda em banco vazio).")
+            return 0
+
         for d in docs_to_add:
             db.session.add(d)
-            
+
         db.session.commit()
         print(f"[OK] Planilha importada com sucesso: {len(docs_to_add)} novos documentos.")
+        return len(docs_to_add)
     except Exception as e:
         db.session.rollback()
         print(f"  Aviso: não foi possível importar Planilha — {e}")
+        return 0
 
 # ── PÁGINAS ───────────────────────────────────────────────────────────────────
 def _static_version():
     """Token de cache-busting baseado no mtime dos estáticos (muda só quando o arquivo muda)."""
     try:
-        files = ["static/app.js", "static/auth.js", "static/style.css"]
+        files = ["static/app.js", "static/auth.js", "static/common.js",
+                 "static/style.css"]
         latest = max(os.path.getmtime(os.path.join(BASE_DIR, f)) for f in files if os.path.exists(os.path.join(BASE_DIR, f)))
         return str(int(latest))
     except Exception:
@@ -419,33 +450,85 @@ def api_data():
     return jsonify({"updated_at": datetime.now().strftime("%d/%m/%Y %H:%M"), "items": docs, "kpis": compute_kpis(docs)}), 200
 
 # ── API — EQUIPAMENTOS (entidade central) ────────────────────────────────────
-@app.route("/api/equipamentos", methods=["GET"])
-@jwt_required()
-def api_equipamentos():
-    q = norm(request.args.get("q", ""))
+_EQUIP_BUSCA = ("nome", "nome_original", "nome_tecnico", "sku", "sku_importacao",
+                "codigo_interno", "codigo_fabricante", "anvisa", "fabricante",
+                "familia", "categoria", "linha", "responsavel")
+
+
+def _query_equipamentos():
+    """Filtros de equipamento em um lugar só: a listagem e o export usavam
+    critérios diferentes (o export ignorava os filtros da tela)."""
     query = Equipamento.query.filter(Equipamento.ativo == True)
     for campo, col in (("categoria_id", Equipamento.categoria_id),
-                       ("familia_id", Equipamento.familia_id)):
+                       ("familia_id", Equipamento.familia_id),
+                       ("linha_id", Equipamento.linha_id)):
         val = request.args.get(campo)
         if val:
-            query = query.filter(col == int(val))
+            try:
+                query = query.filter(col == int(val))
+            except (TypeError, ValueError):
+                pass
     if request.args.get("status"):
         query = query.filter(Equipamento.status == request.args.get("status"))
+    if request.args.get("pareto_classe"):
+        query = query.filter(Equipamento.pareto_classe == request.args.get("pareto_classe"))
     bloq = request.args.get("bloqueado")
     if bloq in ("0", "false", "nao"):
         query = query.filter(Equipamento.bloqueado == False)
     elif bloq in ("1", "true", "sim"):
         query = query.filter(Equipamento.bloqueado == True)
+    # "Bloqueado" na tela também abrange Obsoleto/Descontinuado; sem este filtro
+    # o CSV trazia obsoletos que a lista escondia.
+    if request.args.get("incluir_bloqueados") in ("0", "false", "nao"):
+        query = query.filter(Equipamento.bloqueado == False,
+                             Equipamento.status.notin_(["Obsoleto", "Descontinuado"]))
+    return query.order_by(Equipamento.nome)
 
-    equips = [e.to_dict() for e in query.order_by(Equipamento.nome).all()]
-    if q:
-        def matches(e):
-            blob = " ".join(norm(str(e.get(f, ""))) for f in
-                            ("nome", "nome_original", "nome_tecnico", "sku", "sku_importacao",
-                             "codigo_fabricante", "anvisa", "fabricante", "familia", "categoria"))
-            return q in blob
-        equips = [e for e in equips if matches(e)]
-    return jsonify(equips), 200
+
+def _filtrar_busca(equips, termo):
+    q = norm(termo or "")
+    if not q:
+        return equips
+    return [e for e in equips
+            if q in " ".join(norm(str(e.get(f, ""))) for f in _EQUIP_BUSCA)]
+
+
+def _docs_dos_equipamentos(equip_ids=None):
+    """Documentos ativos vinculados, já agrupados por equipamento."""
+    query = Documento.query.filter(Documento.ativo == True,
+                                   Documento.equipamento_id.isnot(None))
+    if equip_ids is not None:
+        ids = list(equip_ids)
+        if not ids:
+            return {}
+        query = query.filter(Documento.equipamento_id.in_(ids))
+    return eqcore.agrupar_documentos(query.all())
+
+
+@app.route("/api/equipamentos", methods=["GET"])
+@jwt_required()
+def api_equipamentos():
+    equips = [e.to_dict() for e in _query_equipamentos().all()]
+    return jsonify(_filtrar_busca(equips, request.args.get("q", ""))), 200
+
+
+@app.route("/api/equipamentos/completude", methods=["GET"])
+@jwt_required()
+def api_equipamentos_completude():
+    """ICE, IDP e sinais de risco de todos os equipamentos, calculados aqui.
+
+    Existe porque o módulo baixava `/api/documentos` inteiro (todos os documentos
+    do sistema) só para dividir finalizados por aplicáveis — e reimplementava a
+    fórmula no cliente. Agora a regra é a mesma do export e do snapshot.
+    """
+    equips = _query_equipamentos().all()
+    por_equip = _docs_dos_equipamentos([e.id for e in equips])
+    itens = [eqcore.indices(e, por_equip.get(e.id, [])) for e in equips]
+    return jsonify({
+        "gerado_em": datetime.now().isoformat(timespec="seconds"),
+        "total": len(itens),
+        "itens": itens,
+    }), 200
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["GET"])
 @jwt_required()
@@ -454,7 +537,10 @@ def get_equipamento(equip_id):
     if not equip:
         return jsonify({"erro": "Equipamento não encontrado"}), 404
     d = equip.to_dict()
-    d["docs_count"] = Documento.query.filter(Documento.ativo == True, Documento.equipamento_id == equip.id).count()
+    docs = Documento.query.filter(Documento.ativo == True,
+                                  Documento.equipamento_id == equip.id).all()
+    d["docs_count"] = len(docs)
+    d["completude"] = eqcore.indices(equip, docs)
     itens = EquipamentoItem.query.filter_by(equipamento_id=equip.id, ativo=True) \
                                  .order_by(EquipamentoItem.ordem, EquipamentoItem.id).all()
     d["consumiveis"] = [i.to_dict() for i in itens if i.tipo == "consumivel"]
@@ -483,7 +569,9 @@ def _ensure_docs_for_equip(equip):
             sku=equip.sku, fabricante=equip.fabricante, codigo_doc="",
             documento=f"{label} - {equip.nome}", tipo_doc=t, status="Elaborar",
             aplicavel=(t not in TIPOS_DOC_OPCIONAIS),
-            armazenamento=equip.armazenamento_base))
+            # nasce herdando o caminho do equipamento (armazenamento vazio =
+            # herda); copiar aqui recriaria as 12 cópias divergentes.
+            armazenamento=""))
         n += 1
     return n
 
@@ -495,56 +583,119 @@ def create_equipamento():
     nome = (data.get("nome") or "").strip()
     if not nome:
         return jsonify({"erro": "Informe o nome do equipamento"}), 400
+    dup = sku_duplicado(data.get("sku"))
+    if dup and not data.get("ignorar_sku_duplicado"):
+        return jsonify({"erro": f'SKU "{(data.get("sku") or "").strip()}" já está em '
+                                f'"{dup.nome}". Corrija o SKU ou reenvie com '
+                                f'ignorar_sku_duplicado.',
+                        "sku_duplicado": {"id": dup.id, "nome": dup.nome, "sku": dup.sku or ""}}), 409
     equip = Equipamento(nome=nome)
-    _aplicar_campos_equip(equip, data)
+    mudou = _aplicar_campos_equip(equip, data)
     db.session.add(equip)
     db.session.commit()
-    # Paridade: o novo equipamento já nasce com seus 9 documentos no módulo Documentos.
+    # Paridade: o novo equipamento já nasce com seus 12 documentos no módulo Documentos.
     if _ensure_docs_for_equip(equip):
         db.session.commit()
+    _registrar_historico(equip.id, {"nome": ("", nome), **mudou}, caller, evento="create")
+    db.session.commit()
     log_action(caller, "CREATE", entidade=f"Equipamento: {equip.nome}", campo="nome", novo=nome, ip=get_client_ip())
     return jsonify({"mensagem": "Equipamento criado", "equipamento": equip.to_dict()}), 201
 
 _EQUIP_STR = ["nome", "nome_original", "nome_tecnico", "descricao",
-              "sku", "sku_importacao", "classificacao_reg",
+              "codigo_interno", "sku", "sku_importacao", "classificacao_reg",
               "anvisa", "anvisa_registro", "anvisa_validade",
-              "fabricante", "codigo_fabricante", "status", "observacoes", "armazenamento_base"]
-_EQUIP_INT = ["categoria_id", "familia_id"]
+              "classe_risco", "situacao_regulatoria",
+              "modelo", "tecnologia", "aplicacao",
+              "fabricante", "codigo_fabricante", "status", "observacoes",
+              "armazenamento_base", "responsavel"]
+_EQUIP_INT = ["categoria_id", "familia_id", "linha_id"]
 # Itens de revisão manuais do IDP (editáveis por PATCH, validados contra ESTADOS_REVISAO).
 # pareto_classe/qtd_saidas NÃO entram aqui — só o importador Pareto os grava.
 _EQUIP_REV = ["rev_cadastro", "rev_estrutura", "rev_descritivo"]
 
+
+def sku_duplicado(sku, ignorar_id=None):
+    """Outro equipamento ativo com o MESMO SKU de Venda (normalizado).
+
+    `sku` é a chave de junção do importador mestre, do Pareto e dos documentos,
+    e nada impedia gravar repetido: no banco havia SKUs duplicados só por
+    diferença de caixa ("PlateSpin"/"PLATESPIN"). Compara pelo norm_sku quando o
+    SKU segue o padrão NN.NNNNNN e cai em texto normalizado quando não segue.
+    """
+    alvo = (sku or "").strip()
+    if not alvo:
+        return None
+    chave = norm_sku(alvo) or norm(alvo)
+    query = Equipamento.query.filter(Equipamento.ativo == True,
+                                     Equipamento.sku.isnot(None))
+    if ignorar_id:
+        query = query.filter(Equipamento.id != ignorar_id)
+    for outro in query.all():
+        atual = (outro.sku or "").strip()
+        if atual and (norm_sku(atual) or norm(atual)) == chave:
+            return outro
+    return None
+
+
 def _aplicar_campos_equip(equip, data):
-    """Aplica os campos do payload ao equipamento. Devolve a lista de campos mudados."""
-    mudou = []
+    """Aplica os campos do payload. Devolve {campo: (antigo, novo)}.
+
+    Antes devolvia só os nomes dos campos, e o audit gravava `valor_novo` vazio.
+    Guardar o par é o que torna a alteração auditável e a aba Histórico possível.
+    """
+    mudou = {}
+
+    def _troca(campo, novo):
+        antigo = getattr(equip, campo)
+        if novo != antigo:
+            setattr(equip, campo, novo)
+            mudou[campo] = (antigo, novo)
+
     for campo in _EQUIP_STR:
         if campo in data:
-            novo = (data.get(campo) or "").strip()
-            if novo != (getattr(equip, campo) or ""):
-                setattr(equip, campo, novo); mudou.append(campo)
+            _troca(campo, (data.get(campo) or "").strip())
     if "bloqueado" in data:
-        novo = bool(data.get("bloqueado"))
-        if novo != bool(equip.bloqueado):
-            equip.bloqueado = novo; mudou.append("bloqueado")
+        _troca("bloqueado", bool(data.get("bloqueado")))
     for campo in _EQUIP_REV:
         if campo in data:
             novo = (data.get(campo) or "").strip()
             if novo not in ESTADOS_REVISAO:
                 continue  # valor inválido: ignora (mantém o estado atual)
-            if novo != (getattr(equip, campo) or ""):
-                setattr(equip, campo, novo); mudou.append(campo)
+            _troca(campo, novo)
     for campo in _EQUIP_INT:
         if campo in data:
             raw = data.get(campo)
-            novo = int(raw) if raw not in (None, "", 0, "0") else None
-            if novo != getattr(equip, campo):
-                setattr(equip, campo, novo); mudou.append(campo)
+            _troca(campo, int(raw) if raw not in (None, "", 0, "0") else None)
     # Família precisa pertencer à categoria escolhida; senão zera.
     if equip.familia_id:
         fam = FamiliaEquipamento.query.get(equip.familia_id)
         if not fam or (equip.categoria_id and fam.categoria_id != equip.categoria_id):
+            if "familia_id" in mudou:
+                mudou["familia_id"] = (mudou["familia_id"][0], None)
+            elif equip.familia_id is not None:
+                mudou["familia_id"] = (equip.familia_id, None)
             equip.familia_id = None
     return mudou
+
+
+def _registrar_historico(equip_id, mudou, autor, evento="update"):
+    """Uma linha de EquipamentoHistorico por campo alterado (o de-para)."""
+    agora = datetime.now()
+    for campo, (antigo, novo) in (mudou or {}).items():
+        db.session.add(EquipamentoHistorico(
+            equipamento_id=equip_id, evento=evento, campo=campo,
+            valor_antigo="" if antigo is None else str(antigo),
+            valor_novo="" if novo is None else str(novo),
+            em=agora, por=autor or ""))
+
+
+def _resumo_mudancas(mudou, limite=6):
+    """Texto curto de-para para o AuditLog (que só tem colunas de texto)."""
+    partes = [f"{c}: {a if a not in (None, '') else '—'} → {n if n not in (None, '') else '—'}"
+              for c, (a, n) in list((mudou or {}).items())[:limite]]
+    if len(mudou or {}) > limite:
+        partes.append(f"(+{len(mudou) - limite})")
+    return " | ".join(partes)
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["PATCH", "PUT"])
 @require_role("admin", "gestor", "tecnico")
@@ -555,7 +706,14 @@ def update_equipamento(equip_id):
     if not equip:
         return jsonify({"erro": "Equipamento não encontrado"}), 404
 
-    nome_antigo, sku_antigo = equip.nome, equip.sku
+    if "sku" in data:
+        dup = sku_duplicado(data.get("sku"), ignorar_id=equip.id)
+        if dup and not data.get("ignorar_sku_duplicado"):
+            return jsonify({"erro": f'SKU "{(data.get("sku") or "").strip()}" já está em '
+                                    f'"{dup.nome}". Corrija o SKU ou reenvie com '
+                                    f'ignorar_sku_duplicado.',
+                            "sku_duplicado": {"id": dup.id, "nome": dup.nome, "sku": dup.sku or ""}}), 409
+
     mudou = _aplicar_campos_equip(equip, data)
     # Identidade replicada nos documentos vinculados (fonte única = Equipamento).
     # Casa por equipamento_id; nome/SKU/fabricante alimentam grouping, card e KPIs.
@@ -568,11 +726,18 @@ def update_equipamento(equip_id):
             _prop, synchronize_session=False)
     if mudou:
         equip.updated_em = datetime.now()
+        _registrar_historico(equip.id, mudou, caller)
         db.session.commit()
         log_action(caller, "UPDATE", entidade=f"Equipamento: {equip.nome}",
-                   campo=",".join(mudou), antigo=nome_antigo if "nome" in mudou else "",
-                   novo="", ip=get_client_ip())
-    return jsonify({"mensagem": "Equipamento atualizado", "equipamento": equip.to_dict()}), 200
+                   campo=",".join(mudou),
+                   antigo=" | ".join(f"{c}={a if a not in (None, '') else '—'}"
+                                     for c, (a, _n) in mudou.items()),
+                   novo=_resumo_mudancas(mudou), ip=get_client_ip())
+    d = equip.to_dict()
+    docs = Documento.query.filter(Documento.ativo == True,
+                                  Documento.equipamento_id == equip.id).all()
+    d["completude"] = eqcore.indices(equip, docs)
+    return jsonify({"mensagem": "Equipamento atualizado", "equipamento": d}), 200
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["DELETE"])
 @require_role("admin", "gestor")
@@ -583,6 +748,7 @@ def delete_equipamento(equip_id):
         return jsonify({"erro": "Equipamento não encontrado"}), 404
     equip.ativo = False                       # soft delete (reversível no banco)
     equip.updated_em = datetime.now()
+    _registrar_historico(equip.id, {"ativo": (True, False)}, caller, evento="delete")
     # Paridade: excluir o equipamento também remove (soft) seus documentos, para
     # não sobrar card órfão no módulo Documentos nem o backfill recriá-los.
     ndocs = Documento.query.filter(
@@ -597,17 +763,226 @@ def delete_equipamento(equip_id):
 @app.route("/api/equipamentos/export", methods=["GET"])
 @jwt_required()
 def export_equipamentos():
+    """CSV conforme os filtros da tela, com os índices que o dashboard calcula.
+
+    O export ignorava os filtros e devolvia 12 colunas fixas: quem exportava
+    perdia exatamente ICE/IDP, classe ABC, saídas, descrição e observações — os
+    campos pelos quais a tela ordena.
+    """
     import csv
-    equips = Equipamento.query.filter(Equipamento.ativo == True).order_by(Equipamento.nome).all()
-    cols = ["sku", "sku_importacao", "nome", "nome_tecnico",
-            "categoria", "familia", "status", "bloqueado",
-            "classificacao_reg", "anvisa", "fabricante", "codigo_fabricante"]
+    equips = _query_equipamentos().all()
+    termo = request.args.get("q", "")
+    if termo:
+        ids = {e["id"] for e in _filtrar_busca([e.to_dict() for e in equips], termo)}
+        equips = [e for e in equips if e.id in ids]
+    por_equip = _docs_dos_equipamentos([e.id for e in equips])
+    indices = {e.id: eqcore.indices(e, por_equip.get(e.id, [])) for e in equips}
+
+    # Mesma ordenação da tela (o CSV sempre saía por nome, mesmo com a lista
+    # ordenada por ICE ou atraso).
+    _CLASSE = {"A": 0, "B": 1, "C": 2, "": 3}
+    _ORDENS = {
+        "ice":        lambda e: (indices[e.id]["ice"], (e.nome or "").lower()),
+        "ice-desc":   lambda e: (-indices[e.id]["ice"], (e.nome or "").lower()),
+        "atraso":     lambda e: (-indices[e.id]["docs_atrasados"],
+                                 -indices[e.id]["atraso_max"], indices[e.id]["ice"]),
+        "classe":     lambda e: (_CLASSE.get(e.pareto_classe or "", 3), -(e.qtd_saidas or 0)),
+        "atualizado": lambda e: (e.updated_em or datetime.min),
+    }
+    chave = _ORDENS.get(request.args.get("ordem", ""))
+    if chave:
+        equips = sorted(equips, key=chave)
+
+    cols = ["sku", "sku_importacao", "codigo_interno", "nome", "nome_tecnico",
+            "categoria", "familia", "linha", "status", "bloqueado", "responsavel",
+            "classificacao_reg", "anvisa", "anvisa_registro", "anvisa_validade",
+            "classe_risco", "situacao_regulatoria",
+            "fabricante", "codigo_fabricante", "modelo", "tecnologia", "aplicacao",
+            "descricao", "observacoes", "criado_em", "updated_em"]
+    extras = ["ice", "ice_cadastro", "ice_regulatorio", "ice_documental", "idp",
+              "docs_finais", "docs_alvo", "docs_atrasados", "registro_situacao",
+              "pareto_classe", "qtd_saidas"]
     buf = io.StringIO(); w = csv.writer(buf, delimiter=";")
-    w.writerow(cols)
+    w.writerow(cols + extras)
     for e in equips:
-        d = e.to_dict(); w.writerow([d.get(c, "") for c in cols])
+        d = e.to_dict()
+        c = indices[e.id]
+        w.writerow([d.get(k, "") for k in cols] + [
+            c["ice"], c["cad"], c["reg"], c["doc"],
+            "" if c["idp"] is None else c["idp"],
+            c["docs_finais"], c["docs_alvo"], c["docs_atrasados"], c["reg_estado"],
+            d.get("pareto_classe", ""), d.get("qtd_saidas", 0),
+        ])
     out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
     return send_file(out, mimetype="text/csv", as_attachment=True, download_name="equipamentos.csv")
+
+
+@app.route("/api/equipamentos/<int:equip_id>/historico", methods=["GET"])
+@jwt_required()
+def api_equipamento_historico(equip_id):
+    """Trilha de alterações do equipamento (o que a aba Histórico da ficha mostra).
+
+    Endpoint próprio em vez de reusar /api/audit: aquele exige gestor+ e não
+    filtra por entidade, então o técnico que edita a ficha não veria o próprio
+    histórico.
+    """
+    equip = Equipamento.query.filter(Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    try:
+        limite = max(1, min(int(request.args.get("limit", 100)), 500))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "limit deve ser numérico"}), 400
+    linhas = (EquipamentoHistorico.query
+              .filter(EquipamentoHistorico.equipamento_id == equip_id)
+              .order_by(EquipamentoHistorico.em.desc(), EquipamentoHistorico.id.desc())
+              .limit(limite).all())
+    return jsonify([l.to_dict() for l in linhas]), 200
+
+
+@app.route("/api/equipamentos/<int:equip_id>/evolucao", methods=["GET"])
+@jwt_required()
+def api_equipamento_evolucao(equip_id):
+    """Série temporal do equipamento: ICE/IDP por dia + histórico de Pareto."""
+    equip = Equipamento.query.filter(Equipamento.ativo == True,
+                                     Equipamento.id == equip_id).first()
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    snaps = (EquipamentoSnapshot.query
+             .filter(EquipamentoSnapshot.equipamento_id == equip_id)
+             .order_by(EquipamentoSnapshot.data).all())
+    pareto = (ParetoHistorico.query
+              .filter(ParetoHistorico.equipamento_id == equip_id)
+              .order_by(ParetoHistorico.data).all())
+    docs = Documento.query.filter(Documento.ativo == True,
+                                  Documento.equipamento_id == equip_id).all()
+    return jsonify({
+        "snapshots": [s.to_dict() for s in snaps],
+        "pareto": [p.to_dict() for p in pareto],
+        "atual": eqcore.indices(equip, docs),
+    }), 200
+
+
+@app.route("/api/equipamentos/evolucao", methods=["GET"])
+@jwt_required()
+def api_equipamentos_evolucao():
+    """Média da frota por dia — a curva que responde 'o cadastro está avançando?'."""
+    from sqlalchemy import func
+    linhas = (db.session.query(
+                  EquipamentoSnapshot.data,
+                  func.avg(EquipamentoSnapshot.ice),
+                  func.avg(EquipamentoSnapshot.cad),
+                  func.avg(EquipamentoSnapshot.reg),
+                  func.avg(EquipamentoSnapshot.doc),
+                  func.avg(EquipamentoSnapshot.idp),
+                  func.count(EquipamentoSnapshot.id))
+              .group_by(EquipamentoSnapshot.data)
+              .order_by(EquipamentoSnapshot.data).all())
+    return jsonify([{
+        "data": data, "ice": round(ice or 0), "cad": round(cad or 0),
+        "reg": round(reg or 0), "doc": round(doc or 0),
+        "idp": None if idp is None else round(idp), "n": n,
+    } for data, ice, cad, reg, doc, idp, n in linhas]), 200
+
+
+def _chave_sku(sku):
+    texto = (sku or "").strip()
+    return (norm_sku(texto) or norm(texto)) if texto else ""
+
+
+# Caracteres de encoding quebrado (mojibake) que sobraram de importações antigas:
+# "Extracta� Prep" está gravado assim no banco e é invisível na tela.
+_MOJIBAKE = ("�", "Ã©", "Ã£", "Ãµ", "Ã§", "Ã¡", "Ã­", "Ã³", "Ãº", "Â")
+
+
+@app.route("/api/equipamentos/saude", methods=["GET"])
+@jwt_required()
+def api_equipamentos_saude():
+    """Problemas de integridade do cadastro que só apareciam rodando script.
+
+    Duplicidade de SKU/nome, texto corrompido, equipamento sem documento e
+    documento ativo sem equipamento — tudo o que quebra o casamento por SKU dos
+    importadores e some do ICE sem aviso.
+    """
+    equips = Equipamento.query.filter(Equipamento.ativo == True).order_by(Equipamento.nome).all()
+    por_equip = _docs_dos_equipamentos([e.id for e in equips])
+
+    def _agrupar(chave_fn):
+        grupos = {}
+        for e in equips:
+            k = chave_fn(e)
+            if k:
+                grupos.setdefault(k, []).append(e)
+        return [{"chave": k, "itens": [{"id": x.id, "nome": x.nome, "sku": x.sku or ""} for x in v]}
+                for k, v in sorted(grupos.items()) if len(v) > 1]
+
+    def _tem_mojibake(e):
+        blob = " ".join(str(getattr(e, c, "") or "") for c in
+                        ("nome", "nome_tecnico", "nome_original", "descricao", "fabricante"))
+        return any(m in blob for m in _MOJIBAKE)
+
+    sem_docs = [{"id": e.id, "nome": e.nome, "sku": e.sku or ""}
+                for e in equips if not por_equip.get(e.id)]
+    sem_sku = [{"id": e.id, "nome": e.nome} for e in equips if not (e.sku or "").strip()]
+    corrompidos = [{"id": e.id, "nome": e.nome, "sku": e.sku or ""}
+                   for e in equips if _tem_mojibake(e)]
+    orfaos = Documento.query.filter(Documento.ativo == True,
+                                    Documento.equipamento_id.is_(None)).all()
+    vencidos, vencendo = [], []
+    for e in equips:
+        st = eqcore.status_validade(e)
+        item = {"id": e.id, "nome": e.nome, "validade": st["data"], "dias": st["dias"]}
+        if st["estado"] == "vencido":
+            vencidos.append(item)
+        elif st["estado"] == "vencendo":
+            vencendo.append(item)
+
+    return jsonify({
+        "total": len(equips),
+        "sku_duplicado":  _agrupar(lambda e: _chave_sku(e.sku)),
+        "nome_duplicado": _agrupar(lambda e: norm(e.nome)),
+        "texto_corrompido": corrompidos,
+        "sem_documentos": sem_docs,
+        "sem_sku": sem_sku,
+        "docs_orfaos": [{"id": d.id, "documento": d.documento or "",
+                         "equipamento": d.equipamento or "", "sku": d.sku or ""}
+                        for d in orfaos],
+        "registro_vencido": sorted(vencidos, key=lambda x: x["dias"] or 0),
+        "registro_vencendo": sorted(vencendo, key=lambda x: x["dias"] or 0),
+    }), 200
+
+
+def _snapshot_equipamentos(dia=None):
+    """Grava (ou atualiza) a foto do dia para todos os equipamentos ativos.
+
+    Idempotente: rodar duas vezes no mesmo dia sobrescreve a linha em vez de
+    duplicar — a UniqueConstraint (equipamento, data) é quem garante isso.
+    """
+    dia = dia or date.today().isoformat()
+    equips = Equipamento.query.filter(Equipamento.ativo == True).all()
+    if not equips:
+        return 0
+    por_equip = _docs_dos_equipamentos([e.id for e in equips])
+    existentes = {s.equipamento_id: s for s in EquipamentoSnapshot.query.filter(
+        EquipamentoSnapshot.data == dia).all()}
+    for e in equips:
+        c = eqcore.indices(e, por_equip.get(e.id, []))
+        snap = existentes.get(e.id) or EquipamentoSnapshot(equipamento_id=e.id, data=dia)
+        snap.ice, snap.cad, snap.reg, snap.doc = c["ice"], c["cad"], c["reg"], c["doc"]
+        snap.idp = c["idp"]
+        snap.docs_finais, snap.docs_alvo = c["docs_finais"], c["docs_alvo"]
+        snap.docs_atrasados = c["docs_atrasados"]
+        if e.id not in existentes:
+            db.session.add(snap)
+    db.session.commit()
+    return len(equips)
+
+
+@app.route("/api/equipamentos/snapshot", methods=["POST"])
+@require_role("admin", "gestor")
+def api_equipamentos_snapshot():
+    n = _snapshot_equipamentos(request.args.get("data"))
+    return jsonify({"mensagem": "Snapshot gravado", "equipamentos": n}), 200
 
 @app.route("/api/equipamentos/import", methods=["POST"])
 @require_role("admin", "gestor")
@@ -627,10 +1002,39 @@ def import_equipamentos():
     if rel.get("erro"):
         return jsonify(rel), 400
     if not dryrun:
+        _registrar_importacao("mestra", caller, rel)
         log_action(caller, "REIMPORT", entidade="Equipamentos (planilha mestra)",
                    campo="import", novo=f"criados={rel['a_criar']} atualizados={rel['a_atualizar']}",
                    ip=get_client_ip())
     return jsonify(rel), 200
+
+
+def _registrar_importacao(origem, autor, rel):
+    """Guarda o relatório completo da importação aplicada.
+
+    Só sobrava uma linha resumida no AuditLog: depois de aplicar não dava mais
+    para rever quais SKUs não casaram nem quais linhas vieram inconsistentes.
+    """
+    db.session.add(ImportacaoLog(
+        origem=origem, por=autor or "",
+        criados=rel.get("a_criar", 0), atualizados=rel.get("a_atualizar", 0),
+        sem_match=rel.get("sem_match_n", 0),
+        inconsistencias=rel.get("inconsistencias_n", 0),
+        relatorio=json.dumps(rel, ensure_ascii=False, default=str)))
+    db.session.commit()
+
+
+@app.route("/api/equipamentos/importacoes", methods=["GET"])
+@require_role("admin", "gestor")
+def api_importacoes():
+    try:
+        limite = max(1, min(int(request.args.get("limit", 20)), 100))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "limit deve ser numérico"}), 400
+    linhas = (ImportacaoLog.query.order_by(ImportacaoLog.em.desc())
+              .limit(limite).all())
+    detalhe = request.args.get("detalhe") in ("1", "true", "sim")
+    return jsonify([l.to_dict(com_relatorio=detalhe) for l in linhas]), 200
 
 
 @app.route("/api/equipamentos/import-pareto", methods=["POST"])
@@ -652,6 +1056,7 @@ def import_pareto():
     if rel.get("erro"):
         return jsonify(rel), 400
     if not dryrun:
+        _registrar_importacao("pareto", caller, rel)
         log_action(caller, "REIMPORT", entidade="Equipamentos (Pareto ABC)",
                    campo="import", novo=f"atualizados={rel['a_atualizar']} sem_match={rel['sem_match_n']}",
                    ip=get_client_ip())
@@ -662,6 +1067,7 @@ def import_pareto():
 @jwt_required()
 def api_taxonomia():
     cats = CategoriaEquipamento.query.filter_by(ativo=True).order_by(CategoriaEquipamento.nome).all()
+    linhas = LinhaProduto.query.filter_by(ativo=True).order_by(LinhaProduto.ordem, LinhaProduto.nome).all()
     def uso(model, attr, _id):
         return Equipamento.query.filter(Equipamento.ativo == True, getattr(Equipamento, attr) == _id).count()
     return jsonify({
@@ -669,7 +1075,42 @@ def api_taxonomia():
                         "uso": uso(None, "categoria_id", c.id),
                         "familias": [{**f.to_dict(), "uso": uso(None, "familia_id", f.id)} for f in c.familias if f.ativo]}
                        for c in cats],
+        # A tabela linhas_produto existia com FK, relationship e migração e
+        # nenhum endpoint a lia ou escrevia: era um campo morto que o plano
+        # previa como filtro. Agora entra na taxonomia como as categorias.
+        "linhas": [{**l.to_dict(), "uso": uso(None, "linha_id", l.id)} for l in linhas],
     }), 200
+
+
+@app.route("/api/linhas-produto", methods=["POST"])
+@require_role("admin", "gestor", "tecnico")
+def add_linha():
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Informe o nome"}), 400
+    if LinhaProduto.query.filter(LinhaProduto.ativo == True,
+                                 LinhaProduto.nome.ilike(nome)).first():
+        return jsonify({"erro": f'A linha "{nome}" já existe'}), 409
+    linha = LinhaProduto(nome=nome)
+    db.session.add(linha); db.session.commit()
+    return jsonify(linha.to_dict()), 201
+
+
+@app.route("/api/linhas-produto/<int:lid>", methods=["PATCH", "DELETE"])
+@require_role("admin", "gestor", "tecnico")
+def edit_linha(lid):
+    linha = LinhaProduto.query.get(lid)
+    if not linha:
+        return jsonify({"erro": "Não encontrada"}), 404
+    if request.method == "DELETE":
+        Equipamento.query.filter(Equipamento.linha_id == lid).update(
+            {Equipamento.linha_id: None}, synchronize_session=False)
+        db.session.delete(linha); db.session.commit()
+        return jsonify({"mensagem": "Linha excluída"}), 200
+    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
+    if nome:
+        linha.nome = nome; db.session.commit()
+    return jsonify(linha.to_dict()), 200
 
 def _tax_uso(attr, _id):
     return Equipamento.query.filter(getattr(Equipamento, attr) == _id).count()
@@ -1290,6 +1731,8 @@ def api_enums():
                 .distinct().order_by(Equipamento.familia).all()]
     return jsonify({
         "setores": SETORES,
+        "setor_processo": SETOR_PROCESSO,
+        "setores_todos": SETORES_TODOS,
         "status_map": STATUS_MAP,
         "tipos_doc_pre": TIPOS_DOC_PRE,
         "tipos_doc_fabricante": TIPOS_DOC_FABRICANTE,
@@ -1297,6 +1740,8 @@ def api_enums():
         "tipos_doc_opcionais": TIPOS_DOC_OPCIONAIS,
         "setor_do_tipo": SETOR_DO_TIPO,
         "tipos_doc_labels": TIPOS_DOC_LABELS,
+        "motivos_na": MOTIVOS_NA,
+        "motivo_na_livre": MOTIVO_NA_LIVRE,
         "familias": familias,
     }), 200
 
@@ -1389,35 +1834,52 @@ def replay_events():
     events = get_events_since(since, db=db, AuditLog=AuditLog, limit=500)
     return jsonify(events)
 
-import threading
+# /api/reimport foi REMOVIDA. Ela disparava _import_excel_to_db() numa thread
+# solta, e aquela função dropava as tabelas `documentos` e `documento_historico`
+# antes de reinserir a planilha — um POST de qualquer gestor apagava o banco de
+# documentos inteiro. O botão da UI já tinha sido retirado, então a rota estava
+# sem chamador nenhum: só o estrago continuava alcançável. O seed por planilha
+# segue existindo em `servidor.py --init` (init_db), agora sem destruir nada.
+# Para atualizar dados em massa use o import de equipamentos ou a própria UI.
 
-def _run_import_bg():
-    with app.app_context():
-        try:
-            _import_excel_to_db()
-            print("Importação background finalizada com sucesso.")
-        except Exception as e:
-            print(f"Erro no import background: {e}")
-            try:
-                db.session.rollback()
-            except:
-                pass
 
-@app.route("/api/reimport", methods=["POST"])
-@require_role("admin", "gestor")
-def api_reimport():
-    if not os.path.exists(EXCEL_PATH): return jsonify({"erro": "Excel não encontrado"}), 404
-    
-    threading.Thread(target=_run_import_bg).start()
-    return jsonify({"mensagem": "Sincronização iniciada. Os dados serão atualizados em instantes (aprox. 30 a 60 segundos). Recarregue a página para ver."}), 200
+@app.route("/api/admin/tarefas-diarias", methods=["POST"])
+@require_role("admin")
+def api_tarefas_diarias():
+    """Dispara agora as fotos do dia (equipamentos, missões, projetos).
+
+    O agendador interno já faz isso todo dia (ver scheduler.py); esta rota é o
+    escape para quando alguém quer a medição na hora, sem reiniciar o serviço.
+    """
+    resultado = rodar_uma_vez(app, rodar_tarefas_diarias, forcar=True)
+    return jsonify({"executado": bool(resultado),
+                    "mensagem": "Tarefas diárias executadas."}), 200
+
 
 @app.route("/api/status")
+@require_role("admin", "gestor")
 def api_status():
+    """Estado do ambiente — infra real para a tela de Configurações.
+
+    Exigia zero autenticação e devolvia o caminho absoluto do banco e da
+    planilha no servidor, mais a contagem de usuários: um mapa da instalação
+    para quem só conseguisse alcançar a porta. Os caminhos completos saíram;
+    ficou o nome do arquivo, que é o que a tela precisa mostrar.
+    """
     exists = os.path.exists(EXCEL_PATH)
     mtime = datetime.fromtimestamp(os.path.getmtime(EXCEL_PATH)).strftime("%d/%m/%Y %H:%M") if exists else ""
-    return jsonify({"excel_found": exists, "excel_path": EXCEL_PATH, "excel_modified": mtime,
-                    "db_path": DB_PATH, "usuarios": User.query.count(),
-                    "documentos": Documento.query.filter(Documento.ativo == True).count()}), 200
+    dialeto = db.engine.dialect.name
+    return jsonify({
+        "excel_found": exists,
+        "excel_nome": os.path.basename(EXCEL_PATH),
+        "excel_modified": mtime,
+        "db_nome": os.path.basename(DB_PATH) if dialeto == "sqlite" else "doctrack",
+        "db_engine": "SQLite" if dialeto == "sqlite" else dialeto.capitalize(),
+        "versao": APP_VERSION,
+        "usuarios": User.query.count(),
+        "documentos": Documento.query.filter(Documento.ativo == True).count(),
+        "agendador": agendador_habilitado(),
+    }), 200
 
 # ── WEBSOCKET HANDLERS ────────────────────────────────────────────────────────
 @socketio.on("connect")
@@ -1499,10 +1961,17 @@ def _sync_schema():
             ("data_fim_real",    "VARCHAR(10) DEFAULT ''"),
             ("orcamento",        "FLOAT DEFAULT 0"),
             ("tipo",             "VARCHAR(20) DEFAULT ''"),
+            ("status",           "VARCHAR(20) DEFAULT 'execucao' NOT NULL"),
         ],
         "entregaveis": [
             ("data_inicio",    "VARCHAR(10) DEFAULT ''"),
             ("data_conclusao", "VARCHAR(10) DEFAULT ''"),
+            ("peso",           "FLOAT DEFAULT 1"),
+            ("data_inicio_prev", "VARCHAR(10) DEFAULT ''"),
+            ("data_fim_prev",    "VARCHAR(10) DEFAULT ''"),
+        ],
+        "modelos_entregavel": [
+            ("peso", "FLOAT DEFAULT 1"),
         ],
         "projeto_mensal": [
             ("custo_mes", "FLOAT DEFAULT 0"),
@@ -1513,6 +1982,16 @@ def _sync_schema():
             ("equipamento_id", "INTEGER"),
             ("aplicavel",      f"BOOLEAN DEFAULT {_bool_true} NOT NULL"),
             ("motivo_na",      "VARCHAR(300) DEFAULT ''"),
+            ("motivo_na_codigo", "VARCHAR(40) DEFAULT ''"),
+            ("prazo",          "DATE"),
+            # Marcos temporais: nascem nulos (ADD COLUMN não aceita default não
+            # constante) e são preenchidos por _backfill_marcos_documentos a
+            # partir da trilha. Ver migration 011.
+            ("concluido_em",     "TIMESTAMP"),
+            ("concluido_por",    "VARCHAR(120) DEFAULT ''"),
+            ("entrou_status_em", "TIMESTAMP"),
+            ("data_inicio",      "DATE"),
+            ("peso",             "FLOAT DEFAULT 1"),
         ],
         "equipamentos": [
             ("nome_tecnico",      "VARCHAR(400) DEFAULT ''"),
@@ -1532,6 +2011,27 @@ def _sync_schema():
             ("rev_descritivo",    "VARCHAR(20) DEFAULT 'Pendente'"),
             ("pareto_classe",     "VARCHAR(1) DEFAULT ''"),
             ("qtd_saidas",        "INTEGER DEFAULT 0"),
+            ("responsavel",       "VARCHAR(120) DEFAULT ''"),
+            ("classe_risco",         "VARCHAR(10) DEFAULT ''"),
+            ("situacao_regulatoria", "VARCHAR(30) DEFAULT ''"),
+            ("modelo",            "VARCHAR(120) DEFAULT ''"),
+            ("tecnologia",        "VARCHAR(200) DEFAULT ''"),
+            ("aplicacao",         "VARCHAR(300) DEFAULT ''"),
+        ],
+        # Missões: o módulo gravava estado, não processo. Os marcos temporais
+        # nascem nulos (ADD COLUMN não aceita default não-constante) e são
+        # preenchidos no backfill logo abaixo. Ver migration 010.
+        "missao_colunas": [
+            ("limite_wip", "INTEGER DEFAULT 0"),
+        ],
+        "missao_cartoes": [
+            ("criado_em",        "TIMESTAMP"),
+            ("concluido_em",     "TIMESTAMP"),
+            ("concluido_por",    "VARCHAR(120) DEFAULT ''"),
+            ("entrou_coluna_em", "TIMESTAMP"),
+            ("data_inicio",      "VARCHAR(40) DEFAULT ''"),
+            ("peso",             "FLOAT DEFAULT 1"),
+            ("recorrencia",      "VARCHAR(20) DEFAULT ''"),
         ],
     }
     adicionadas = set()
@@ -1546,6 +2046,43 @@ def _sync_schema():
                 adicionadas.add(f"{tabela}.{nome}")
                 print(f"[INFO] Schema: coluna {tabela}.{nome} adicionada")
     db.session.commit()
+
+    # Índices em tabelas que já existiam: create_all() cria a tabela nova com os
+    # índices do modelo, mas não adiciona índice a tabela existente.
+    novos_indices = [
+        # /api/audit e o export ordenam por timestamp DESC e filtram por período.
+        # A coluna não tinha índice: cada abertura da tela de auditoria era um
+        # full scan + sort da tabela que mais cresce no sistema.
+        ("ix_audit_logs_timestamp", "audit_logs", "timestamp"),
+    ]
+    for nome_idx, tabela, coluna in novos_indices:
+        if tabela not in existentes:
+            continue
+        if nome_idx in {i["name"] for i in insp.get_indexes(tabela)}:
+            continue
+        try:
+            db.session.execute(text(
+                f"CREATE INDEX {nome_idx} ON {tabela} ({coluna})"))
+            db.session.commit()
+            print(f"[INFO] Schema: índice {nome_idx} criado")
+        except Exception as e:
+            db.session.rollback()
+            print(f"[WARN] Schema: índice {nome_idx} não criado — {e}")
+
+    # Missões: os cartões que já existiam não têm criação registrada em lugar
+    # nenhum — `atualizado_em` é o limite superior conhecido e não inventa data
+    # futura. Sem isso nem a idade do cartão era derivável.
+    if "missao_cartoes.criado_em" in adicionadas:
+        db.session.execute(text(
+            "UPDATE missao_cartoes SET criado_em = atualizado_em WHERE criado_em IS NULL"))
+        db.session.execute(text(
+            "UPDATE missao_cartoes SET entrou_coluna_em = COALESCE(atualizado_em, criado_em) "
+            "WHERE entrou_coluna_em IS NULL"))
+        db.session.execute(text(
+            f"UPDATE missao_cartoes SET concluido_em = atualizado_em "
+            f"WHERE concluido = {_bool_true} AND concluido_em IS NULL"))
+        db.session.commit()
+        print("[INFO] Missões: marcos temporais dos cartões existentes preenchidos")
 
     # Acesso ao PDR: ao criar a coluna, libera automaticamente para os admins.
     if "users.pode_pdr" in adicionadas:
@@ -1598,6 +2135,66 @@ def _sync_schema():
         """))
         db.session.commit()
         print(f"[INFO] Schema: {res.rowcount} entregável(is) com conclusão retroalimentada")
+
+    # Ciclo de vida: projetos já arquivados não eram distinguíveis entre
+    # "terminou" e "morreu no meio". Deduz pelo avanço uma única vez.
+    if "projetos.status" in adicionadas:
+        db.session.execute(text(
+            "UPDATE projetos SET status = 'execucao' WHERE ativo = %s" % _bool_true))
+        arquivados = db.session.execute(text(
+            "SELECT id FROM projetos WHERE ativo = %s" % _bool_false)).fetchall()
+        from models import Projeto as _P
+        for (pid,) in arquivados:
+            proj = db.session.get(_P, pid)
+            if proj is None:
+                continue
+            proj.status = "concluido" if proj.avanco >= 100 else "cancelado"
+        db.session.commit()
+        print(f"[INFO] Schema: status deduzido para {len(arquivados)} projeto(s) arquivado(s)")
+
+    # Linha de base v1 para projetos que nasceram antes do versionamento — sem
+    # isto o histórico começaria vazio e não haveria com o que comparar.
+    _tabelas = set(_sa_inspect(db.engine).get_table_names())
+    if "projeto_baseline" in _tabelas:
+        from models import Projeto as _P, ProjetoBaseline as _B
+        sem_base = (db.session.query(_P.id)
+                    .outerjoin(_B, _B.projeto_id == _P.id)
+                    .filter(_B.id.is_(None)).all())
+        for (pid,) in sem_base:
+            proj = db.session.get(_P, pid)
+            if proj is not None:
+                proj.registrar_baseline("system", motivo="Linha de base inicial (migração)")
+        if sem_base:
+            db.session.commit()
+            print(f"[INFO] Schema: linha de base v1 criada para {len(sem_base)} projeto(s)")
+
+    # Responsáveis: liga o texto livre ("Guilherme/Melk") aos usuários reais.
+    # Best-effort pelo primeiro nome; o que não casar continua só como texto.
+    if "entregavel_responsaveis" in _tabelas:
+        ja = db.session.execute(
+            text("SELECT COUNT(*) FROM entregavel_responsaveis")).scalar()
+        if not ja:
+            from models import Entregavel as _E, User as _U
+            usuarios = _U.query.filter_by(ativo=True).all()
+            por_primeiro = {}
+            for u in usuarios:
+                chave = (u.nome or "").strip().split(" ")[0].lower()
+                if chave:
+                    por_primeiro.setdefault(chave, []).append(u)
+            ligados = 0
+            for e in _E.query.filter(_E.responsaveis != "").all():
+                achados = []
+                for parte in re.split(r"[/,;e&]| e ", (e.responsaveis or "").lower()):
+                    parte = parte.strip()
+                    cands = por_primeiro.get(parte) or []
+                    # nome ambíguo (dois "Carlos") não é adivinhado: fica só texto
+                    if len(cands) == 1 and cands[0] not in achados:
+                        achados.append(cands[0])
+                if achados:
+                    e.responsaveis_users = achados
+                    ligados += 1
+            db.session.commit()
+            print(f"[INFO] Schema: {ligados} entregável(is) com responsáveis vinculados a usuários")
 
     # Semeia os modelos de entregáveis (OEM/Revenda) a partir dos entregáveis
     # distintos já existentes — só quando a tabela está vazia (espelha a
@@ -1767,6 +2364,303 @@ def _backfill_equipamentos():
               f"completados; {revinculados} documentos revinculados a equipamento ativo.")
 
 
+def _consolidar_armazenamento():
+    """Sobe o caminho da pasta para o EQUIPAMENTO e limpa as cópias redundantes.
+
+    O caminho é atributo do equipamento, mas era gravado nas 12 linhas de
+    documento (1 caminho distinto por equipamento em 100% dos casos). Editar numa
+    aba não refletia nas outras 11. Aqui:
+      1) equipamento sem armazenamento_base herda o caminho mais frequente entre
+         os seus documentos;
+      2) documento cujo caminho é igual ao do equipamento passa a herdar (fica
+         em branco). Caminho DIFERENTE é preservado — é um override real.
+    Idempotente.
+    """
+    promovidos = limpos = 0
+    equips = Equipamento.query.filter(Equipamento.ativo == True).all()
+    for equip in equips:
+        docs = Documento.query.filter(Documento.ativo == True,
+                                      Documento.equipamento_id == equip.id).all()
+        if not docs:
+            continue
+        base = (equip.armazenamento_base or "").strip()
+        if not base:
+            freq = {}
+            for d in docs:
+                p = (d.armazenamento or "").strip()
+                if p:
+                    freq[p] = freq.get(p, 0) + 1
+            if freq:
+                base = max(freq.items(), key=lambda kv: kv[1])[0]
+                equip.armazenamento_base = base
+                promovidos += 1
+        if not base:
+            continue
+        for d in docs:
+            if (d.armazenamento or "").strip() == base:
+                d.armazenamento = ""      # passa a herdar do equipamento
+                limpos += 1
+    if promovidos or limpos:
+        db.session.commit()
+        print(f"[INFO] Armazenamento: {promovidos} equipamento(s) receberam o caminho base; "
+              f"{limpos} documento(s) passaram a herdar (cópias redundantes removidas).")
+
+
+def _backfill_historico_documentos():
+    """Cria o marco inicial da trilha de status dos documentos que não têm nenhum.
+
+    Sem uma linha de partida, o histórico começaria vazio e o aging ("há quantos
+    dias parado") não teria data de referência. Grava UMA linha por documento com
+    a data que melhor aproxima o último movimento conhecido (updated_em, ou
+    criado_em), marcada como 'system' para não se confundir com registro real.
+    Roda uma única vez: quem já tem histórico não é tocado.
+    """
+    from sqlalchemy import inspect as _sa_inspect
+    if "documento_historico" not in set(_sa_inspect(db.engine).get_table_names()):
+        return
+    if DocumentoHistorico.query.first() is not None:
+        return
+    docs = Documento.query.filter(Documento.ativo == True).all()
+    for d in docs:
+        db.session.add(DocumentoHistorico(
+            documento_id=d.id, evento="status",
+            status_antigo="", status_novo=d.status or "Elaborar",
+            em=(d.updated_em or d.criado_em or datetime.now()),
+            por="system", motivo="Marco inicial (migração)"))
+    if docs:
+        db.session.commit()
+        print(f"[INFO] Histórico: marco inicial criado para {len(docs)} documento(s)")
+
+
+def _data_conclusao_real(doc_id, status):
+    """Data em que o documento ENTROU no status terminal, se ela existir de fato.
+
+    Só aceita uma transição real: a linha da trilha precisa ter `status_antigo`
+    preenchido. O marco de migração criado por _backfill_historico_documentos
+    grava `status_antigo=''` com a data de `updated_em` — usá-lo como data de
+    conclusão inventaria um throughput que nunca aconteceu (no banco atual, os
+    522 marcos são de 24/07, o que faria os 64 documentos já concluídos há
+    tempos aparecerem todos como "concluídos nos últimos 30 dias", com tempo de
+    ciclo zero). Documento concluído antes de existir instrumentação tem data
+    de conclusão DESCONHECIDA, e é isso que None quer dizer.
+    """
+    return (db.session.query(db.func.max(DocumentoHistorico.em))
+            .filter(DocumentoHistorico.documento_id == doc_id,
+                    DocumentoHistorico.status_novo == status,
+                    db.func.coalesce(DocumentoHistorico.status_antigo, "") != "")
+            .scalar())
+
+
+def _backfill_marcos_documentos():
+    """Deriva os marcos temporais dos documentos a partir da trilha (migration 011).
+
+    A trilha (`documento_historico`) já registrava cada troca de status desde a
+    migration 008 — só ninguém a lia para nada além de exibir a lista na ficha.
+    Aqui ela paga a dívida: `entrou_status_em` vem da última troca registrada
+    (aí o marco de migração serve: é o limite superior conhecido do aging e não
+    inventa data futura) e `concluido_em` só de uma transição real — ver
+    _data_conclusao_real.
+
+    Idempotente: só toca documento com a coluna nula.
+    """
+    from sqlalchemy import inspect as _sa_inspect
+    tabelas = set(_sa_inspect(db.engine).get_table_names())
+    if "documentos" not in tabelas:
+        return
+    cols = {c["name"] for c in _sa_inspect(db.engine).get_columns("documentos")}
+    if "entrou_status_em" not in cols:
+        return   # schema antigo: _sync_schema roda antes e cria as colunas
+
+    com_trilha = "documento_historico" in tabelas
+
+    # Correção de uma versão anterior deste backfill, que aceitava o marco de
+    # migração como data de conclusão. Roda uma vez e some (idempotente).
+    if com_trilha:
+        suspeitos = [d for d in Documento.query.filter(
+            Documento.concluido_em.isnot(None)).all()
+            if _data_conclusao_real(d.id, d.status) is None]
+        if suspeitos:
+            for d in suspeitos:
+                d.concluido_em = None
+                d.concluido_por = ""
+            db.session.commit()
+            print(f"[INFO] Documentos: data de conclusão sintética removida de "
+                  f"{len(suspeitos)} documento(s) (sem transição real na trilha)")
+
+    pendentes = Documento.query.filter(
+        db.or_(Documento.entrou_status_em.is_(None), Documento.peso.is_(None))).all()
+    if not pendentes:
+        return
+
+    n_conclusao = 0
+    for d in pendentes:
+        if d.peso is None:
+            d.peso = 1.0
+        if d.entrou_status_em is None:
+            marco = None
+            if com_trilha:
+                marco = (db.session.query(db.func.max(DocumentoHistorico.em))
+                         .filter(DocumentoHistorico.documento_id == d.id,
+                                 db.func.coalesce(DocumentoHistorico.evento,
+                                                  "status") == "status")
+                         .scalar())
+            d.entrou_status_em = marco or d.updated_em or d.criado_em or datetime.now()
+        if d.concluido and d.concluido_em is None and com_trilha:
+            real = _data_conclusao_real(d.id, d.status)
+            if real is not None:
+                d.concluido_em = real
+                n_conclusao += 1
+
+    db.session.commit()
+    print(f"[INFO] Documentos: marcos temporais preenchidos em {len(pendentes)} "
+          f"documento(s) ({n_conclusao} com data de conclusão conhecida)")
+
+
+def _backfill_responsaveis_documentos():
+    """Liga `Documento.responsavel` (texto) aos usuários reais — espelha 011.
+
+    Por nome COMPLETO exato: casar por primeiro nome reintroduziria a colisão
+    ("Ana" casando com "Mariana") que a tabela N:N veio corrigir. O que não
+    casar continua valendo como texto (ver Documento.responsaveis_nomes).
+    Roda uma vez: se a tabela já tem qualquer linha, não faz nada.
+    """
+    from sqlalchemy import inspect as _sa_inspect
+    from models import documento_responsaveis
+    if "documento_responsaveis" not in set(_sa_inspect(db.engine).get_table_names()):
+        return
+    if db.session.query(documento_responsaveis).count() > 0:
+        return
+
+    por_nome = {}
+    for u in User.query.filter_by(ativo=True).all():
+        chave = (u.nome or "").strip().lower()
+        if chave:
+            por_nome.setdefault(chave, []).append(u)
+
+    ligados = 0
+    for d in Documento.query.filter(Documento.responsavel != "").all():
+        achados = []
+        for parte in (d.responsavel or "").split(","):
+            cands = por_nome.get(parte.strip().lower()) or []
+            if len(cands) == 1 and cands[0] not in achados:
+                achados.append(cands[0])
+        if achados:
+            d.responsaveis_users = achados
+            ligados += 1
+    if ligados:
+        db.session.commit()
+        print(f"[INFO] Documentos: responsáveis de {ligados} documento(s) "
+              f"vinculados a usuários")
+
+
+def _backfill_historico_equipamentos():
+    """Marco inicial da trilha de-para dos equipamentos que já existiam.
+
+    Mesmo papel do marco dos documentos: sem uma linha de partida a aba
+    Histórico da ficha abriria vazia para todo o cadastro atual, sem sequer
+    dizer desde quando ele está assim. Roda uma vez só."""
+    from sqlalchemy import inspect as _sa_inspect
+    if "equipamento_historico" not in set(_sa_inspect(db.engine).get_table_names()):
+        return
+    if EquipamentoHistorico.query.first() is not None:
+        return
+    equips = Equipamento.query.filter(Equipamento.ativo == True).all()
+    for e in equips:
+        db.session.add(EquipamentoHistorico(
+            equipamento_id=e.id, evento="create", campo="nome",
+            valor_antigo="", valor_novo=e.nome or "",
+            em=(e.updated_em or e.criado_em or datetime.now()),
+            por="system"))
+    if equips:
+        db.session.commit()
+        print(f"[INFO] Equipamentos: marco inicial de histórico para {len(equips)} item(ns)")
+
+
+def _snapshot_do_dia():
+    """Garante a foto de hoje da série de ICE/IDP.
+
+    Chamada na subida e todo dia pelo agendador interno (ver scheduler.py e
+    rodar_tarefas_diarias). `POST /api/equipamentos/snapshot` continua servindo
+    para um disparo manual. Idempotente — se a linha de hoje já existe, sai."""
+    from sqlalchemy import inspect as _sa_inspect
+    if "equipamento_snapshot" not in set(_sa_inspect(db.engine).get_table_names()):
+        return 0
+    hoje = date.today().isoformat()
+    if EquipamentoSnapshot.query.filter(EquipamentoSnapshot.data == hoje).first():
+        return 0
+    n = _snapshot_equipamentos(hoje)
+    if n:
+        print(f"[INFO] Equipamentos: snapshot de {hoje} gravado ({n} equipamento(s))")
+    return n
+
+
+def _backfill_missoes():
+    """Missões: liga responsáveis texto → usuário e cria o marco inicial da
+    trilha dos cartões que já existiam (espelha a migration 010).
+
+    O N:N é ligado por nome COMPLETO exato: o CSV do cartão é preenchido pelo
+    seletor de usuários, então bate 1:1 — adivinhar por primeiro nome aqui
+    reintroduziria a colisão ("Ana" casando com "Mariana") que a tabela veio
+    corrigir. Idempotentes."""
+    from sqlalchemy import inspect as _sa_inspect
+    from models import (Missao, MissaoCartao, MissaoCartaoHistorico,
+                        missao_cartao_responsaveis)
+    tabelas = set(_sa_inspect(db.engine).get_table_names())
+    if "missao_cartao_historico" not in tabelas:
+        return
+
+    if db.session.query(missao_cartao_responsaveis).count() == 0:
+        por_nome = {}
+        for u in User.query.filter_by(ativo=True).all():
+            chave = (u.nome or "").strip().lower()
+            if chave:
+                por_nome.setdefault(chave, []).append(u)
+        ligados = 0
+        for c in MissaoCartao.query.filter(MissaoCartao.responsaveis != "").all():
+            achados = []
+            for parte in (c.responsaveis or "").split(","):
+                cands = por_nome.get(parte.strip().lower()) or []
+                if len(cands) == 1 and cands[0] not in achados:
+                    achados.append(cands[0])
+            if achados:
+                c.responsaveis_users = achados
+                ligados += 1
+        if ligados:
+            db.session.commit()
+            print(f"[INFO] Missões: responsáveis de {ligados} cartão(ões) "
+                  f"vinculados a usuários")
+
+    if MissaoCartaoHistorico.query.count() == 0:
+        cartoes = MissaoCartao.query.all()
+        agora = datetime.now()
+        for c in cartoes:
+            db.session.add(MissaoCartaoHistorico(
+                cartao_id=c.id, missao_id=c.missao_id, evento="criado",
+                coluna_destino_id=c.coluna_id, campo="titulo",
+                valor_antigo="", valor_novo=(c.titulo or "").strip(),
+                origem="migracao", em=(c.criado_em or c.atualizado_em or agora),
+                por="system"))
+        if cartoes:
+            db.session.commit()
+            print(f"[INFO] Missões: marco inicial de histórico para "
+                  f"{len(cartoes)} cartão(ões)")
+
+
+def _snapshot_missoes_do_dia():
+    """Foto do dia das missões ativas — mesmo gancho diário do ICE/IDP.
+    `POST /api/missoes/snapshot` cobre o disparo manual. Idempotente:
+    reexecutar no mesmo dia atualiza a linha."""
+    from sqlalchemy import inspect as _sa_inspect
+    if "missao_snapshot" not in set(_sa_inspect(db.engine).get_table_names()):
+        return 0
+    from missoes import snapshot_do_dia
+    n = snapshot_do_dia()
+    if n:
+        print(f"[INFO] Missões: snapshot de {date.today().isoformat()} "
+              f"gravado ({n} missão(ões))")
+    return n
+
+
 def _seed_tipos_consumivel():
     """Semeia os tipos de consumível + o modelo de campos de cada um (só quando
     a tabela está vazia). As tabelas de consumíveis são criadas por create_all().
@@ -1783,36 +2677,133 @@ def _seed_tipos_consumivel():
         print(f"[INFO] Consumíveis: {n} tipos semeados com modelo de campos")
 
 
-with app.app_context():
-    try:
-        db.create_all()
-        _sync_schema()
-        _seed_tipos_consumivel()
-        # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
-        from sqlalchemy import text
-        db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
+def _snapshot_projetos_do_dia():
+    """Foto do dia dos projetos ativos.
+
+    Projeto já grava snapshot a cada mutação (`registrar_snapshot`), então a
+    curva-S tem pontos — mas só nos dias em que alguém mexeu. Um projeto parado
+    duas semanas virava uma reta entre dois pontos distantes, escondendo que o
+    previsto continuou subindo enquanto o realizado não. Idempotente no dia."""
+    from sqlalchemy import inspect as _sa_inspect
+    if "projeto_snapshot" not in set(_sa_inspect(db.engine).get_table_names()):
+        return 0
+    from models import Projeto
+    projetos = Projeto.query.filter(Projeto.ativo == True).all()
+    for p in projetos:
+        p.registrar_snapshot()
+    if projetos:
         db.session.commit()
+        print(f"[INFO] Projetos: snapshot de {date.today().isoformat()} "
+              f"gravado ({len(projetos)} projeto(s))")
+    return len(projetos)
 
-        if User.query.count() == 0:
-            init_db()
 
-        # Reestruturação: entidade Equipamento + tipos por equipamento.
-        # A migração de taxonomia roda ANTES do backfill (o rename evita que o
-        # backfill crie um Checklist_Conferencia duplicado). Idempotente.
-        _migrar_taxonomia_docs()
-        _backfill_equipamentos()
+def _purgar_auditoria():
+    """Descarta linhas de auditoria mais antigas que DOCTRACK_AUDIT_RETENCAO_DIAS.
 
-        # PDR: na primeira subida as tabelas pdr_* já foram criadas por create_all();
-        # importa a Lista Mestra de Reagentes (versionada em pdr/data/) se estiver vazia.
+    Desligado por padrão (0 = guardar tudo): auditoria é registro de conformidade
+    e apagar por conta própria seria pior que a tabela crescer. Quem tem política
+    de retenção definida liga a variável e a limpeza passa a rodar no diário.
+    """
+    dias = int(os.environ.get("DOCTRACK_AUDIT_RETENCAO_DIAS", "0") or 0)
+    if dias <= 0:
+        return 0
+    corte = datetime.now() - timedelta(days=dias)
+    n = AuditLog.query.filter(AuditLog.timestamp < corte).delete(synchronize_session=False)
+    db.session.commit()
+    if n:
+        print(f"[INFO] Auditoria: {n} registro(s) anteriores a "
+              f"{corte.strftime('%d/%m/%Y')} descartados (retenção {dias} dias)")
+    return n
+
+
+def rodar_tarefas_diarias():
+    """As tarefas que precisam de uma execução por dia, em um lugar só.
+
+    Chamada pelo agendador interno (scheduler.py), pelo init_app na subida e por
+    `scripts/snapshot_diario.py`. Cada etapa é idempotente no dia e isolada: uma
+    falha não impede as seguintes, porque perder a foto dos equipamentos não é
+    motivo para perder também a das missões.
+    """
+    resultado = {}
+    for nome, fn in (("equipamentos", _snapshot_do_dia),
+                     ("missoes", _snapshot_missoes_do_dia),
+                     ("projetos", _snapshot_projetos_do_dia),
+                     ("auditoria", _purgar_auditoria)):
         try:
-            from pdr.models import Apresentacao as _PdrApres
-            if _PdrApres.query.count() == 0:
-                from pdr.importer import importar_planilha as _importar_pdr
-                _importar_pdr()
-        except Exception as _pdr_err:
-            print(f"[WARN] Importação inicial do PDR: {_pdr_err}")
-    except Exception as _startup_err:
-        print(f"[WARN] Erro na inicialização do banco: {_startup_err}")
+            resultado[nome] = fn()
+        except Exception as e:
+            db.session.rollback()
+            resultado[nome] = f"erro: {e}"
+            print(f"[WARN] Tarefa diária '{nome}' falhou — {e}")
+    return resultado
+
+
+def init_app(app_=None):
+    """Prepara o banco para o app subir: schema, seeds, backfills e foto do dia.
+
+    Isto NÃO roda no import de propósito. Enquanto rodava, qualquer `import
+    servidor` — inclusive o do pytest e o de um script solto — executava
+    create_all, o UPDATE de setor, todos os backfills e as escritas de snapshot
+    contra o banco real do desenvolvedor, sem que ninguém tivesse pedido.
+    Quem sobe o servidor chama esta função explicitamente (ver __main__ e
+    wsgi.py); quem só importa o módulo não paga nada.
+
+    Todas as etapas são idempotentes: chamar de novo não duplica nada.
+    """
+    alvo = (app_ or app)
+    with alvo.app_context():
+        try:
+            # Diz em voz alta qual banco está sendo preparado. Quando isto
+            # acontecia no import, era impossível saber de onde tinha partido a
+            # escrita — a linha abaixo torna qualquer preparação inesperada
+            # visível no log em vez de silenciosa.
+            uri = alvo.config.get("SQLALCHEMY_DATABASE_URI", "")
+            print(f"[INFO] init_app: preparando {uri.rsplit('/', 1)[-1] or uri}")
+            db.create_all()
+            _sync_schema()
+            _seed_tipos_consumivel()
+            # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
+            from sqlalchemy import text
+            db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
+            db.session.commit()
+
+            if User.query.count() == 0:
+                init_db()
+
+            # Reestruturação: entidade Equipamento + tipos por equipamento.
+            # A migração de taxonomia roda ANTES do backfill (o rename evita que o
+            # backfill crie um Checklist_Conferencia duplicado). Idempotente.
+            _migrar_taxonomia_docs()
+            _backfill_equipamentos()
+            # Caminho da pasta é do equipamento (documento só guarda override) e
+            # todo documento nasce com um marco na trilha de status. Idempotentes.
+            _consolidar_armazenamento()
+            _backfill_historico_documentos()
+            # Documentos: marcos temporais derivados da trilha + responsáveis
+            # tipados. Idempotentes.
+            _backfill_marcos_documentos()
+            _backfill_responsaveis_documentos()
+            # Equipamentos: trilha de-para do ICE/IDP. Idempotente.
+            _backfill_historico_equipamentos()
+            # Missões: trilha temporal do cartão + N:N de responsáveis. Idempotentes.
+            _backfill_missoes()
+            # Fotos do dia (equipamentos, missões, projetos): a subida garante a
+            # de hoje; o agendador cuida das próximas. Idempotentes.
+            rodar_tarefas_diarias()
+
+            # PDR: na primeira subida as tabelas pdr_* já foram criadas por create_all();
+            # importa a Lista Mestra de Reagentes (versionada em pdr/data/) se estiver vazia.
+            try:
+                from pdr.models import Apresentacao as _PdrApres
+                if _PdrApres.query.count() == 0:
+                    from pdr.importer import importar_planilha as _importar_pdr
+                    _importar_pdr()
+            except Exception as _pdr_err:
+                print(f"[WARN] Importação inicial do PDR: {_pdr_err}")
+        except Exception as _startup_err:
+            print(f"[WARN] Erro na inicialização do banco: {_startup_err}")
+
 
 # ── MAIN (desenvolvimento local) ─────────────────────────────────────────────
 if __name__ == "__main__":
@@ -1820,7 +2811,9 @@ if __name__ == "__main__":
     parser.add_argument("--init", action="store_true")
     args = parser.parse_args()
     print("\n" + "="*55)
-    print("  DocTrack v4.0 Enterprise — Sector Based + WebSocket")
+    print(f"  DocTrack v{APP_VERSION} — Sector Based + WebSocket")
     print("="*55)
     if args.init: init_db(reset=True)
+    init_app()
+    iniciar_agendador(app, rodar_tarefas_diarias)
     socketio.run(app, host="0.0.0.0", port=5000, debug=_flask_debug, allow_unsafe_werkzeug=True)

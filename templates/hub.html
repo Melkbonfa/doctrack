@@ -101,23 +101,13 @@
       {% endfor %}
     </div>
     <div id="empty" class="empty" style="display:none">Você ainda não tem acesso a nenhuma área. Fale com um administrador.</div>
-    <div class="foot"><span id="foot-email"></span><a id="config-link" href="/config" title="Configurações (auditoria e sistema)" style="display:none">⚙️ Configurações</a><a id="theme-toggle" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a><a id="logout">Sair</a></div>
+    <div class="foot"><span id="foot-email"></span><a id="config-link" href="/config" title="Configurações (auditoria e sistema)" style="display:none">⚙️ Configurações</a><a id="theme-toggle" data-label="Tema" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a><a id="logout">Sair</a></div>
   </div>
+<script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 <script>
-// ═══ TEMA CLARO/ESCURO (mesma chave dos módulos) ═══
-function applyTheme(theme){
-  var isLight = theme === 'light';
-  document.body.classList.toggle('theme-light', isLight);
-  var btn = document.getElementById('theme-toggle');
-  if(btn) btn.textContent = isLight ? '☀️ Tema' : '🌙 Tema';
-}
-function toggleTheme(){
-  var next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
-  localStorage.setItem('doctrack_theme', next);
-  applyTheme(next);
-}
-applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
+// Tema em static/common.js. O rótulo "Tema" ao lado do ícone vem do
+// data-label do próprio botão (aqui o botão é texto, nos módulos é só o ícone).
 
 (async function(){
   var token = localStorage.getItem('doctrack_token') || '';

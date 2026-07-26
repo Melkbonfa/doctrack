@@ -10,6 +10,18 @@
 .eq-card-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
 .eq-chip{font-size:10px;padding:3px 8px;border-radius:7px;background:var(--bg-elevated);color:var(--t2);}
 .eq-chip.bloq{background:rgba(244,63,94,.14);color:var(--red);}
+/* risco vindo dos documentos e do registro (prazo vencido / ANVISA) */
+.eq-chip.risco{background:rgba(244,63,94,.14);color:var(--red);font-weight:600;}
+.eq-chip.alerta{background:rgba(245,158,11,.15);color:var(--amber);font-weight:600;}
+button.eq-chip{font-family:inherit;}
+button.eq-chip:hover{background:var(--bg-hover,var(--bg-elevated));color:var(--t1);}
+
+/* Foco visível: cards e linhas da worklist agora são operáveis por teclado
+   (eram <div>/<tr> com onclick, sem foco nem papel semântico). */
+.equip-card[tabindex]:focus-visible,
+tr[tabindex]:focus-visible,
+button.eq-chip:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;}
+.equip-card[tabindex]{cursor:pointer;}
 
 /* ficha (modal) */
 .eq-fhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px;}

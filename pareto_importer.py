@@ -11,12 +11,18 @@ float e perde zeros à direita ('01.000200' → 1.0002), quebrando o casamento.
 
 Snapshot: em modo aplicar, equipamentos ativos que tinham classe/qtd mas não
 aparecem nesta planilha são zerados (saíram do ranking). Idempotente; dry-run.
+
+Cada aplicação também grava uma linha em `pareto_historico` por equipamento
+tocado: sem isso o import sobrescrevia a demanda anterior e o zeramento apagava
+quem saiu do ranking — existia o retrato de hoje e nenhuma tendência.
 """
 
 import io
+from datetime import date
+
 import pandas as pd
 
-from models import db, Equipamento
+from models import db, Equipamento, ParetoHistorico
 from utils import norm_sku
 
 # Cabeçalho da aba Pareto está na 11ª linha da planilha (índice 10).
@@ -58,6 +64,29 @@ def _achar_aba(path=None, file_bytes=None):
     return xls, xls.sheet_names[0]
 
 
+def _gravar_historico(linhas, dia=None):
+    """Uma linha de pareto_historico por equipamento tocado, por dia.
+
+    Reimportar no mesmo dia atualiza a linha em vez de duplicar (o import é
+    idempotente e o histórico precisa acompanhar).
+    """
+    dia = dia or date.today().isoformat()
+    if not linhas:
+        return
+    ids = [eid for eid, _c, _q in linhas]
+    existentes = {h.equipamento_id: h for h in ParetoHistorico.query.filter(
+        ParetoHistorico.data == dia, ParetoHistorico.equipamento_id.in_(ids)).all()}
+    for equip_id, classe, qtd in linhas:
+        h = existentes.get(equip_id)
+        if h:
+            h.classe, h.qtd_saidas = classe, qtd
+        else:
+            h = ParetoHistorico(equipamento_id=equip_id, data=dia,
+                                classe=classe, qtd_saidas=qtd)
+            existentes[equip_id] = h
+            db.session.add(h)
+
+
 def importar_pareto(path=None, file_bytes=None, dryrun=True):
     """Atualiza qtd_saidas/pareto_classe dos equipamentos a partir da aba Pareto.
 
@@ -82,6 +111,7 @@ def importar_pareto(path=None, file_bytes=None, dryrun=True):
     atualizar, sem_match, inconsistencias = [], [], []
     casados = set()  # SKUs normalizados de equipamentos tocados nesta planilha
     vistos = set()
+    _historico = []  # (equipamento_id, classe, qtd) do que for realmente gravado
 
     for i, row in df.iterrows():
         sku = _s(row.get(c_sku))
@@ -109,10 +139,13 @@ def importar_pareto(path=None, file_bytes=None, dryrun=True):
             continue
 
         casados.add(key)
-        atualizar.append({"sku": sku, "nome": eq.nome, "classe": classe, "qtd_saidas": qtd})
+        atualizar.append({"sku": sku, "nome": eq.nome, "classe": classe, "qtd_saidas": qtd,
+                          "classe_anterior": eq.pareto_classe or "",
+                          "qtd_anterior": eq.qtd_saidas or 0})
         if not dryrun:
             eq.pareto_classe = classe
             eq.qtd_saidas = qtd
+            _historico.append((eq.id, classe, qtd))
 
     # Snapshot: quem tinha classe/qtd e saiu do ranking é zerado.
     limpos = []
@@ -120,12 +153,16 @@ def importar_pareto(path=None, file_bytes=None, dryrun=True):
         if k in casados:
             continue
         if (eq.pareto_classe or "") or (eq.qtd_saidas or 0):
-            limpos.append({"sku": eq.sku, "nome": eq.nome})
+            limpos.append({"sku": eq.sku, "nome": eq.nome,
+                           "classe_anterior": eq.pareto_classe or "",
+                           "qtd_anterior": eq.qtd_saidas or 0})
             if not dryrun:
                 eq.pareto_classe = ""
                 eq.qtd_saidas = 0
+                _historico.append((eq.id, "", 0))
 
     if not dryrun:
+        _gravar_historico(_historico)
         db.session.commit()
 
     return {

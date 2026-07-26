@@ -51,9 +51,11 @@
   --glow-cyan-accent:rgba(6,182,212,.18);
 
   /* Tipografia: Inter + tabular numbers */
-  --font-body:'Inter',system-ui,-apple-system,sans-serif;
-  --font-display:'Inter',system-ui,sans-serif;
-  --font-mono:'JetBrains Mono','Inter',monospace;
+  /* Mesma pilha do static/style.css: sem <link> para o Google Fonts (rede
+     fabril pode não ter saída externa). Ver o comentário lá. */
+  --font-body:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-display:'Inter','Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','Cascadia Mono',Consolas,'Courier New',monospace;
 
   /* Raios (mais generosos) */
   --r:10px;

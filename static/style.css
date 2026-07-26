@@ -50,10 +50,17 @@
   --glow-cyan:rgba(34,211,238,.15);
   --glow-cyan-accent:rgba(6,182,212,.18);
 
-  /* Tipografia: Inter + tabular numbers */
-  --font-body:'Inter',system-ui,-apple-system,sans-serif;
-  --font-display:'Inter',system-ui,sans-serif;
-  --font-mono:'JetBrains Mono','Inter',monospace;
+  /* Tipografia. 'Inter' e 'JetBrains Mono' vinham do Google Fonts por <link> —
+     a última dependência de internet do app, que roda em rede fabril sem saída
+     externa garantida (as bibliotecas JS já tinham sido trazidas para
+     /static/vendor por esse motivo). Sem rede, o <link> falhava em silêncio e a
+     página caía no fallback de qualquer forma; agora a pilha é a escolha
+     deliberada, com Segoe UI (padrão do Windows, métrica próxima da Inter) na
+     frente. Se as fontes forem versionadas em /static/vendor/fonts no futuro,
+     basta declarar o @font-face e elas voltam à frente da pilha. */
+  --font-body:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-display:'Inter','Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','Cascadia Mono',Consolas,'Courier New',monospace;
 
   /* Raios (mais generosos) */
   --r:10px;
@@ -580,6 +587,32 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,
 .equip-card-sku .muted{font-family:var(--font-body);color:var(--t4);font-style:italic;letter-spacing:0}
 /* Completude do card: "x/y concluídos · n N/A" */
 .equip-card-compl{font-size:11px;color:var(--t3);margin-top:4px}
+/* Card é operável por teclado (role=button + tabindex): o foco precisa aparecer */
+.equip-card:focus-visible{outline:2px solid var(--cyan-brand);outline-offset:2px;transform:translateY(-3px);}
+/* Documentos com prazo vencido no card */
+.equip-card-late{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;color:var(--red);
+  background:color-mix(in srgb, var(--red) 14%, transparent);border-radius:6px;padding:1px 6px;vertical-align:middle}
+
+/* Recorte por tipo de documento (barra abaixo dos chips) */
+.tipo-bar{flex-direction:row;gap:8px;align-items:center;flex-wrap:wrap}
+.tipo-bar .filter-sel{max-width:280px}
+
+/* Indicadores extras do cabeçalho do dashboard (atraso / documentos de processo) */
+.dash-extra{display:inline-flex;gap:8px;align-items:center}
+.dash-flag{font-size:11px;font-weight:600;color:var(--t3);background:var(--bg-elevated);
+  border-radius:7px;padding:3px 9px;white-space:nowrap}
+.dash-flag.late{color:var(--red);background:color-mix(in srgb, var(--red) 12%, transparent)}
+
+/* Diagnóstico cadastro × filesystem */
+.diag-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px}
+.diag-stat{background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--r2);
+  padding:12px;display:flex;flex-direction:column;gap:2px;align-items:center}
+.diag-stat-val{font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--t1)}
+.diag-stat-lbl{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;text-align:center}
+.diag-stat.ok .diag-stat-val{color:var(--green)}
+.diag-stat.warn .diag-stat-val{color:var(--amber)}
+.diag-stat.err .diag-stat-val{color:var(--red)}
+.diag-stats + .tbl-wrap{max-height:52vh;overflow:auto}
 
 /* Filtro de datas do Audit Log */
 .audit-date-field{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
@@ -638,6 +671,18 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 }
 .doc-missao-chip:hover{border-color:var(--cyan-brand);color:var(--t1);}
 .doc-missao-chip.done{opacity:.65;text-decoration:line-through;}
+.doc-missao-chip.late{border-color:rgba(239,68,68,.45);color:var(--red);}
+.doc-missao-novo{
+  font-size:11.5px;padding:4px 11px;border-radius:9px;cursor:pointer;font-family:inherit;
+  border:1px dashed var(--border-soft);color:var(--t3);background:none;white-space:nowrap;
+}
+.doc-missao-novo:hover{border-color:var(--cyan-brand);color:var(--t1);}
+.doc-missao-form{
+  flex:1 1 100%;display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:8px;
+  padding-top:9px;border-top:1px solid var(--border-dim);
+}
+.doc-missao-form .form-input{flex:1 1 190px;min-width:130px;max-width:280px;}
+.doc-missao-form input[type=date]{flex:0 0 150px;}
 
 /* Cabeçalho de identidade do equipamento */
 #equip-header{margin-bottom:6px;}
@@ -648,9 +693,27 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .equip-id-badges{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:12px 0 2px 20px;}
 .equip-id-badge{font-size:11px;padding:4px 10px;border-radius:7px;background:var(--bg-elevated);color:var(--t2);white-space:nowrap;}
 .equip-id-edit{margin-top:4px;}
-.equip-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
-.equip-panel-title{font-size:14px;font-weight:600;color:var(--t1);}
+.equip-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+.equip-panel-title{font-size:14px;font-weight:600;color:var(--t1);margin-right:auto;}
 .equip-tag{font-size:10px;padding:3px 9px;border-radius:7px;background:var(--bg-elevated);color:var(--t3);}
+.equip-tag.late{color:var(--red);background:color-mix(in srgb, var(--red) 12%, transparent);font-weight:700}
+.equip-tag.warn{color:var(--amber);background:color-mix(in srgb, var(--amber) 12%, transparent);font-weight:700}
+
+/* Origem do caminho de armazenamento (herdado do equipamento × exceção do doc) */
+.arm-hint{font-size:10px;font-weight:600;color:var(--t3);background:var(--bg-elevated);
+  border-radius:6px;padding:2px 7px;margin-left:6px;text-transform:none;letter-spacing:0}
+.arm-hint.override{color:var(--amber);background:color-mix(in srgb, var(--amber) 12%, transparent)}
+.arm-hint .btn-link{background:none;border:none;color:var(--cyan);font:inherit;cursor:pointer;
+  padding:0;margin-left:6px;text-decoration:underline}
+
+/* Trilha de status do documento (aging + últimas transições) */
+.doc-hist{background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:8px;
+  padding:8px 10px;max-height:112px;overflow:auto;font-size:11px;color:var(--t3);line-height:1.7}
+.doc-hist-aging{color:var(--t2);margin-bottom:4px}
+.doc-hist-aging b{color:var(--t1);font-family:var(--font-mono)}
+.doc-hist-row{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.doc-hist-when{font-family:var(--font-mono);color:var(--t4);margin-right:6px}
+.doc-hist-who{color:var(--t4)}
 .manual-row{background:var(--bg-elevated);border-radius:8px;padding:10px 12px;margin-bottom:8px;}
 .manual-row-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
 .manual-row-name{font-size:12px;font-weight:600;color:var(--t1);}
@@ -768,6 +831,8 @@ th:not(.sortable){cursor:default}
 .escopo-label{font-size:13px;color:var(--t2)}
 .escopo-status{font-size:12px;color:var(--t3);white-space:nowrap}
 .escopo-motivo{flex-basis:100%;font-size:11px;color:var(--t4);padding-left:26px}
-/* campo de motivo aberto ao desmarcar um tipo (o N/A só grava no Confirmar) */
-.escopo-na-form{flex-basis:100%;display:flex;gap:8px;align-items:center;padding:6px 0 2px 26px}
-.escopo-na-form .form-input{flex:1;font-size:12px;padding:6px 8px}
+/* campo de motivo aberto ao desmarcar um tipo (o N/A só grava no Confirmar).
+   Motivo é OBRIGATÓRIO: select da lista fechada + texto livre só para "Outro". */
+.escopo-na-form{flex-basis:100%;display:flex;gap:8px;align-items:center;padding:6px 0 2px 26px;flex-wrap:wrap}
+.escopo-na-form .form-input{flex:1;min-width:150px;font-size:12px;padding:6px 8px}
+.escopo-na-form select.form-input{flex:1.2}

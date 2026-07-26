@@ -6,7 +6,10 @@
   <title>Projetos — DocTrack</title>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <link rel="stylesheet" href="/static/entregaveis.css?v={{ asset_v }}">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <!-- Assets locais: a página precisa funcionar sem internet e sem depender de CDN
+       externo (o módulo PDR já servia Chart.js e Socket.IO assim). -->
+  <script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
+  <script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
 </head>
 <body>
   <div class="app-shell" style="display:block">
@@ -15,9 +18,33 @@
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div>
           <h1 style="margin:0">Projetos</h1>
-          <p class="muted" style="margin:4px 0 0">Engenharia · Entregáveis · 2026</p>
+          <p class="muted" style="margin:4px 0 0" id="page-sub">Engenharia · Portfólio de projetos</p>
         </div>
         <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+          <!-- Sino de alertas: atrasos, prazos vencidos, estouro e projetos parados -->
+          <div class="sino-wrap">
+            <button id="sino-btn" class="btn btn-ghost btn-sm sino-btn" type="button"
+                    onclick="toggleSino(event)" aria-haspopup="dialog" aria-expanded="false"
+                    aria-controls="sino-pop" aria-label="Alertas" title="Alertas">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              <span class="sino-badge" id="sino-badge" hidden>0</span>
+            </button>
+
+            <div class="sino-pop" id="sino-pop" role="dialog" aria-modal="false"
+                 aria-labelledby="sino-pop-title" hidden>
+              <div class="sino-pop-head">
+                <span class="sino-pop-title" id="sino-pop-title">O que precisa de atenção</span>
+                <span class="sino-pop-count" id="sino-pop-count"></span>
+              </div>
+              <div class="sino-pop-body" id="alertas-body">
+                <div class="loading-state" style="padding:20px"><div class="spinner"></div>Carregando…</div>
+              </div>
+            </div>
+          </div>
           <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
           <a class="btn-modulos" href="/hub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>Módulos</a>
           <button class="btn btn-primary btn-sm" id="btn-export-pdf" onclick="openExportModal()">Exportar PDF</button>
@@ -127,12 +154,22 @@
               <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               <input class="search-input" id="proj-search" placeholder="Buscar projeto, SKU..." oninput="renderProjGrid()">
             </div>
+            <select class="filter-sel" id="proj-status" onchange="setProjStatus(this.value)" aria-label="Filtrar por situação">
+              <option value="">Situação: todas</option>
+              <option value="planejado">Planejado</option>
+              <option value="execucao">Em execução</option>
+              <option value="suspenso">Suspenso</option>
+              <option value="concluido">Concluído</option>
+              <option value="cancelado">Cancelado</option>
+            </select>
             <select class="filter-sel" id="proj-sort" onchange="setProjSort(this.value)" aria-label="Ordenar projetos">
               <option value="padrao">Ordenar: Prioridade</option>
               <option value="nome">Nome (A–Z)</option>
               <option value="avanco_desc">Avanço (maior → menor)</option>
               <option value="avanco_asc">Avanço (menor → maior)</option>
               <option value="pend_desc">Mais pendências</option>
+              <option value="atraso_desc">Mais atrasados</option>
+              <option value="risco">Maior risco (SPI/CPI)</option>
               <option value="lancamento">Lançamento (recente)</option>
             </select>
             <button class="btn btn-ghost btn-sm" id="btn-arquivados" onclick="toggleArquivados()" style="margin-left:auto" aria-pressed="false">Ver arquivados</button>
@@ -184,8 +221,17 @@
           <div><label class="muted" style="display:block">Conclusão</label><input type="date" class="input" id="pop-conclusao" style="width:100%"></div>
         </div>
       </div>
-      <label class="muted" style="margin-top:8px;display:block">Responsáveis</label>
-      <input class="input" id="pop-resp" placeholder="Ex.: Guilherme/Melk" style="width:100%">
+      <!-- Bloco de gestão: peso, plano e responsáveis. O técnico não vê (só toca
+           no andamento do que é dele) — ver aplicarPermissoesPop(). -->
+      <div id="pop-gestao">
+        <div class="g2" style="margin-top:8px">
+          <div><label class="muted" style="display:block">Peso (esforço)</label><input class="input" id="pop-peso" inputmode="decimal" style="width:100%"></div>
+          <div><label class="muted" style="display:block">Término previsto</label><input type="date" class="input" id="pop-fim-prev" style="width:100%"></div>
+        </div>
+        <label class="muted" style="margin-top:8px;display:block">Responsáveis</label>
+        <div class="resp-picker" id="pop-resp-picker"></div>
+      </div>
+      <div class="pop-hist" id="pop-hist"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
         <button class="btn btn-ghost btn-sm" onclick="fecharPop()">Cancelar</button>
         <button class="btn btn-primary btn-sm" onclick="salvarPop()">Salvar</button>
@@ -238,7 +284,18 @@
           </select>
         </div>
       </div>
-      <div class="form-group"><label class="form-label" for="pf-lancamento">Data de lançamento</label><input type="date" class="form-input" id="pf-lancamento"></div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="pf-status">Situação</label>
+          <select class="form-input" id="pf-status">
+            <option value="planejado">Planejado</option>
+            <option value="execucao" selected>Em execução</option>
+            <option value="suspenso">Suspenso</option>
+            <option value="concluido">Concluído</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label" for="pf-lancamento">Data de lançamento</label><input type="date" class="form-input" id="pf-lancamento"></div>
+      </div>
       <div class="form-group"><label class="form-label" for="pf-desc">Descrição</label><textarea class="form-input" id="pf-desc" rows="2" placeholder="Opcional"></textarea></div>
 
       <!-- Entregáveis iniciais (só na criação) -->
@@ -268,6 +325,16 @@
       </div>
       <div class="form-group"><label class="form-label" for="pf-orcamento">Orçamento (R$) <span class="muted" style="font-weight:400">— base para o desempenho de custo</span></label><input class="form-input" id="pf-orcamento" inputmode="decimal" placeholder="Ex.: 150000,00"></div>
 
+      <!-- Replanejou datas/orçamento? Vira uma nova versão da linha de base, com
+           motivo — em vez de sobrescrever o compromisso anterior em silêncio. -->
+      <div class="form-group" id="pf-motivo-wrap" style="display:none">
+        <label class="form-label" for="pf-motivo">Motivo do replanejamento
+          <span class="muted" style="font-weight:400">— cronograma/orçamento mudaram</span></label>
+        <input class="form-input" id="pf-motivo" placeholder="Ex.: atraso na homologação do fornecedor">
+        <div class="muted" style="font-size:12px;margin-top:4px">A linha de base anterior fica preservada para comparação.</div>
+      </div>
+      <div id="pf-baselines" class="pf-baselines"></div>
+
       <div class="modal-footer" style="justify-content:space-between;align-items:center">
         <button class="btn btn-ghost btn-sm" id="pf-arquivar" onclick="arquivarProjetoAtual()" style="display:none;color:var(--red);border-color:rgba(248,113,113,.35)">Arquivar projeto</button>
         <div style="display:flex;gap:8px;margin-left:auto">
@@ -285,9 +352,19 @@
       <div class="modal-sub" id="ef-sub">Adiciona um entregável a este projeto</div>
       <div class="g2">
         <div class="form-group"><label class="form-label" for="ef-cat">Categoria</label><select class="form-input" id="ef-cat"></select></div>
-        <div class="form-group"><label class="form-label" for="ef-resp">Responsáveis</label><input class="form-input" id="ef-resp" placeholder="Ex.: Guilherme/Melk"></div>
+        <div class="form-group"><label class="form-label" for="ef-peso">Peso (esforço)
+            <span class="muted" style="font-weight:400">— 1 = padrão</span></label>
+          <input class="form-input" id="ef-peso" inputmode="decimal" value="1" placeholder="1"></div>
       </div>
       <div class="form-group"><label class="form-label" for="ef-nome">Nome do entregável *</label><input class="form-input" id="ef-nome" placeholder="Ex.: Manual do Usuário"></div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="ef-ini-prev">Início previsto</label><input type="date" class="form-input" id="ef-ini-prev"></div>
+        <div class="form-group"><label class="form-label" for="ef-fim-prev">Término previsto</label><input type="date" class="form-input" id="ef-fim-prev"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Responsáveis</label>
+        <div class="resp-picker" id="ef-resp-picker"></div>
+      </div>
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharFormEntregavel()">Cancelar</button><button class="btn btn-primary" onclick="salvarFormEntregavel()">Adicionar</button></div>
     </div>
   </div>
@@ -302,6 +379,9 @@
         <div class="form-group"><label class="form-label" for="mdf-resp">Responsável padrão</label><input class="form-input" id="mdf-resp" placeholder="Opcional"></div>
       </div>
       <div class="form-group"><label class="form-label" for="mdf-nome">Nome do entregável *</label><input class="form-input" id="mdf-nome" placeholder="Ex.: Manual do Usuário"></div>
+      <div class="form-group"><label class="form-label" for="mdf-peso">Peso padrão (esforço)
+          <span class="muted" style="font-weight:400">— 1 = padrão; 8 = pesa 8× mais no avanço</span></label>
+        <input class="form-input" id="mdf-peso" inputmode="decimal" value="1"></div>
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharModeloForm()">Cancelar</button><button class="btn btn-primary" onclick="salvarModeloForm()">Salvar</button></div>
     </div>
   </div>
@@ -380,7 +460,10 @@
   </div>
 
   <div id="toast" class="toast" style="display:none"></div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- jsPDF só é usado no botão de exportar: fica em CDN, mas o resto da página
+       não depende dele (ver _temJsPDF() em entregaveis.js). -->
+  <script src="/static/vendor/jspdf.umd.min.js?v={{ asset_v }}"></script>
+  <script src="/static/common.js?v={{ asset_v }}"></script>
   <script src="/static/auth.js?v={{ asset_v }}"></script>
   <script src="/static/entregaveis.js?v={{ asset_v }}"></script>
 </body>

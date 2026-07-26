@@ -6,32 +6,9 @@ const API='/api';
 let currentUser={name:'Admin',email:'admin@pde.com',role:'admin',initials:'A'};
 let _allUsers=[],_filterTimer=null,_codigoAtivacaoAtual='';
 
-// ═══ TEMA CLARO/ESCURO ═══
-function applyTheme(theme){
-  const isLight = theme === 'light';
-  document.body.classList.toggle('theme-light', isLight);
-  const btn = document.getElementById('theme-toggle');
-  if(btn) btn.textContent = isLight ? '☀️' : '🌙';
-}
-function toggleTheme(){
-  const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
-  localStorage.setItem('doctrack_theme', next);
-  applyTheme(next);
-}
-function initTheme(){ applyTheme(localStorage.getItem('doctrack_theme') || 'dark'); }
-
-function esc(str){
-  if(str==null)return'';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-function norm(s){
-  if(s==null)return'';
-  return String(s).trim().toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
-}
+// esc, norm, tema e token vêm de static/common.js (carregado antes deste arquivo).
 
 // ═══ AUTH / FETCH ═══
-function getToken(){return localStorage.getItem('doctrack_token')||''}
-function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_refresh');localStorage.removeItem('doctrack_user')}
 function authHeader(){return{'Content-Type':'application/json','Authorization':'Bearer '+getToken()}}
 async function apiFetch(url,opts={}){
   try{
@@ -197,7 +174,7 @@ async function createUser(){
   const nome=document.getElementById('new-user-nome').value.trim(),email=document.getElementById('new-user-email').value.trim(),
     role=document.getElementById('new-user-role').value,senha=document.getElementById('new-user-senha').value.trim();
   if(!nome||!email){showToast('Preencha nome e e-mail','error');return}
-  if(senha&&senha.length<6){showToast('A senha deve ter pelo menos 6 caracteres','error');return}
+  if(senha&&senha.length<SENHA_MIN){showToast('A senha deve ter pelo menos '+SENHA_MIN+' caracteres','error');return}
   const areas=Array.from(document.querySelectorAll('.new-user-area')).filter(el=>el.checked).map(el=>el.value);
   const body={nome,email,role,areas};if(senha)body.senha=senha;
   try{
@@ -373,4 +350,49 @@ initTheme();
   updateUserUI();
   navigate('audit');
   renderUsers();
+  carregarStatusSistema();
 })();
+
+// ═══ ABA SISTEMA: infra real, não texto fixo ═══
+// O card "Conexão" dizia "Flask local · porta 5000" e "SQLite · doctrack.db"
+// escritos no HTML — errado em produção (waitress + PostgreSQL) e impossível de
+// perceber olhando a tela. GET /api/status responde com o que está de fato no ar.
+async function carregarStatusSistema(){
+  const def = (id, texto) => { const el=document.getElementById(id); if(el) el.textContent=texto; };
+  try{
+    // apiFetch devolve a Response (convenção deste módulo), não o JSON.
+    const res = await apiFetch('/status');
+    if(!res || !res.ok) throw new Error('status indisponível');
+    const s = await res.json();
+    def('cfg-servidor', `${s.db_engine === 'SQLite' ? 'Flask local' : 'waitress'} · ${window.location.host}`);
+    def('cfg-banco', `${s.db_engine} · ${s.db_nome} · ${s.documentos} documentos · ${s.usuarios} usuários`);
+    def('cfg-versao', `DocTrack v${s.versao}`);
+    def('cfg-agendador', s.agendador
+      ? 'Agendador interno ativo — foto diária automática'
+      : 'Agendador interno desligado (tarefa externa ou manual)');
+  }catch(e){
+    def('cfg-servidor', 'Não foi possível ler o estado do servidor');
+    def('cfg-banco', '—');
+    def('cfg-agendador', '—');
+  }
+}
+
+// Dispara a foto do dia sem esperar o agendador nem reiniciar o serviço.
+async function rodarTarefasDiarias(){
+  const btn = document.getElementById('cfg-btn-snapshot');
+  if(btn){ btn.disabled = true; btn.textContent = 'Gravando…'; }
+  try{
+    const res = await apiFetch('/admin/tarefas-diarias', {method:'POST'});
+    if(!res || !res.ok){
+      // Exclusiva de admin: gestor vê a tela mas não dispara.
+      const corpo = res ? await res.json().catch(()=>({})) : {};
+      throw new Error(corpo.erro || 'Não foi possível gravar as fotos do dia');
+    }
+    showToast('Fotos do dia gravadas (equipamentos, missões e projetos)');
+    carregarStatusSistema();
+  }catch(e){
+    showToast(e.message || 'Não foi possível gravar as fotos do dia', 'error');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Gravar agora'; }
+  }
+}

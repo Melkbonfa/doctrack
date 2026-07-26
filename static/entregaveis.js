@@ -1,5 +1,5 @@
 /* Entregáveis por Projeto — lógica da página */
-const TOKEN_KEY = "doctrack_token";
+/* TOKEN_KEY, token(), esc(), norm() e o par de tema vêm de static/common.js. */
 const CATEGORIAS = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"];
 const TIPOS_PROJETO = ["OEM", "Revenda"];
 let _projetos = [], _projAtualId = null, _popEntregavel = null;
@@ -10,22 +10,23 @@ let _pfEntregaveis = [];   // lista editável de entregáveis na criação de pr
 let _modelosTipoAtual = "OEM";   // tipo selecionado na aba Modelos
 let _verArquivados = false;      // grade de projetos mostrando arquivados?
 let _fichaProj = null;   // projeto selecionado na ficha do Dashboard
+let _projStatus = "";    // filtro de situação (ciclo de vida) na grade
+let _usuarios = [];      // usuários atribuíveis (picker de responsáveis)
+let _respSel = { ef: [], pop: [] };   // ids selecionados em cada picker
+let _alertas = [];
+/* O backend decide o que este perfil pode ver; o front só obedece. Técnico
+   entra em modo restrito: sem PMO, sem R$, e só mexe no que é dele. */
+let _financeiro = true, _meuRole = "";
 
-function token(){ return localStorage.getItem(TOKEN_KEY) || ""; }
+const STATUS_PROJETO_LABEL = {
+  planejado: "Planejado", execucao: "Em execução", suspenso: "Suspenso",
+  concluido: "Concluído", cancelado: "Cancelado",
+};
 
-// ═══ TEMA CLARO/ESCURO (mesma chave de Documentos) ═══
-function applyTheme(theme){
-  const isLight = theme === "light";
-  document.body.classList.toggle("theme-light", isLight);
-  const btn = document.getElementById("theme-toggle");
-  if (btn) btn.textContent = isLight ? "☀️" : "🌙";
-}
-function toggleTheme(){
-  const next = document.body.classList.contains("theme-light") ? "dark" : "light";
-  localStorage.setItem("doctrack_theme", next);
-  applyTheme(next);
-  _rerenderCharts();   // recolore eixos/legenda dos gráficos conforme o tema
-}
+// token(), esc(), applyTheme() e toggleTheme() vêm de static/common.js.
+// Aqui só registramos o que este módulo precisa refazer na troca de tema.
+window.onThemeChange = function(){ _rerenderCharts(); };
+
 /* Re-renderiza os gráficos visíveis (cores de eixo dependem do tema). */
 function _rerenderCharts(){
   try{
@@ -41,9 +42,6 @@ function _rerenderCharts(){
       renderPmoSection(_projDetalheAtual);
   }catch(e){}
 }
-// aplica imediatamente para evitar flash ao carregar a página
-applyTheme(localStorage.getItem("doctrack_theme") || "dark");
-
 // Marca o módulo atual (consistência com o hub de módulos)
 sessionStorage.setItem("dt_module", "ent");
 
@@ -69,8 +67,6 @@ function toast(msg, erro=false){
   clearTimeout(t._h); t._h = setTimeout(()=> t.style.display="none", 3000);
 }
 
-function esc(s){ const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; }
-
 /* ── Confirmação interna (substitui confirm() do navegador) ──
    Uso: if (!(await confirmar("Mensagem", {title, okLabel, danger}))) return; */
 let _confirmResolver = null;
@@ -94,7 +90,8 @@ function _fecharConfirm(val){
   if (r) r(val);
 }
 
-/* ── Abas (Dashboard · PMO · Projetos) ── */
+/* ── Abas (Dashboard · PMO · Projetos · Modelos) ──
+   Alertas não é aba: vive no sino do cabeçalho (ver abrirSino). */
 function trocarAba(aba){
   ["dash", "pmo", "proj", "modelos"].forEach(t => {
     const sec = document.getElementById("aba-" + t);
@@ -119,9 +116,60 @@ function trocarAba(aba){
   }
 }
 
+/* Uma única chamada abastece a grade E os gráficos. Antes o init fazia duas
+   requisições quase idênticas (/api/projetos e ?com_entregaveis=1), cada uma
+   recalculando o PMO de todos os projetos no servidor. */
 async function loadProjetosAll(){
+  // `_projetosAll` é SEMPRE o portfólio ativo: é o que alimenta Dashboard, PMO
+  // e financeiro. Ver arquivados não pode contaminar esses números.
   const data = await api("/api/projetos?com_entregaveis=1");
   _projetosAll = data.projetos;
+  if (typeof data.financeiro === "boolean") _financeiro = data.financeiro;
+  if (data.role) _meuRole = data.role;
+  aplicarModoPerfil();
+  atualizarSubtitulo();
+  return _projetosAll;
+}
+
+/* Subtítulo derivado dos dados — o ano estava escrito à mão no HTML e ficaria
+   errado na virada do ano. */
+function atualizarSubtitulo(){
+  const el = document.getElementById("page-sub");
+  if (!el) return;
+  const n = _projetosAll.length;
+  const anos = [...new Set(_projetosAll.map(p => p.ano).filter(Boolean))].sort();
+  const periodo = anos.length ? (anos.length === 1 ? anos[0] : `${anos[0]}–${anos[anos.length-1]}`) : "";
+  el.textContent = ["Engenharia",
+    `${n} projeto${n === 1 ? "" : "s"} ativo${n === 1 ? "" : "s"}`,
+    periodo].filter(Boolean).join(" · ");
+}
+
+/* Esconde da UI o que este perfil não pode ver/fazer. */
+function aplicarModoPerfil(){
+  const tecnico = !podeEditarProjeto();
+  const tabPmo = document.getElementById("tab-btn-pmo");
+  if (tabPmo) tabPmo.style.display = _financeiro ? "" : "none";
+  const btnExcel = document.getElementById("btn-export");
+  if (btnExcel) btnExcel.style.display = _financeiro ? "" : "none";
+  const btnPdf = document.getElementById("btn-export-pdf");
+  if (btnPdf) btnPdf.style.display = _financeiro ? "" : "none";
+  const novo = document.getElementById("btn-novo-proj");
+  if (novo) novo.style.display = (!tecnico && !_verArquivados) ? "" : "none";
+  const arq = document.getElementById("btn-arquivados");
+  if (arq) arq.style.display = tecnico ? "none" : "";
+
+  const host = document.getElementById("aba-proj");
+  let aviso = document.getElementById("modo-tecnico");
+  if (tecnico && host && !aviso){
+    aviso = document.createElement("div");
+    aviso.id = "modo-tecnico";
+    aviso.className = "modo-tecnico";
+    aviso.innerHTML = "<b>Modo técnico</b> — você vê os projetos em que tem entregáveis "
+      + "atribuídos e atualiza o andamento dos que são seus. Valores financeiros não são exibidos.";
+    host.insertBefore(aviso, host.firstChild);
+  } else if (!tecnico && aviso){
+    aviso.remove();
+  }
 }
 
 /* ── Gráficos (Chart.js) — visual idêntico ao app.js do dashboard ── */
@@ -593,16 +641,26 @@ function renderFichaProjeto(p){
   if (periodo) sub.push("Prazo " + esc(periodo));
   if (m.bac) sub.push("Orçado " + _money(m.bac));
 
+  const planoFim = _toIso(p.data_fim_prev);
+  const atrasaPrev = p.previsao_termino && planoFim && p.previsao_termino > planoFim;
   const kpis = [
     _evmCard("Avanço", p.avanco + "%", "sem_dados", aplic + " entregáveis"),
     _evmCard("Prazo (SPI)", m.spi != null ? m.spi.toFixed(2) : "—", m.status_prazo,
       m.pct_prazo_decorrido != null ? m.pct_prazo_decorrido + "% do prazo" : "sem cronograma"),
-    _evmCard("Custo (CPI)", m.cpi != null ? m.cpi.toFixed(2) : "—", m.status_custo,
-      m.bac ? "orçado " + _money(m.bac) : "sem orçamento"),
-    _evmCard("Custo projetado (EAC)", m.eac != null ? _money(m.eac) : "—", m.status_custo,
-      (m.eac != null && m.bac) ? ((m.eac > m.bac ? "+" : "") + _money(m.eac - m.bac) + " vs orçado") : "—"),
-    _evmCard("Pendências", String(p.pendentes), p.pendentes > 0 ? "atencao" : "ok", "a concluir"),
+    _evmCard("Previsão de término",
+      p.previsao_termino ? fmtLanc(p.previsao_termino) : "—",
+      p.previsao_termino ? (atrasaPrev ? "critico" : "ok") : "sem_dados",
+      p.previsao_termino ? (atrasaPrev ? "depois do planejado" : "dentro do plano")
+                         : "histórico insuficiente"),
   ];
+  if (_financeiro){
+    kpis.push(_evmCard("Custo (CPI)", m.cpi != null ? m.cpi.toFixed(2) : "—", m.status_custo,
+      m.bac ? "orçado " + _money(m.bac) : "sem orçamento"));
+    kpis.push(_evmCard("Custo projetado (EAC)", m.eac != null ? _money(m.eac) : "—", m.status_custo,
+      (m.eac != null && m.bac) ? ((m.eac > m.bac ? "+" : "") + _money(m.eac - m.bac) + " vs orçado") : "—"));
+  }
+  kpis.push(_evmCard("Pendências", String(p.pendentes), p.pendentes > 0 ? "atencao" : "ok",
+    (p.atrasados || 0) > 0 ? p.atrasados + " em atraso" : "a concluir"));
 
   const curMes = (new Date()).toISOString().slice(0, 7);
   const custos = (p.serie_mensal || []).filter(s => s.custo_acumulado != null);
@@ -631,7 +689,11 @@ function renderFichaProjeto(p){
           <div class="donut-center" id="donut-ficha-center"></div></div>
           <div class="legend-list" id="legend-ficha"></div></div></div>
     </div>
-    <div class="card"><div class="card-title">Custos lançados</div>${custoTabela}</div>
+    ${(p.tendencia && p.tendencia.length > 1) ? `
+    <div class="card"><div class="card-title">Tendência dos índices (SPI × CPI)</div>
+      <div class="tend-wrap"><canvas id="tend-ficha" role="img" aria-label="Evolução dos índices SPI e CPI"></canvas></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Medido no dia — não recalculado com as datas de hoje.</div></div>` : ""}
+    ${_financeiro ? `<div class="card"><div class="card-title">Custos lançados</div>${custoTabela}</div>` : ""}
     <div class="card">
       <div class="evm-mensal-head"><span class="card-title" style="margin:0">Visão por período</span>
         <span class="periodo-ctrl"><input type="month" id="perf-de" value="${curMes}" onchange="renderPeriodo('perf')"><span class="muted">até</span><input type="month" id="perf-ate" value="${curMes}" onchange="renderPeriodo('perf')"></span>
@@ -642,13 +704,227 @@ function renderFichaProjeto(p){
 
   renderCurvaS(p.serie_mensal || [], "curva-s-ficha");
   renderStatusDonut(conc, prog, pend, "donut-ficha", "donut-ficha-center", "legend-ficha");
+  renderTendencia(p.tendencia || [], "tend-ficha");
   renderPeriodo("perf");
 }
 
+/* Série histórica de SPI/CPI a partir dos snapshots diários. Diferente da
+   curva-S: aqui cada ponto é o que foi MEDIDO naquele dia, então replanejar o
+   cronograma não reescreve o passado. */
+function renderTendencia(serie, canvasId){
+  const el = document.getElementById(canvasId);
+  if (!el || typeof Chart === "undefined" || serie.length < 2) return;
+  if (_charts[canvasId]){ _charts[canvasId].destroy(); delete _charts[canvasId]; }
+  const labels = serie.map(s => fmtLanc(s.data));
+  const datasets = [{
+    label: "Prazo (SPI)", data: serie.map(s => s.spi),
+    borderColor: "#22d3ee", backgroundColor: "rgba(34,211,238,.10)",
+    borderWidth: 2.5, pointRadius: 2, tension: .25, spanGaps: true, fill: false,
+  }];
+  if (_financeiro){
+    datasets.push({
+      label: "Custo (CPI)", data: serie.map(s => s.cpi),
+      borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,.10)",
+      borderWidth: 2.5, pointRadius: 2, tension: .25, spanGaps: true, fill: false,
+    });
+  }
+  _charts[canvasId] = new Chart(el.getContext("2d"), {
+    type: "line",
+    data: { labels, datasets },
+    options: { responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: true, position: "top", align: "end",
+          labels: { color: _chTxtStrong(), font: { size: 11, family: "Inter" },
+                    boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+        tooltip: { ...TOOLTIP, callbacks: {
+          label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y == null ? "—" : ctx.parsed.y.toFixed(2)}` } },
+        // linha de referência em 1.0 (no alvo)
+        annotation: undefined,
+      },
+      scales: {
+        x: { ticks: { color: _chTxt(), font: { size: 10, family: "Inter" }, maxTicksLimit: 8 },
+             grid: { display: false }, border: { display: false } },
+        y: { suggestedMin: .5, suggestedMax: 1.3,
+             ticks: { color: _chTxt(), font: { size: 10, family: "Inter" } },
+             grid: { color: _chGrid() }, border: { display: false } },
+      } },
+    plugins: [{ id: "linhaAlvo", beforeDatasetsDraw(chart){
+      const { ctx, chartArea: a, scales } = chart;
+      if (!a || !scales.y) return;
+      const y = scales.y.getPixelForValue(1);
+      if (y < a.top || y > a.bottom) return;
+      ctx.save();
+      ctx.strokeStyle = "rgba(16,185,129,.45)"; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(a.left, y); ctx.lineTo(a.right, y); ctx.stroke();
+      ctx.restore();
+    }}],
+  });
+}
+
+/* ══ ALERTAS ══════════════════════════════════════════════════════════════
+   O módulo não tinha nada de proativo: o gestor precisava abrir projeto por
+   projeto para descobrir o que tinha vencido. */
+
+async function loadAlertas(){
+  const r = await api("/api/projetos/alertas");
+  _alertas = r.alertas || [];
+  atualizarBadgeAlertas();
+  return _alertas;
+}
+
+/* Badge do sino: mostra o número de críticos (o que exige ação hoje) e cai
+   para o total quando só há avisos. */
+function atualizarBadgeAlertas(){
+  const b = document.getElementById("sino-badge");
+  const btn = document.getElementById("sino-btn");
+  if (!b || !btn) return;
+  const criticos = _alertas.filter(a => a.severidade === "critico").length;
+  b.textContent = criticos || _alertas.length;
+  b.hidden = !_alertas.length;
+  b.style.background = criticos ? "#ef4444" : "#f59e0b";
+  btn.classList.toggle("tem-critico", criticos > 0);
+  btn.setAttribute("aria-label",
+    _alertas.length ? `Alertas (${_alertas.length})` : "Alertas");
+  btn.title = _alertas.length
+    ? `${_alertas.length} alerta${_alertas.length === 1 ? "" : "s"}` : "Nenhum alerta";
+}
+
+function sinoAberto(){
+  const p = document.getElementById("sino-pop");
+  return !!p && !p.hidden;
+}
+
+/* O painel é ancorado à direita do sino, mas em telas estreitas o cabeçalho
+   quebra e o sino sai do canto — aí 420px para a esquerda estouram a janela.
+   Reancora na margem da viewport quando isso acontece. */
+function posicionarSino(){
+  const pop = document.getElementById("sino-pop");
+  if (!pop || pop.hidden) return;
+  pop.style.left = "";
+  pop.style.right = "";
+  const margem = 12;
+  const r = pop.getBoundingClientRect();
+  if (r.left < margem){
+    const wrap = pop.parentElement.getBoundingClientRect();
+    pop.style.right = "auto";
+    pop.style.left = (margem - wrap.left) + "px";
+  }
+}
+
+function abrirSino(){
+  const pop = document.getElementById("sino-pop");
+  const btn = document.getElementById("sino-btn");
+  if (!pop || !btn) return;
+  pop.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  renderAlertas();
+  posicionarSino();
+  // busca em segundo plano: o painel abre com o que já existe e se corrige
+  loadAlertas().then(() => { renderAlertas(); posicionarSino(); }).catch(()=>{});
+}
+
+function fecharSino(){
+  const pop = document.getElementById("sino-pop");
+  const btn = document.getElementById("sino-btn");
+  if (!pop || !btn) return;
+  pop.hidden = true;
+  btn.setAttribute("aria-expanded", "false");
+}
+
+function toggleSino(ev){
+  if (ev) ev.stopPropagation();     // não deixa o handler de "clique fora" fechar na hora
+  if (sinoAberto()) fecharSino(); else abrirSino();
+}
+
+function renderAlertas(){
+  const host = document.getElementById("alertas-body");
+  const cont = document.getElementById("sino-pop-count");
+  if (!host) return;
+
+  if (cont){
+    const criticos = _alertas.filter(a => a.severidade === "critico").length;
+    cont.textContent = _alertas.length
+      ? `${_alertas.length} no total${criticos ? ` · ${criticos} crítico${criticos === 1 ? "" : "s"}` : ""}`
+      : "";
+  }
+
+  if (!_alertas.length){
+    host.innerHTML = `<div class="alerta-vazio">Nada pendente de atenção. 🎯</div>`;
+    return;
+  }
+  host.innerHTML = _alertas.map(a => `
+    <div class="alerta-item alerta-${esc(a.severidade)}" role="button" tabindex="0"
+         data-pid="${a.projeto_id}" aria-label="Abrir ${esc(a.projeto)}">
+      <span class="alerta-dot" aria-hidden="true"></span>
+      <span class="alerta-txt">
+        <span class="alerta-titulo">${esc(a.titulo)}</span>
+        <span class="alerta-detalhe">${esc(a.detalhe)}</span>
+        <span class="alerta-proj">${esc(a.projeto)}</span>
+      </span>
+    </div>`).join("");
+
+  host.querySelectorAll(".alerta-item").forEach(el => {
+    const ir = () => {
+      fecharSino();
+      trocarAba("proj");
+      setTimeout(() => abrirProjModal(parseInt(el.dataset.pid, 10)), 120);
+    };
+    el.addEventListener("click", ir);
+    el.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); ir(); }
+    });
+  });
+}
+
+/* ══ RESPONSÁVEIS (usuários reais, não texto livre) ═══════════════════════ */
+
+async function loadUsuarios(){
+  if (_usuarios.length) return _usuarios;
+  try{
+    const r = await api("/api/entregaveis/responsaveis");
+    _usuarios = r.usuarios || [];
+  }catch(e){ _usuarios = []; }
+  return _usuarios;
+}
+
+/* `chave` identifica o picker ('ef' no form de entregável, 'pop' no popover). */
+function renderRespPicker(elId, chave, selecionados){
+  const el = document.getElementById(elId);
+  if (!el) return;
+  _respSel[chave] = (selecionados || []).slice();
+  if (!_usuarios.length){
+    el.innerHTML = `<span class="resp-vazio">Nenhum usuário disponível para atribuição.</span>`;
+    return;
+  }
+  el.innerHTML = _usuarios.map(u => {
+    const on = _respSel[chave].includes(u.id);
+    return `<button type="button" class="resp-chip" aria-pressed="${on}"
+              data-uid="${u.id}" title="${esc(u.email)}">${esc(u.nome)}</button>`;
+  }).join("");
+  el.querySelectorAll(".resp-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const id = parseInt(chip.dataset.uid, 10);
+      const i = _respSel[chave].indexOf(id);
+      if (i >= 0) _respSel[chave].splice(i, 1); else _respSel[chave].push(id);
+      chip.setAttribute("aria-pressed", i < 0);
+    });
+  });
+}
+
 /* ── Grade de projetos (mesmo padrão dos equipamentos) ── */
+/* Na visão normal, grade e gráficos reaproveitam O MESMO carregamento — antes
+   eram duas requisições quase idênticas, cada uma recalculando o PMO de todos
+   os projetos no servidor. A segunda chamada só existe na visão de arquivados,
+   que é um recorte diferente do portfólio. */
 async function loadProjetos(){
-  const data = await api("/api/projetos" + (_verArquivados ? "?arquivados=1" : ""));
-  _projetos = data.projetos;
+  await loadProjetosAll();
+  if (_verArquivados){
+    const data = await api("/api/projetos?com_entregaveis=1&arquivados=1");
+    _projetos = data.projetos;
+  } else {
+    _projetos = _projetosAll;
+  }
   renderProjChips();
   renderProjGrid();
 }
@@ -675,6 +951,7 @@ function projMatchesChip(p, chip){
     case "avancados": return p.avanco >= 70;
     case "must":      return p.moscow === "Must";
     case "compend":   return (p.pendentes || 0) > 0;
+    case "atrasados": return (p.atrasados || 0) > 0;
     default:          return true;
   }
 }
@@ -687,6 +964,7 @@ function renderProjChips(){
     {id:"avancados", label:"Avançados"},
     {id:"must",      label:"Must"},
     {id:"compend",   label:"Com pendências"},
+    {id:"atrasados", label:"Com atraso"},
   ];
   document.getElementById("proj-chips").innerHTML = chips.map(c => {
     const n = _projetos.filter(p => projMatchesChip(p, c.id)).length;
@@ -702,6 +980,7 @@ function setProjChip(id){
 }
 
 function setProjSort(v){ _projSort = v; renderProjGrid(); }
+function setProjStatus(v){ _projStatus = v; renderProjChips(); renderProjGrid(); }
 
 /* timestamp do lançamento (aceita ISO yyyy-mm-dd, dd/mm/aaaa ou só o ano) */
 function _lancTs(s){
@@ -752,6 +1031,11 @@ function sortProjetos(list){
     case "avanco_desc": a.sort((x,y) => y.avanco - x.avanco || byNome(x,y)); break;
     case "avanco_asc":  a.sort((x,y) => x.avanco - y.avanco || byNome(x,y)); break;
     case "pend_desc":   a.sort((x,y) => (y.pendentes||0) - (x.pendentes||0) || byNome(x,y)); break;
+    case "atraso_desc": a.sort((x,y) => (y.atrasados||0) - (x.atrasados||0) || byNome(x,y)); break;
+    case "risco": {     // pior índice primeiro; sem índice fica no fim
+      const sev = p => Math.min((p.pmo && p.pmo.spi) ?? 9, (p.pmo && p.pmo.cpi) ?? 9);
+      a.sort((x,y) => sev(x) - sev(y) || byNome(x,y)); break;
+    }
     case "lancamento":  a.sort((x,y) => _lancTs(y.lancamento) - _lancTs(x.lancamento) || byNome(x,y)); break;
     default:            a.sort((x,y) => (x.prioridade||999) - (y.prioridade||999) || byNome(x,y));
   }
@@ -761,9 +1045,10 @@ function sortProjetos(list){
 function renderProjGrid(){
   const q = (document.getElementById("proj-search").value || "").trim().toLowerCase();
   let lista = _projetos.filter(p => projMatchesChip(p, _projChip));
+  if (_projStatus) lista = lista.filter(p => (p.status || "") === _projStatus);
   if (q){
     lista = lista.filter(p =>
-      [p.nome, p.sku].join(" ").toLowerCase().includes(q));
+      [p.nome, p.sku, p.tipo, p.descricao].join(" ").toLowerCase().includes(q));
   }
   lista = sortProjetos(lista);
   const badge = document.getElementById("proj-badge");
@@ -775,18 +1060,49 @@ function renderProjGrid(){
   }
   grid.innerHTML = lista.map(p => {
     const cor = p.avanco >= 70 ? "green" : p.avanco >= 35 ? "amber" : "red";
-    return `<div class="equip-card proj-card st-${cor}" onclick="abrirProjModal(${p.id})">
+    const atraso = (p.atrasados || 0) > 0
+      ? `<div class="proj-atraso">${p.atrasados} entregável${p.atrasados===1?"":"is"} em atraso</div>` : "";
+    return `<div class="equip-card proj-card st-${cor}" data-pid="${p.id}"
+                 role="button" tabindex="0" aria-label="Abrir projeto ${esc(p.nome)}">
       <div class="proj-card-head">
         <span class="proj-card-name">${esc(p.nome)}</span>
         ${_verArquivados ? '<span class="proj-arch-tag">Arquivado</span>' : moscowBadgeHtml(p.moscow)}
       </div>
+      ${statusTagHtml(p.status)}
       <div class="proj-prog">
         <div class="proj-prog-track"><i style="width:${p.avanco}%"></i></div>
         <div class="proj-prog-meta"><span class="pct">${p.avanco}% concluído</span><span>${p.pendentes} pendente${p.pendentes===1?"":"s"}</span></div>
       </div>
+      ${atraso}
+      ${previsaoHtml(p)}
       ${pmoChipsHtml(p)}
     </div>`;
   }).join("");
+
+  // Clique e teclado no mesmo lugar — antes o card era um <div onclick> puro,
+  // inalcançável por Tab/Enter (o hub já fazia certo).
+  grid.querySelectorAll(".proj-card").forEach(card => {
+    const abrir = () => abrirProjModal(parseInt(card.dataset.pid, 10));
+    card.addEventListener("click", abrir);
+    card.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); abrir(); }
+    });
+  });
+}
+
+function statusTagHtml(st){
+  const lab = STATUS_PROJETO_LABEL[st];
+  return lab ? `<div><span class="st-tag st-${esc(st)}">${esc(lab)}</span></div>` : "";
+}
+
+/* Previsão pela velocidade real — mais legível que um índice: uma data para
+   comparar com o prazo prometido. */
+function previsaoHtml(p){
+  if (!p.previsao_termino) return "";
+  const plano = _toIso(p.data_fim_prev);
+  const atrasa = plano && p.previsao_termino > plano;
+  return `<div class="proj-prev${atrasa ? " late" : ""}">Previsão pela velocidade: `
+    + `<b>${esc(fmtLanc(p.previsao_termino))}</b>${atrasa ? " (após o planejado)" : ""}</div>`;
 }
 
 /* ── Selos PMO (prazo/custo) ── */
@@ -802,7 +1118,9 @@ function pmoChipsHtml(p){
   const chips = [];
   if (m.spi != null) chips.push(_pmoChip("Prazo", m.spi, m.status_prazo));
   else if (m.pct_prazo_decorrido != null) chips.push(`<span class="pmo-chip pmo-neutro"><span class="pmo-dot"></span>Prazo ${m.pct_prazo_decorrido}% decorrido</span>`);
-  if (m.cpi != null) chips.push(_pmoChip("Custo", m.cpi, m.status_custo));
+  // O backend já removeu o CPI para quem não pode ver dinheiro; a guarda aqui
+  // é só para não renderizar um chip vazio.
+  if (_financeiro && m.cpi != null) chips.push(_pmoChip("Custo", m.cpi, m.status_custo));
   return chips.length ? `<div class="pmo-chips">${chips.join("")}</div>` : "";
 }
 /* Texto curto do período do projeto (início → fim previstos). */
@@ -815,7 +1133,10 @@ function periodoProjeto(p){
 function normMoscow(m){ const s=(m||"").toLowerCase().replace(/[^a-z]/g,""); return s==="must"?"Must":s==="should"?"Should":s==="could"?"Could":(s==="wont"?"Wont":""); }
 function moscowBadgeHtml(m){ const v=normMoscow(m); if(!v) return ""; const lab=v==="Wont"?"WON'T":v.toUpperCase(); return `<span class="moscow-badge mq-${v.toLowerCase()}">${lab}</span>`; }
 function userRole(){ try{ return (JSON.parse(localStorage.getItem("doctrack_user")||"{}").role)||""; }catch(e){ return ""; } }
-function canEditProj(){ return ["admin","gestor"].includes(userRole()); }
+/* O papel autoritativo vem do backend (_meuRole); o localStorage é só o palpite
+   inicial antes da primeira resposta. */
+function canEditProj(){ return ["admin","gestor"].includes(_meuRole || userRole()); }
+function podeEditarProjeto(){ return canEditProj(); }
 
 async function salvarMoscow(valor){
   if (!_projAtualId) return;
@@ -897,18 +1218,25 @@ function renderPmoSection(p){
   const podeEditar = canEditProj();
 
   // 1) Cartões EVM
+  const planoFim = _toIso(p.data_fim_prev);
+  const atrasaPrev = p.previsao_termino && planoFim && p.previsao_termino > planoFim;
   const cards = [];
   cards.push(_evmCard("Prazo (SPI)", m.spi != null ? m.spi.toFixed(2) : "—", m.status_prazo,
     m.pct_prazo_decorrido != null ? `${m.pct_prazo_decorrido}% do prazo` : "sem cronograma"));
-  cards.push(_evmCard("Custo (CPI)", m.cpi != null ? m.cpi.toFixed(2) : "—", m.status_custo,
-    m.bac ? `Orçado ${_money(m.bac)}` : "sem orçamento"));
   cards.push(_evmCard("Previsto × Real", (m.pct_previsto != null ? m.pct_previsto : "—") + "% / " + (m.pct_realizado != null ? m.pct_realizado : "—") + "%",
     m.status_prazo, m.competencia ? "em " + _fmtComp(m.competencia) : "sem lançamento"));
-  cards.push(_evmCard("Custo projetado (EAC)", m.eac != null ? _money(m.eac) : "—", m.status_custo,
-    (m.eac != null && m.bac) ? ((m.eac > m.bac ? "+" : "") + _money(m.eac - m.bac) + " vs orçado") : "—"));
+  cards.push(_evmCard("Previsão de término", p.previsao_termino ? fmtLanc(p.previsao_termino) : "—",
+    p.previsao_termino ? (atrasaPrev ? "critico" : "ok") : "sem_dados",
+    p.previsao_termino ? "pela velocidade real" : "histórico insuficiente"));
+  if (_financeiro){
+    cards.push(_evmCard("Custo (CPI)", m.cpi != null ? m.cpi.toFixed(2) : "—", m.status_custo,
+      m.bac ? `Orçado ${_money(m.bac)}` : "sem orçamento"));
+    cards.push(_evmCard("Custo projetado (EAC)", m.eac != null ? _money(m.eac) : "—", m.status_custo,
+      (m.eac != null && m.bac) ? ((m.eac > m.bac ? "+" : "") + _money(m.eac - m.bac) + " vs orçado") : "—"));
+  }
 
   // 2) Cabeçalho da seção de lançamentos
-  const btnNovo = podeEditar
+  const btnNovo = (podeEditar && _financeiro)
     ? `<button class="btn btn-primary btn-sm" onclick="abrirModalMensal()">+ Lançar custo</button>` : "";
 
   // 3) Tabela de lançamentos
@@ -933,8 +1261,8 @@ function renderPmoSection(p){
   host.innerHTML = `
     <div class="evm-cards">${cards.join("")}</div>
     <div class="evm-curve-wrap"><canvas id="curva-s" role="img" aria-label="Curva-S: previsto x realizado"></canvas></div>
-    <div class="evm-mensal-head"><span class="evm-mensal-title">Acompanhamento mensal (custo)</span>${btnNovo}</div>
-    ${tabela}
+    ${_financeiro ? `<div class="evm-mensal-head"><span class="evm-mensal-title">Acompanhamento mensal (custo)</span>${btnNovo}</div>
+    ${tabela}` : ""}
     <div class="evm-mensal-head"><span class="evm-mensal-title">Visão por período</span>
       <span class="periodo-ctrl">
         <input type="month" id="per-de" value="${curMes}" onchange="renderPeriodo()">
@@ -1011,17 +1339,29 @@ function renderCurvaS(serie, canvasId="curva-s"){
   });
 }
 
+/* JSON dentro de atributo HTML com aspas simples: o `'` PRECISA virar entidade,
+   senão um entregável como "Manual d'Água" fecha o atributo e quebra a linha. */
+function _attrJson(v){
+  return JSON.stringify(v).replace(/'/g, "&#39;").replace(/</g, "\\u003c");
+}
+
 function projRowHtml(e){
   let badgeCls = "sg-pendente", statusLabel = "Pendente", extra = "";
   if (e.status === "concluido"){ badgeCls = "sg-finalizado"; statusLabel = "Concluído"; }
   else if (e.status === "em_progresso"){ badgeCls = "sg-progresso"; statusLabel = (e.percentual ?? 0) + "%"; }
   else if (e.status === "na"){ badgeCls = "sg-pendente"; statusLabel = "N/A"; extra = ' style="color:var(--t4)"'; }
   const delBtn = canEditProj()
-    ? `<button type="button" class="ent-row-del" title="Excluir entregável" aria-label="Excluir entregável" onclick='event.stopPropagation();excluirEntregavel(${e.id}, ${JSON.stringify(e.tipo)})'>✕</button>`
+    ? `<button type="button" class="ent-row-del" title="Excluir entregável" aria-label="Excluir entregável" onclick='event.stopPropagation();excluirEntregavel(${e.id}, ${_attrJson(e.tipo)})'>✕</button>`
     : "";
-  return `<div class="ent-row" onclick='abrirPop(${JSON.stringify(e).replace(/'/g,"&#39;")})'>
+  const quem = (e.responsaveis_nomes && e.responsaveis_nomes.length)
+    ? e.responsaveis_nomes.join(", ") : (e.responsaveis || "—");
+  const peso = (e.peso != null && e.peso !== 1)
+    ? `<span class="sg-badge" title="Peso (esforço relativo)">×${e.peso}</span>` : "";
+  const atraso = e.atrasado
+    ? `<span class="sg-badge" style="color:#fda4af;border-color:rgba(248,113,113,.35)" title="Passou do término previsto">atrasado</span>` : "";
+  return `<div class="ent-row" onclick='abrirPop(${_attrJson(e)})'>
     <span>${esc(e.tipo)}</span>
-    <span class="quem">${esc(e.responsaveis||"—")} <span class="sg-badge ${badgeCls}"${extra}>${statusLabel}</span>${delBtn}</span>
+    <span class="quem">${esc(quem)} ${peso}${atraso} <span class="sg-badge ${badgeCls}"${extra}>${statusLabel}</span>${delBtn}</span>
   </div>`;
 }
 
@@ -1071,6 +1411,45 @@ function _preencherForm(p){
   document.getElementById("pf-inicio-real").value = p ? _toIso(p.data_inicio_real) : "";
   document.getElementById("pf-fim-real").value    = p ? _toIso(p.data_fim_real) : "";
   document.getElementById("pf-orcamento").value   = p ? _fmtMoeda(p.orcamento) : "";
+  document.getElementById("pf-status").value      = (p && p.status) ? p.status : "execucao";
+  document.getElementById("pf-motivo").value      = "";
+  _pfPlanoOriginal = p ? _snapshotPlano() : null;   // referência para detectar replanejamento
+  _pfAtualizaMotivo();
+  renderBaselines(p);
+}
+
+/* Valores atuais dos campos que compõem a linha de base. */
+function _snapshotPlano(){
+  return [
+    document.getElementById("pf-inicio-prev").value,
+    document.getElementById("pf-fim-prev").value,
+    _parseMoeda(document.getElementById("pf-orcamento").value),
+  ].join("|");
+}
+
+/* O campo de motivo só aparece quando o plano realmente mudou — pedir
+   justificativa para uma correção de SKU seria ruído. */
+let _pfPlanoOriginal = null;
+function _pfAtualizaMotivo(){
+  const wrap = document.getElementById("pf-motivo-wrap");
+  if (!wrap) return;
+  const mudou = _pfPlanoOriginal !== null && _snapshotPlano() !== _pfPlanoOriginal;
+  wrap.style.display = mudou ? "" : "none";
+}
+
+function renderBaselines(p){
+  const host = document.getElementById("pf-baselines");
+  if (!host) return;
+  const bs = (p && p.baselines) || [];
+  if (bs.length < 2){ host.innerHTML = ""; return; }   // v1 sozinha não diz nada
+  host.innerHTML = `<div class="section-label-line">Linhas de base (${bs.length})</div>`
+    + bs.slice().reverse().map(b => `
+      <div class="pf-baseline-row">
+        <span class="pf-baseline-v">v${b.versao}</span>
+        <span>${esc(fmtLanc(b.data_fim_prev) || "—")}</span>
+        <span class="pf-baseline-motivo" title="${esc(b.motivo)}">${esc(b.motivo || "—")}</span>
+        <span>${esc(b.criado_em)}</span>
+      </div>`).join("");
 }
 
 /* Preenche um <select> com as categorias de entregável. */
@@ -1166,9 +1545,10 @@ async function _recarregarTudo(){
   await Promise.all([
     loadProjetos().catch(()=>{}),
     loadKpis().catch(()=>{}),
-    loadProjetosAll().catch(()=>{}),
+    loadAlertas().catch(()=>{}),
   ]);
   renderCharts();
+  if (sinoAberto()) renderAlertas();
 }
 
 async function salvarFormProjeto(){
@@ -1186,7 +1566,10 @@ async function salvarFormProjeto(){
     data_inicio_real: document.getElementById("pf-inicio-real").value,
     data_fim_real:    document.getElementById("pf-fim-real").value,
     orcamento:        document.getElementById("pf-orcamento").value,   // backend aceita "1.234,56"
+    status:           document.getElementById("pf-status").value,
   };
+  const motivo = (document.getElementById("pf-motivo").value || "").trim();
+  if (motivo) payload.motivo_replanejamento = motivo;
   try{
     if (_formProjId){
       await api("/api/projetos/" + _formProjId, { method: "PUT", body: JSON.stringify(payload) });
@@ -1236,7 +1619,10 @@ function abrirFormEntregavel(){
   const catAtual = (tabAtiva && tabAtiva.textContent.trim()) || "Produto";
   _fillCatSelect("ef-cat", CATEGORIAS.includes(catAtual) ? catAtual : "Produto");
   document.getElementById("ef-nome").value = "";
-  document.getElementById("ef-resp").value = "";
+  document.getElementById("ef-peso").value = "1";
+  document.getElementById("ef-ini-prev").value = "";
+  document.getElementById("ef-fim-prev").value = "";
+  loadUsuarios().then(() => renderRespPicker("ef-resp-picker", "ef", []));
   _abrirModal("modal-ent-form");
   setTimeout(() => document.getElementById("ef-nome").focus(), 60);
 }
@@ -1250,7 +1636,10 @@ async function salvarFormEntregavel(){
   const payload = {
     tipo: nome,
     categoria: document.getElementById("ef-cat").value || "Produto",
-    responsaveis: document.getElementById("ef-resp").value.trim(),
+    peso: document.getElementById("ef-peso").value,
+    data_inicio_prev: document.getElementById("ef-ini-prev").value,
+    data_fim_prev: document.getElementById("ef-fim-prev").value,
+    responsaveis_ids: _respSel.ef.slice(),
   };
   try{
     await api("/api/projetos/" + _projAtualId + "/entregaveis", { method: "POST", body: JSON.stringify(payload) });
@@ -1313,6 +1702,7 @@ function renderModelos(){
     html += grupos[c].map(m =>
       `<div class="modelos-row">
         <span class="modelos-nome">${esc(m.tipo)}</span>
+        ${(m.peso != null && m.peso !== 1) ? `<span class="modelos-resp" title="Peso padrão (esforço)">×${m.peso}</span>` : ""}
         <span class="modelos-resp">${esc(m.responsavel_padrao || "—")}</span>
         ${pode ? `<span class="modelos-acts">
           <button type="button" class="lnk" onclick="modeloEditar(${m.id})">Editar</button>
@@ -1329,6 +1719,8 @@ function renderModelos(){
       <input class="form-input" id="mod-add-nome" placeholder="Nome do entregável" aria-label="Nome do entregável"
              onkeydown="if(event.key==='Enter'){event.preventDefault();modeloAdicionar();}">
       <input class="form-input" id="mod-add-resp" placeholder="Responsável padrão (opcional)" aria-label="Responsável padrão">
+      <input class="form-input" id="mod-add-peso" style="flex:0 0 90px" value="1" inputmode="decimal"
+             placeholder="Peso" aria-label="Peso padrão (esforço)" title="Peso padrão (esforço relativo)">
       <button type="button" class="btn btn-primary btn-sm" onclick="modeloAdicionar()">+ Adicionar</button>
     </div>`;
   }
@@ -1343,6 +1735,7 @@ async function modeloAdicionar(){
     categoria: document.getElementById("mod-add-cat").value || "Produto",
     tipo: nome,
     responsavel_padrao: document.getElementById("mod-add-resp").value.trim(),
+    peso: document.getElementById("mod-add-peso").value,
   };
   try{
     await api("/api/modelos", { method: "POST", body: JSON.stringify(payload) });
@@ -1361,6 +1754,7 @@ function modeloEditar(mid){
   _fillCatSelect("mdf-cat", m.categoria);
   document.getElementById("mdf-nome").value = m.tipo || "";
   document.getElementById("mdf-resp").value = m.responsavel_padrao || "";
+  document.getElementById("mdf-peso").value = m.peso != null ? m.peso : 1;
   document.getElementById("mdf-sub").textContent = `Modelo ${_modelosTipoAtual} · projetos já criados não são afetados`;
   _abrirModal("modal-modelo-form");
   setTimeout(() => document.getElementById("mdf-nome").focus(), 60);
@@ -1376,6 +1770,7 @@ async function salvarModeloForm(){
     tipo: nome,
     categoria: document.getElementById("mdf-cat").value || "Produto",
     responsavel_padrao: document.getElementById("mdf-resp").value.trim(),
+    peso: document.getElementById("mdf-peso").value,
   };
   try{
     await api("/api/modelos/" + _modeloEditId, { method: "PUT", body: JSON.stringify(payload) });
@@ -1503,11 +1898,39 @@ function abrirPop(e){
   document.getElementById("pop-status").value = e.status;
   document.getElementById("pop-pct").value = e.percentual ?? 0;
   document.getElementById("pop-pct-val").textContent = (e.percentual ?? 0) + "%";
-  document.getElementById("pop-resp").value = e.responsaveis || "";
   document.getElementById("pop-inicio").value = _toIso(e.data_inicio);
   document.getElementById("pop-conclusao").value = _toIso(e.data_conclusao);
+  document.getElementById("pop-peso").value = e.peso != null ? e.peso : 1;
+  document.getElementById("pop-fim-prev").value = _toIso(e.data_fim_prev);
+
+  // Bloco de gestão só para quem pode editar o projeto.
+  const gestao = document.getElementById("pop-gestao");
+  if (gestao) gestao.style.display = canEditProj() ? "" : "none";
+  if (canEditProj()){
+    loadUsuarios().then(() => renderRespPicker("pop-resp-picker", "pop", e.responsaveis_ids || []));
+  }
+
+  document.getElementById("pop-hist").innerHTML = "";
+  carregarHistoricoPop(e.id);
+
   popStatusChange();
   document.getElementById("edit-pop").style.display = "flex";
+}
+
+/* Histórico de status: mostra quem mexeu e quando, direto no popover. */
+async function carregarHistoricoPop(eid){
+  const host = document.getElementById("pop-hist");
+  if (!host) return;
+  try{
+    const r = await api("/api/entregaveis/" + eid + "/historico");
+    const h = (r.historico || []).slice(-6).reverse();
+    if (!h.length){ host.innerHTML = ""; return; }
+    host.innerHTML = `<div class="pop-hist-title">Histórico</div>` + h.map(x => {
+      const lab = x.status_novo === "em_progresso"
+        ? `em progresso ${x.percentual ?? 0}%` : x.status_novo;
+      return `<div class="pop-hist-row"><span>${esc(lab)}${x.por ? " · " + esc(x.por.split("@")[0]) : ""}</span><span>${esc(x.em)}</span></div>`;
+    }).join("");
+  }catch(err){ host.innerHTML = ""; }
 }
 function _hojeIso(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function popStatusChange(){
@@ -1529,12 +1952,18 @@ async function salvarPop(){
   const projIdDaTarefa = _popEntregavel.projeto_id;
   const payload = {
     status: document.getElementById("pop-status").value,
-    responsaveis: document.getElementById("pop-resp").value.trim(),
     data_inicio: document.getElementById("pop-inicio").value,
     data_conclusao: document.getElementById("pop-conclusao").value,
   };
   if (payload.status === "em_progresso")
     payload.percentual = parseInt(document.getElementById("pop-pct").value, 10);
+  // Campos de gestão: o backend recusa (403) se vierem de um técnico, então só
+  // enviamos quando o perfil pode mesmo alterá-los.
+  if (canEditProj()){
+    payload.peso = document.getElementById("pop-peso").value;
+    payload.data_fim_prev = document.getElementById("pop-fim-prev").value;
+    payload.responsaveis_ids = _respSel.pop.slice();
+  }
   try{
     await api("/api/entregaveis/" + _popEntregavel.id, {
       method: "PUT", body: JSON.stringify(payload)});
@@ -1544,6 +1973,7 @@ async function salvarPop(){
     const modalAberto = document.getElementById("modal-projeto").classList.contains("open");
     const idAtual = _projAtualId;
     await loadProjetos().catch(()=>{});
+    loadAlertas().catch(()=>{});      // o atraso pode ter deixado de existir
     if (modalAberto && idAtual) abrirProjModal(idAtual).catch(()=>{});
     // Se a ficha do Dashboard estiver mostrando este projeto, atualiza-a.
     if (_fichaProj && _fichaProj.id === projIdDaTarefa) setDashProj(_fichaProj.id).catch(()=>{});
@@ -1586,8 +2016,18 @@ document.getElementById("cf-cancel").addEventListener("click", () => _fecharConf
 document.getElementById("modal-confirm-ent").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) _fecharConfirm(false);
 });
+/* Sino: fecha ao clicar fora do popup (o botão para o clique dele no toggle). */
+document.addEventListener("click", (e) => {
+  if (!sinoAberto()) return;
+  const wrap = e.target.closest ? e.target.closest(".sino-wrap") : null;
+  if (!wrap) fecharSino();
+});
+window.addEventListener("resize", () => { if (sinoAberto()) posicionarSino(); });
+
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  // o sino é a camada mais leve: sai primeiro, antes de fechar qualquer modal
+  if (sinoAberto()){ fecharSino(); document.getElementById("sino-btn").focus(); return; }
   if (document.getElementById("modal-confirm-ent").classList.contains("open")){ _fecharConfirm(false); return; }
   if (document.getElementById("modal-modelo-form").classList.contains("open")) fecharModeloForm();
   else if (document.getElementById("modal-ent-form").classList.contains("open")) fecharFormEntregavel();
@@ -1597,17 +2037,53 @@ document.addEventListener("keydown", (e) => {
   else if (document.getElementById("edit-pop").style.display !== "none") fecharPop();
 });
 
+/* Replanejamento: vigia os campos do plano para revelar o campo de motivo. */
+["pf-inicio-prev", "pf-fim-prev", "pf-orcamento"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el){ el.addEventListener("input", _pfAtualizaMotivo); el.addEventListener("change", _pfAtualizaMotivo); }
+});
+
+/* ── Tempo real ──────────────────────────────────────────────────────────
+   O backend já publicava os eventos de projeto, entregável e lançamento mensal
+   e pagava o custo de gravar cada um — mas esta tela nunca escutou nada. Mesmo padrão do
+   módulo de Missões: recarrega o que está visível, o servidor é a verdade. */
+function conectarSocket(){
+  if (typeof io === "undefined") return;
+  try{
+    const s = io({ auth: { token: token() }, transports: ["websocket", "polling"] });
+    let pendente = null;
+    const recarregar = () => {                 // agrupa rajadas de eventos
+      clearTimeout(pendente);
+      pendente = setTimeout(() => {
+        _recarregarTudo().catch(()=>{});
+        if (_projAtualId && document.getElementById("modal-projeto").classList.contains("open"))
+          abrirProjModal(_projAtualId).catch(()=>{});
+        if (_fichaProj) setDashProj(_fichaProj.id).catch(()=>{});
+      }, 400);
+    };
+    ["PROJETO_CREATED", "PROJETO_UPDATED", "PROJETO_ARQUIVADO",
+     "ENTREGAVEL_CREATED", "ENTREGAVEL_UPDATED", "ENTREGAVEL_DELETED",
+     "MENSAL_CREATED", "MENSAL_UPDATED", "MENSAL_DELETED",
+     "BASELINE_CREATED"].forEach(ev => s.on(ev, recarregar));
+  }catch(e){ /* tempo real é opcional; a tela funciona sem ele */ }
+}
+
+/* jsPDF vem de CDN: se não carregar, o resto da página segue funcionando. */
+function _temJsPDF(){
+  return !!(window.jspdf && window.jspdf.jsPDF);
+}
+
 /* ── Init ── */
 (async function init(){
   if (!token()){ window.location.href = "/"; return; }
-  // Acesso ao módulo: somente gestor ou acima (gestor/admin)
-  if (!["admin", "gestor"].includes(userRole())){ window.location.href = "/hub"; return; }
-  const nb = document.getElementById("btn-novo-proj");
-  if (nb) nb.style.display = canEditProj() ? "" : "none";
+  // Técnico entra em modo restrito (só os entregáveis dele); leitura não entra.
+  if (!["admin", "gestor", "tecnico"].includes(userRole())){ window.location.href = "/hub"; return; }
   try{
-    await Promise.all([loadKpis(), loadProjetos(), loadProjetosAll()]);
+    // Um carregamento de projetos serve grade e gráficos; alertas em paralelo.
+    await Promise.all([loadKpis(), loadProjetos(), loadAlertas().catch(()=>{})]);
     populateDashProjSel();
     renderCharts();
+    conectarSocket();
   }catch(e){ toast(e.message, true); }
 })();
 
@@ -1724,7 +2200,7 @@ function _addImgContain(doc, img, x, y, boxW, boxH, imgRatio){
 }
 
 async function gerarRelatorioPDF(){
-  if(!window.jspdf){ toast('Aguarde o carregamento do gerador de PDF e tente novamente', true); return; }
+  if(!_temJsPDF()){ toast('Gerador de PDF indisponivel (sem conexao com o CDN). Use a exportacao em Excel.', true); return; }
   const projects = _exportFilteredProjects();
   if(!projects.length){ toast('Nenhum projeto corresponde aos filtros', true); return; }
   toast('Gerando relatório...');
@@ -1932,7 +2408,7 @@ async function gerarRelatorioPDF(){
 
 /* ── PDF da ficha de UM projeto (filtro do Dashboard) ── */
 async function exportarProjetoPDF(){
-  if(!window.jspdf){ toast('Aguarde o gerador de PDF carregar', true); return; }
+  if(!_temJsPDF()){ toast('Gerador de PDF indisponivel (sem conexao com o CDN). Use a exportacao em Excel.', true); return; }
   const p = _fichaProj;
   if(!p){ toast('Selecione um projeto', true); return; }
   toast('Gerando ficha...');

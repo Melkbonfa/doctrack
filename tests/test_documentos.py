@@ -278,13 +278,44 @@ def test_aplicabilidade_gestor_marca_na(client, admin_token, gestor_token, auth_
     doc = _doc_de_tipo(client, ha, "MAQ-NA", "Manual_ES")
 
     res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
-                     json={"aplicavel": False, "motivo_na": "produto sem versão ES"},
+                     json={"aplicavel": False,
+                           "motivo_na_codigo": "outro",
+                           "motivo_na": "produto sem versão ES"},
                      headers=hg)
     assert res.status_code == 200
     d = res.get_json()["documento"]
     assert d["aplicavel"] is False
     assert d["motivo_na"] == "produto sem versão ES"
+    assert d["motivo_na_codigo"] == "outro"
     assert d["status"] == "Elaborar"        # marcar N/A não mexe no status
+
+
+def test_na_exige_motivo(client, admin_token, gestor_token, auth_headers):
+    """Marcar N/A sem motivo é 400: o escopo muda o denominador de todo mundo."""
+    ha, hg = auth_headers(admin_token), auth_headers(gestor_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-NA-MOT"}, headers=ha)
+    doc = _doc_de_tipo(client, ha, "MAQ-NA-MOT", "Manual_ES")
+
+    sem_motivo = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                            json={"aplicavel": False}, headers=hg)
+    assert sem_motivo.status_code == 400
+    assert "motivos" in sem_motivo.get_json()
+
+    invalido = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                          json={"aplicavel": False, "motivo_na_codigo": "inventado"},
+                          headers=hg)
+    assert invalido.status_code == 400
+
+    # 'outro' sem descrição livre também não passa
+    vazio = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                       json={"aplicavel": False, "motivo_na_codigo": "outro"}, headers=hg)
+    assert vazio.status_code == 400
+
+    ok = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
+                    json={"aplicavel": False, "motivo_na_codigo": "fornecido_fabricante"},
+                    headers=hg)
+    assert ok.status_code == 200
+    assert ok.get_json()["documento"]["motivo_na_label"] == "Fornecido pelo fabricante"
 
 
 def test_aplicabilidade_tecnico_negado(client, admin_token, tecnico_token, auth_headers):
@@ -307,7 +338,8 @@ def test_religar_na_preserva_dados(client, admin_token, auth_headers):
                  json={"codigo_doc": "MS-77", "responsavel": "Ana", "status": "Em andamento"},
                  headers=h)
     client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
-               json={"aplicavel": False, "motivo_na": "sem serviço em campo"}, headers=h)
+               json={"aplicavel": False, "motivo_na_codigo": "outro",
+                     "motivo_na": "sem serviço em campo"}, headers=h)
     res = client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
                      json={"aplicavel": True}, headers=h)
 
@@ -315,6 +347,7 @@ def test_religar_na_preserva_dados(client, admin_token, auth_headers):
     d = res.get_json()["documento"]
     assert d["aplicavel"] is True
     assert d["motivo_na"] == ""              # religar limpa o motivo
+    assert d["motivo_na_codigo"] == ""
     assert d["codigo_doc"] == "MS-77"
     assert d["responsavel"] == "Ana"
     assert d["status"] == "Em andamento"
@@ -328,7 +361,8 @@ def test_kpis_ignoram_documentos_na(client, admin_token, auth_headers):
     antes = client.get("/api/metrics", headers=h).get_json()
     doc = _doc_de_tipo(client, h, "MAQ-KPI", "Manual_Servico")
     client.put(f"/api/documentos/{doc['id']}/aplicabilidade",
-               json={"aplicavel": False}, headers=h)
+               json={"aplicavel": False, "motivo_na_codigo": "coberto_outro_doc"},
+               headers=h)
     depois = client.get("/api/metrics", headers=h).get_json()
 
     assert depois["total"] == antes["total"] - 1

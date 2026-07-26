@@ -124,10 +124,37 @@ def test_listar_projetos_sem_token(client, projeto_seed):
     assert res.status_code == 401
 
 
-# Módulo restrito a gestor ou acima: tecnico e leitura recebem 403
-def test_listar_projetos_tecnico_negado(client, tecnico_token, auth_headers, projeto_seed):
+# Técnico entra em modo restrito: só vê projeto onde tem entregável atribuído.
+# Sem atribuição, a lista vem vazia (não é 403 — ele tem acesso ao módulo).
+def test_listar_projetos_tecnico_sem_atribuicao_ve_lista_vazia(
+        client, tecnico_token, auth_headers, projeto_seed):
     res = client.get("/api/projetos", headers=auth_headers(tecnico_token))
-    assert res.status_code == 403
+    assert res.status_code == 200
+    assert res.get_json()["projetos"] == []
+
+
+def test_listar_projetos_tecnico_nao_recebe_financeiro(
+        client, gestor_token, tecnico_token, auth_headers, projeto_seed):
+    from models import db, Entregavel, User
+    with client.application.app_context():
+        tec = User.query.filter_by(email="tecnico@test.com").first()
+        e = Entregavel.query.filter_by(projeto_id=projeto_seed).first()
+        e.responsaveis_users = [tec]
+        db.session.commit()
+    res = client.get("/api/projetos", headers=auth_headers(tecnico_token))
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["financeiro"] is False
+    projs = body["projetos"]
+    assert len(projs) == 1
+    assert "orcamento" not in projs[0]
+    # nenhum valor em R$ pode escapar — inclusive sv/cv, que são variações
+    # monetárias (EV−PV e EV−AC), não percentuais
+    for k in ("bac", "pv", "ev", "ac", "sv", "cv", "cpi", "eac"):
+        assert k not in projs[0]["pmo"], k
+    # gestor continua vendo tudo
+    res_g = client.get("/api/projetos", headers=auth_headers(gestor_token))
+    assert "orcamento" in res_g.get_json()["projetos"][0]
 
 
 def test_listar_projetos_leitura_negado(client, leitura_token, auth_headers, projeto_seed):

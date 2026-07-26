@@ -253,3 +253,132 @@ select.input{cursor:pointer}
 .proj-arch-tag{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
   color:var(--t3);background:var(--bg-void);border:1px solid var(--border-soft);
   padding:2px 8px;border-radius:20px;flex-shrink:0}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EVOLUÇÃO DO MÓDULO — situação, alertas, responsáveis, linha de base
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Selo de situação do projeto (ciclo de vida) ── */
+.st-tag{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  padding:2px 8px;border-radius:20px;flex-shrink:0;border:1px solid transparent}
+.st-planejado{color:#93c5fd;background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.32)}
+.st-execucao {color:#67e8f9;background:rgba(34,211,238,.13);border-color:rgba(34,211,238,.3)}
+.st-suspenso {color:#fcd34d;background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.32)}
+.st-concluido{color:#6ee7b7;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.32)}
+.st-cancelado{color:#fda4af;background:rgba(248,113,113,.13);border-color:rgba(248,113,113,.3)}
+
+/* Faixa de atraso no card do projeto */
+.proj-atraso{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;
+  color:#fda4af;margin-top:6px}
+.proj-atraso::before{content:'';width:6px;height:6px;border-radius:50%;background:#f87171}
+.proj-prev{font-size:11.5px;color:var(--t3);margin-top:5px}
+.proj-prev b{color:var(--t2);font-weight:600}
+.proj-prev.late b{color:#fda4af}
+
+/* ── Sino de alertas (cabeçalho) ── */
+.sino-wrap{position:relative;display:inline-flex}
+.sino-btn{position:relative;padding:6px 10px;line-height:1}
+.sino-btn svg{width:18px;height:18px;display:block}
+.sino-btn[aria-expanded="true"]{color:var(--cyan);border-color:var(--cyan)}
+/* balança só quando há algo crítico — chama atenção sem virar enfeite */
+.sino-btn.tem-critico svg{animation:sinoBalanca 2.6s ease-in-out 1s 2}
+@keyframes sinoBalanca{
+  0%,60%,100%{transform:rotate(0)}
+  5%,15%,25%{transform:rotate(11deg)}
+  10%,20%,30%{transform:rotate(-11deg)}
+}
+.sino-badge{position:absolute;top:-5px;right:-5px;display:inline-flex;align-items:center;
+  justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:20px;
+  background:#ef4444;color:#fff;font-size:10px;font-weight:700;line-height:1;
+  border:2px solid var(--bg-card);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+
+/* ── Popup do sino ── */
+.sino-pop{position:absolute;top:calc(100% + 10px);right:0;z-index:9200;width:420px;max-width:calc(100vw - 24px);
+  background:var(--bg-card);border:1px solid var(--border-soft);border-radius:var(--r3);
+  box-shadow:0 24px 60px -12px rgba(0,0,0,.6),0 0 0 1px rgba(167,139,250,.08);
+  overflow:hidden;transform-origin:top right;animation:sinoPopIn .16s cubic-bezier(.2,.8,.2,1)}
+@keyframes sinoPopIn{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:none}}
+.sino-pop[hidden]{display:none}
+.sino-pop-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:13px 16px;border-bottom:1px solid var(--border-dim);background:var(--bg-void)}
+.sino-pop-title{font-size:13.5px;font-weight:700;color:var(--t1);letter-spacing:-.2px}
+.sino-pop-count{font-size:11.5px;color:var(--t3);flex-shrink:0}
+.sino-pop-body{max-height:min(420px,60vh);overflow-y:auto;padding:8px}
+
+/* Scrollbars das áreas roláveis deste módulo — mesmo desenho de .tbl-wrap
+   (style.css) e .vw-body (equipamentos), para não destoar do resto. */
+.sino-pop-body,.resp-picker,.pop-hist{
+  scrollbar-width:thin;scrollbar-color:var(--border-mid) var(--bg-void)}
+.sino-pop-body::-webkit-scrollbar,
+.resp-picker::-webkit-scrollbar,
+.pop-hist::-webkit-scrollbar{width:8px}
+.sino-pop-body::-webkit-scrollbar-track,
+.resp-picker::-webkit-scrollbar-track,
+.pop-hist::-webkit-scrollbar-track{background:var(--bg-void);border-radius:4px}
+.sino-pop-body::-webkit-scrollbar-thumb,
+.resp-picker::-webkit-scrollbar-thumb,
+.pop-hist::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:4px}
+.sino-pop-body::-webkit-scrollbar-thumb:hover,
+.resp-picker::-webkit-scrollbar-thumb:hover,
+.pop-hist::-webkit-scrollbar-thumb:hover{background:var(--cyan)}
+
+.alerta-item{display:flex;align-items:flex-start;gap:11px;padding:10px 11px;border-radius:var(--r2);
+  cursor:pointer;transition:background .14s}
+.alerta-item+.alerta-item{border-top:1px solid var(--border-dim)}
+.alerta-item:hover{background:var(--bg-void)}
+.alerta-item:focus-visible{outline:2px solid var(--cyan);outline-offset:-2px}
+.alerta-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.alerta-critico .alerta-dot{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.16)}
+.alerta-atencao .alerta-dot{background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.16)}
+.alerta-txt{flex:1;min-width:0}
+.alerta-titulo{font-size:13px;font-weight:600;color:var(--t1);margin-bottom:2px}
+.alerta-detalhe{font-size:11.5px;color:var(--t3);line-height:1.35}
+.alerta-proj{display:block;font-size:11px;color:var(--t4);margin-top:3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.alerta-vazio{text-align:center;color:var(--t3);padding:30px 16px;font-size:13.5px}
+
+/* ── Seletor de responsáveis (chips de usuários reais) ── */
+.resp-picker{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid var(--border-soft);
+  border-radius:var(--r2);background:var(--bg-void);max-height:132px;overflow-y:auto}
+.resp-chip{appearance:none;font-family:var(--font-body);cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;
+  border:1px solid var(--border-soft);background:var(--bg-card);color:var(--t2);
+  font-size:12.5px;font-weight:500;transition:all .14s}
+.resp-chip:hover{border-color:var(--cyan);color:var(--t1)}
+.resp-chip[aria-pressed="true"]{background:rgba(6,182,212,.15);border-color:var(--cyan);color:var(--cyan);font-weight:600}
+.resp-chip[aria-pressed="true"]::before{content:'✓';font-size:11px;font-weight:700}
+.resp-vazio{font-size:12.5px;color:var(--t4);padding:4px}
+
+/* ── Histórico do entregável (popover) ── */
+.pop-hist{margin-top:10px;font-size:11.5px;color:var(--t3);max-height:96px;overflow-y:auto}
+.pop-hist-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px solid var(--border-dim)}
+.pop-hist-row:last-child{border-bottom:none}
+.pop-hist-title{font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  color:var(--t4);margin-bottom:4px}
+
+/* ── Linha de base versionada (form do projeto) ── */
+.pf-baselines{margin-top:4px}
+.pf-baseline-row{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--t3);
+  padding:5px 0;border-bottom:1px solid var(--border-dim)}
+.pf-baseline-row:last-child{border-bottom:none}
+.pf-baseline-v{font-weight:700;color:var(--t2);flex-shrink:0}
+.pf-baseline-motivo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Gráfico de tendência (SPI/CPI ao longo do tempo) ── */
+.tend-wrap{position:relative;height:220px}
+
+/* ── Modo técnico: aviso de escopo restrito ── */
+.modo-tecnico{display:flex;align-items:center;gap:9px;padding:10px 13px;margin-top:14px;
+  border-radius:var(--r2);border:1px solid rgba(34,211,238,.28);background:rgba(34,211,238,.07);
+  font-size:12.5px;color:var(--t2)}
+.modo-tecnico b{color:var(--cyan)}
+
+/* Card do projeto acessível por teclado */
+.proj-card:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+/* ── Tema claro ── */
+.theme-light .alerta-item:hover{background:#f1f5f9}
+.theme-light .sino-pop{box-shadow:0 24px 60px -14px rgba(15,23,42,.24),0 0 0 1px rgba(15,23,42,.05)}
+.theme-light .sino-pop-head{background:#f8fafc}
+.theme-light .resp-picker{background:#fff}
+.theme-light .resp-chip{background:#f8fafc}

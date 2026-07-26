@@ -4,29 +4,11 @@ let selectedRole='admin',_allUsers=[],_enums={},_lastKpis=null;
 let _filterTimer=null;
 let _dashEquip='';   // equipamento selecionado no dashboard ('' = todos)
 
-// ═══ TEMA CLARO/ESCURO ═══
-function applyTheme(theme){
-  const isLight = theme === 'light';
-  document.body.classList.toggle('theme-light', isLight);
-  const btn = document.getElementById('theme-toggle');
-  if(btn) btn.textContent = isLight ? '☀️' : '🌙';
-}
-function toggleTheme(){
-  const next = document.body.classList.contains('theme-light') ? 'dark' : 'light';
-  localStorage.setItem('doctrack_theme', next);
-  applyTheme(next);
-}
-function initTheme(){
-  applyTheme(localStorage.getItem('doctrack_theme') || 'dark');
-}
+// esc, norm, applyTheme/toggleTheme/initTheme e o acesso ao token vêm de
+// static/common.js (carregado antes deste arquivo em todos os templates).
 
 const CAT_COLORS={'PRE':'#22d3ee','Manuais':'#06b6d4'};
 const STATUS_PILL={'Elaborar':'pill-elab','Homologado':'pill-ok','Enviado para Homologação':'pill-wip','Treinamento Piloto':'pill-warn','Concluído':'pill-ok','Em andamento':'pill-wip'};
-
-function esc(str){
-  if(str==null)return'';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
 
 // ═══ DONUT: estilo igual ao módulo de Entregáveis (gradiente vertical + tooltip externo) ═══
 function _darken(hex, f){
@@ -67,14 +49,6 @@ function donutTooltipExternal(context){
   el.style.top = top + 'px';
 }
 
-function norm(s){
-  if(s==null)return'';
-  return String(s).trim().toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
-}
-
-function getToken(){return localStorage.getItem('doctrack_token')||''}
-function setToken(t){localStorage.setItem('doctrack_token',t)}
-function clearToken(){localStorage.removeItem('doctrack_token');localStorage.removeItem('doctrack_refresh');localStorage.removeItem('doctrack_user')}
 function authHeader(){return{'Content-Type':'application/json','Authorization':'Bearer '+getToken()}}
 // 401 → tenta renovar o access token com o refresh e repete a chamada uma vez.
 // Só desloga (limpo) se o refresh também venceu/foi revogado.
@@ -131,7 +105,7 @@ async function doPrimeiroAcesso(){
   const codigo=document.getElementById('pa-codigo').value.trim();
   const senha=document.getElementById('pa-senha').value;
   const senha2=document.getElementById('pa-senha2').value;
-  if(senha.length<6){showToast('A senha deve ter pelo menos 6 caracteres','error');return}
+  if(senha.length<SENHA_MIN){showToast('A senha deve ter pelo menos '+SENHA_MIN+' caracteres','error');return}
   if(senha!==senha2){showToast('As senhas não conferem','error');return}
   const original=btn.textContent;
   btn.innerHTML='<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span>';
@@ -195,6 +169,9 @@ async function initApp(){
   await loadData();
 
   renderDashboard();renderDocs();
+  // Fluxo carrega em paralelo, sem bloquear a pintura do dashboard: são duas
+  // chamadas a mais e o painel se preenche sozinho quando chegarem.
+  loadFluxo();
   makeSortable();
 
   // deep-link vindo do board de missões: /?doc=<id> abre a ficha na aba certa
@@ -203,7 +180,13 @@ async function initApp(){
   if(_docDeep){
     history.replaceState(null, '', location.pathname);
     const d = allDocs.find(x=>x.id===_docDeep);
-    if(d){
+    // Documento de processo não tem ficha de equipamento: leva para a tabela dele
+    if(d && !_SETORES_EQUIP.includes(d.setor)){
+      navigate('docs');
+      const card=document.getElementById('proc-card');
+      if(card) card.scrollIntoView({behavior:'smooth', block:'center'});
+    }
+    else if(d){
       const key = d.equipamento_id ? ('id:'+d.equipamento_id) : ('nome:'+(d.equipamento||'—').trim());
       openEquipModal(key);
       if(d.tipo_doc==='Manual_ES'){ _manLang='ES'; setManLang('ES'); switchEquipTab('Manual_Usuario'); }
@@ -232,6 +215,9 @@ function updateUserUI(){
   if(rl==='admin' || rl==='gestor') {
       const btnExp = document.getElementById('btn-export-kpis');
       if(btnExp) btnExp.style.display='block';
+      // Diagnóstico lê o filesystem da rede: mesma restrição da rota (admin/gestor)
+      const btnDiag = document.getElementById('btn-diag');
+      if(btnDiag) btnDiag.style.display='inline-flex';
   }
 }
 
@@ -265,6 +251,56 @@ function exportKPIs() {
         console.error("Erro na exportação via servidor: ", err);
         showToast('Erro ao gerar PDF: ' + err.message, 'error');
     });
+}
+
+// CSV bruto dos documentos — o PDF de KPIs responde "como estamos"; o CSV
+// permite qualquer recorte fora do sistema (Excel/BI). Respeita a busca da tela.
+async function exportarDocumentosCSV(){
+  const q = (document.getElementById('docs-search')||{}).value || '';
+  try{
+    const res = await apiFetch('/documentos/export' + (q.trim()?('?q='+encodeURIComponent(q.trim())):''));
+    if(!res || !res.ok){ showToast('Erro ao exportar','error'); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'documentos.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showToast('CSV gerado','success');
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// ═══ DIAGNÓSTICO DE ARQUIVOS (admin/gestor) ═══
+// Confronta o cadastro com o filesystem: documento sem caminho e caminho que não
+// existe mais. "Homologado" no sistema não prova que existe arquivo na pasta.
+async function abrirDiagnostico(){
+  const modal = document.getElementById('diag-body');
+  if(!modal) return;
+  modal.innerHTML = '<div class="loading-state">Verificando pastas…</div>';
+  openBaseModal('diag');
+  try{
+    const res = await apiFetch('/documentos/diagnostico');
+    if(!res || !res.ok){
+      const e = res ? await res.json().catch(()=>({})) : {};
+      modal.innerHTML = `<div class="loading-state">${esc(e.erro||'Diagnóstico indisponível')}</div>`;
+      return;
+    }
+    const rel = await res.json();
+    const s = rel.stats||{};
+    const cards = [
+      ['Verificados', s.total_verificados||0, ''],
+      ['Com caminho', s.com_local||0, 'ok'],
+      ['Sem caminho', s.sem_local||0, 'warn'],
+      ['Pasta não encontrada', s.arquivos_nao_encontrados||0, 'err'],
+    ].map(([l,v,c])=>`<div class="diag-stat ${c}"><span class="diag-stat-val">${v}</span><span class="diag-stat-lbl">${esc(l)}</span></div>`).join('');
+    const linhas = (rel.issues||[]).slice(0,300).map(i=>
+      `<tr><td>${esc(i.equipamento||'—')}</td><td>${esc(i.tipo_doc_label||i.tipo_doc||'—')}</td>
+       <td><span class="pill ${i.severidade==='error'?'pill-warn':'pill-elab'}">${esc(i.tipo)}</span></td>
+       <td style="font-size:11px;color:var(--t3)">${esc(i.caminho||'—')}</td></tr>`).join('');
+    modal.innerHTML = `<div class="diag-stats">${cards}</div>` + (linhas
+      ? `<div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>Documento</th><th>Problema</th><th>Caminho</th></tr></thead><tbody>${linhas}</tbody></table></div>`
+      : '<div class="loading-state">Nenhuma inconsistência encontrada.</div>');
+  }catch(e){ modal.innerHTML = '<div class="loading-state">Erro de rede</div>'; }
 }
 
 // ═══ EXPORTAÇÃO DE RELATÓRIO (PDF client-side, com filtros) ═══
@@ -613,28 +649,40 @@ async function loadEquipamentos(){
     });}
   }catch(e){}
 }
-async function refreshAll(){await loadData();renderDashboard();renderDocs();showToast('Dados atualizados','success');
+async function refreshAll(){await loadData();renderDashboard();renderDocs();loadFluxo();showToast('Dados atualizados','success');
   document.getElementById('sync-label').textContent='Atualizado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 }
 
-// reimportExcel() foi movido para o módulo de Configurações (static/config.js).
+// A sincronização por planilha (reimportExcel) não existe mais: a rota
+// /api/reimport dropava as tabelas de documentos antes de reinserir a planilha.
+// O seed por Excel ficou restrito a `servidor.py --init` em banco vazio.
 
 // ═══ DASHBOARD ═══
 // Replica compute_kpis() do servidor para recalcular o dashboard por equipamento
 // (filtro client-side; estrutura idêntica à de _lastKpis).
+// Os DOIS filtros do servidor precisam existir aqui, senão o mesmo equipamento
+// mostra números diferentes conforme o filtro do dashboard estiver ligado:
+//   1) N/A fora da conta;  2) só setores de equipamento (processo não entra).
 function computeKpisJS(docs){
   const setores=Object.keys((_lastKpis&&_lastKpis.por_setor)||{});
   const por_setor={},status_counts={};
   setores.forEach(s=>{por_setor[s]=0;status_counts[s]={};});
   const global_counts={'Pendente':0,'Em progresso':0,'Finalizado':0};
-  docs.forEach(d=>{
+  const aplicaveis=docs.filter(d=>d.aplicavel!==false);
+  const processos=aplicaveis.filter(d=>!(d.setor in por_setor)).length;
+  const view=aplicaveis.filter(d=>d.setor in por_setor);
+  let atrasados=0;
+  view.forEach(d=>{
     const setor=d.setor;
-    if(setor in por_setor){por_setor[setor]++;const st=d.status||'Elaborar';status_counts[setor][st]=(status_counts[setor][st]||0)+1;}
+    por_setor[setor]++;
+    const st=d.status||'Elaborar';status_counts[setor][st]=(status_counts[setor][st]||0)+1;
     const sg=d.status_global||'Pendente';global_counts[sg]=(global_counts[sg]||0)+1;
+    if(d.atrasado) atrasados++;
   });
-  const total=docs.length,fin=global_counts['Finalizado']||0;
+  const total=view.length,fin=global_counts['Finalizado']||0;
   return {total,finalizados:fin,em_progresso:global_counts['Em progresso']||0,pendentes:global_counts['Pendente']||0,
-    backlog:total-fin,pct_concluidos:total?Math.round(fin/total*1000)/10:0,por_setor,status_counts,global_counts};
+    backlog:total-fin,atrasados,processos,
+    pct_concluidos:total?Math.round(fin/total*1000)/10:0,por_setor,status_counts,global_counts};
 }
 
 // Popula o seletor de equipamento do dashboard a partir de allDocs.
@@ -648,7 +696,133 @@ function populateDashEquip(){
   sel.value=_dashEquip;
 }
 
-function setDashEquip(v){ _dashEquip=v||''; renderDashboard(); }
+function setDashEquip(v){ _dashEquip=v||''; renderDashboard(); renderFluxo(); }
+
+// ═══ FLUXO DE TRABALHO ═══
+// Leituras de GET /api/documentos/metricas e /alertas. A trilha do documento
+// (documento_historico) já era gravada a cada troca de status desde sempre e só
+// alimentava a lista da ficha — nenhum número do dashboard vinha dela.
+let _fluxo=null, _fluxoAlertas=null;
+
+const SEV_COR={critico:'#ef4444',atencao:'#f59e0b',info:'#22d3ee'};
+const SEV_LBL={critico:'Crítico',atencao:'Atenção',info:'Info'};
+
+// Não existe modal de um documento isolado: a ficha é do equipamento (as 12
+// abas de tipo moram lá). Um clique no alerta abre a ficha do equipamento dele.
+function abrirDoFluxo(equipId, equipNome){
+  const key = equipId ? ('id:'+equipId) : ('nome:'+(equipNome||''));
+  navigate('docs');
+  openEquipModal(key);
+}
+
+async function loadFluxo(){
+  const qs = _dashEquip && allEquip[_dashEquip] ? `?equipamento_id=${allEquip[_dashEquip].id}` : '';
+  try{
+    const [m,a] = await Promise.all([
+      apiFetch('/documentos/metricas'+qs),
+      apiFetch('/documentos/alertas'),
+    ]);
+    _fluxo = m ? await m.json() : null;
+    _fluxoAlertas = a ? await a.json() : null;
+  }catch(e){ _fluxo=null; _fluxoAlertas=null; }
+  renderFluxo();
+}
+
+function renderFluxo(){
+  const set=(id,html)=>{const el=document.getElementById(id); if(el) el.innerHTML=html;};
+  if(!_fluxo){
+    set('flx-cards','<div class="loading-state" style="grid-column:1/-1">Sem dados de fluxo</div>');
+    return;
+  }
+  const t=_fluxo.totais, ct=_fluxo.cycle_time;
+  const jan=document.getElementById('flx-janela');
+  if(jan) jan.textContent=`últimos ${_fluxo.janela_dias} dias`;
+
+  // Quatro números que não existiam em tela nenhuma antes.
+  // Throughput e ciclo só contam documentos com data de conclusão REAL (uma
+  // transição registrada na trilha). Os concluídos antes da instrumentação não
+  // têm essa data, e o rodapé do card diz isso em vez de fingir cobertura total.
+  const semData=_fluxo.throughput.sem_data||0;
+  const cards=[
+    {v:t.wip, l:'Em andamento (WIP)', c:'#22d3ee',
+     t:'Documentos efetivamente em curso — nem no início, nem prontos'},
+    {v:_fluxo.throughput.concluidos, l:`Concluídos em ${_fluxo.janela_dias}d`, c:'#10b981',
+     t:'Throughput: quantos saíram no período, medidos pela trilha'},
+    {v:ct.p85!=null?ct.p85+'d':'—', l:'Ciclo p85', c:'#a78bfa',
+     t:ct.amostra?`85% concluíram em até este prazo (${ct.amostra} medição(ões))`
+                 :'Sem medição ainda — depende de conclusões registradas pela trilha'},
+    {v:t.atrasados, l:'Atrasados', c:'#ef4444',
+     t:'Prazo vencido e ainda não finalizado'},
+  ];
+  set('flx-cards', cards.map(c=>`
+    <div class="metric-card" title="${esc(c.t)}">
+      <div class="metric-info">
+        <div class="metric-value" style="color:${c.c}">${esc(String(c.v))}</div>
+        <div class="metric-label">${esc(c.l)}</div>
+      </div>
+    </div>`).join(''));
+
+  // Tempo médio parado em cada status: onde o fluxo trava.
+  const maxDias=Math.max(1,..._fluxo.por_status.map(s=>s.dias_medios||0));
+  set('flx-status', _fluxo.por_status.map(s=>{
+    const pct=Math.round((s.dias_medios||0)/maxDias*100);
+    return `<div class="prog-row" title="${s.amostras} medição(ões) na trilha">
+      <span class="prog-label">${esc(s.status)}</span>
+      <div class="prog-track"><div class="prog-fill" style="width:${pct}%;background:#a78bfa"></div></div>
+      <span class="prog-pct">${s.dias_medios}d</span></div>`;
+  }).join('')+`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-dim);display:flex;justify-content:space-between;font-size:11px;color:var(--t3)">
+      <span>Tempo médio no status</span>
+      <span>avanço ponderado <b style="color:var(--cyan)">${_fluxo.avanco.ponderado}%</b></span></div>`
+    +(semData?`<div style="margin-top:8px;font-size:10px;color:var(--t3);line-height:1.5">
+        ⓘ ${semData} documento(s) já concluído(s) antes da instrumentação não têm
+        data de conclusão registrada — entram no avanço, mas ficam fora do
+        throughput e do tempo de ciclo.</div>`:''));
+
+  // Aging: quem está esquecido. Ordenado pelo backend.
+  set('flx-aging', _fluxo.aging.length ? _fluxo.aging.map(a=>`
+    <div class="prog-row" style="cursor:pointer" onclick="abrirDoFluxo(${a.equipamento_id||'null'},'${esc(a.equipamento).replace(/'/g,"\\'")}')"
+         title="${esc(a.equipamento)} · ${esc(a.status)}">
+      <span class="prog-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.documento)}</span>
+      <span class="prog-pct" style="color:${a.dias>=180?'#ef4444':a.dias>=60?'#f59e0b':'var(--t2)'}">${a.dias}d</span>
+    </div>`).join('') : '<div class="loading-state">Nada parado</div>');
+
+  // Carga por pessoa — só possível depois do N:N de responsáveis.
+  const maxCarga=Math.max(1,..._fluxo.por_responsavel.map(r=>r.abertos));
+  set('flx-carga', _fluxo.por_responsavel.length ? _fluxo.por_responsavel.slice(0,8).map(r=>`
+    <div class="prog-row" title="${r.peso} de peso · ${r.parados} parado(s) há 30d+">
+      <span class="prog-label" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.nome)}</span>
+      <div class="prog-track"><div class="prog-fill" style="width:${Math.round(r.abertos/maxCarga*100)}%;background:${r.atrasados?'#f59e0b':'#22d3ee'}"></div></div>
+      <span class="prog-pct">${r.abertos}${r.atrasados?` <span style="color:#ef4444">(${r.atrasados})</span>`:''}</span>
+    </div>`).join('') : '<div class="loading-state">Sem atribuições</div>');
+
+  renderFluxoAlertas();
+}
+
+function renderFluxoAlertas(){
+  const el=document.getElementById('flx-alertas');
+  const cnt=document.getElementById('flx-alertas-total');
+  if(!el) return;
+  if(!_fluxoAlertas){ el.innerHTML='<div class="loading-state">—</div>'; return; }
+  if(cnt) cnt.textContent=_fluxoAlertas.total
+    ? `${_fluxoAlertas.total} item(ns) · ${_fluxoAlertas.criticos} crítico(s)`
+    : 'nada pendente';
+  if(!_fluxoAlertas.alertas.length){
+    el.innerHTML='<div class="loading-state">Nenhum alerta — tudo em ordem</div>';
+    return;
+  }
+  // Já vem ordenado por severidade do backend (mesmo formato de projetos/missões).
+  el.innerHTML=_fluxoAlertas.alertas.slice(0,40).map(a=>`
+    <div style="display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border-dim);cursor:pointer"
+         onclick="abrirDoFluxo(${a.equipamento_id||'null'},'${esc(a.equipamento).replace(/'/g,"\\'")}')">
+      <span style="width:7px;height:7px;border-radius:50%;background:${SEV_COR[a.severidade]||'#22d3ee'};margin-top:6px;flex-shrink:0"
+            title="${esc(SEV_LBL[a.severidade]||a.severidade)}"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;color:var(--t1)">${esc(a.titulo)}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px">${esc(a.detalhe)}</div>
+        <div style="font-size:10px;color:var(--t3);margin-top:3px;font-family:var(--font-mono)">${esc(a.equipamento)} · ${esc(a.documento)}</div>
+      </div>
+    </div>`).join('');
+}
 
 function renderDashboard(){
   if(!_lastKpis) return;
@@ -660,7 +834,16 @@ function renderDashboard(){
   const infoEl=document.getElementById('dash-equip-info');
   if(infoEl) infoEl.textContent=_dashEquip ? (total+' documento(s) deste equipamento') : '';
   document.getElementById('dash-updated').textContent='Última atualização: '+new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  // `total` conta só documentos de equipamento aplicáveis — é o mesmo número que
+  // o donut soma. Processo (POPs/ITs da área) e atrasados aparecem à parte.
   document.getElementById('dash-pct-badge').textContent=total+' documentos';
+  const extraEl=document.getElementById('dash-extra');
+  if(extraEl){
+    const partes=[];
+    if(kpis.atrasados) partes.push(`<span class="dash-flag late" title="Prazo vencido e ainda não finalizado">⏰ ${kpis.atrasados} atrasado${kpis.atrasados>1?'s':''}</span>`);
+    if(kpis.processos) partes.push(`<span class="dash-flag" title="POPs e ITs da área — fora da completude dos equipamentos">📄 ${kpis.processos} de processo</span>`);
+    extraEl.innerHTML=partes.join('');
+  }
 
   const ringColors=['#10b981','#22d3ee','#06b6d4'];
   const ringBgs=['rgba(16,185,129,.15)','rgba(34,211,238,.15)','rgba(168,85,247,.15)'];
@@ -962,9 +1145,15 @@ let _equipChip = 'todos';
 // Agrupa allDocs por EQUIPAMENTO (entidade). A chave é o equipamento_id — assim
 // dois produtos distintos com o mesmo nome viram cards separados e ficam alinhados
 // com o módulo Equipamentos. Documentos sem vínculo (ex.: PDE) caem por nome.
+// Documentos de PROCESSO da área (setor PDE): POPs e ITs do próprio P&D, que não
+// pertencem a equipamento nenhum. Ficam fora do grid — antes viravam um card
+// fantasma escrito "nenhum documento aplicável", que não abria nada de útil.
+const _SETORES_EQUIP = ['PRE','Manuais'];
+function _docsProcesso(){ return allDocs.filter(d => d.setor && !_SETORES_EQUIP.includes(d.setor)); }
+
 function groupByEquip(){
   const groups = {};
-  allDocs.forEach(d => {
+  allDocs.filter(d => _SETORES_EQUIP.includes(d.setor)).forEach(d => {
     const key = d.equipamento_id ? ('id:'+d.equipamento_id) : ('nome:'+(d.equipamento || '—').trim());
     if(!groups[key]){
       const eq = d.equipamento_id ? (allEquipById[d.equipamento_id]||null) : (allEquip[(d.equipamento||'').trim()]||null);
@@ -1022,6 +1211,8 @@ function equipCompletude(g){
   return { ok: docs.filter(_docFinalizado).length, total: docs.length, na: _equipDocsNA(g).length };
 }
 
+function equipAtrasados(g){ return _equipDocs(g).filter(d=>d.atrasado).length; }
+
 function equipMatchesChip(g, chip){
   const docs = _equipDocs(g);
   const color = equipStatusColor(g);
@@ -1033,7 +1224,26 @@ function equipMatchesChip(g, chip){
     case 'finalizado': return color==='green';
     case 'pre-pendente': return docs.some(d=>d.setor==='PRE' && d.status==='Elaborar');
     case 'manuais-incompletos': return cnt>0 && ok<cnt;
+    case 'atrasados': return docs.some(d=>d.atrasado);
     default: return true;
+  }
+}
+
+// Recorte por TIPO de documento: responde "quais equipamentos ainda não têm o
+// Manual de Serviço?" — a pergunta que os chips de status agregado não alcançam.
+// '' = sem recorte. O modo diz o que procurar dentro do tipo escolhido.
+let _tipoFiltro = '', _tipoModo = 'pendente';
+function setTipoFiltro(v){ _tipoFiltro = v||''; renderGrid(); }
+function setTipoModo(v){ _tipoModo = v||'pendente'; renderGrid(); }
+
+function equipMatchesTipo(g){
+  if(!_tipoFiltro) return true;
+  const d = g.byTipo[_tipoFiltro];
+  switch(_tipoModo){
+    case 'na':          return !!d && d.aplicavel===false;
+    case 'finalizado':  return !!d && d.aplicavel!==false && _docFinalizado(d);
+    case 'ausente':     return !d || d.aplicavel===false;
+    default:            return !!d && d.aplicavel!==false && !_docFinalizado(d);  // pendente
   }
 }
 
@@ -1045,22 +1255,33 @@ function renderChips(groups){
     {id:'finalizado', label:'Finalizado'},
     {id:'pre-pendente', label:'IT/PRE pendente'},
     {id:'manuais-incompletos', label:'Manuais incompletos'},
+    {id:'atrasados', label:'Com atraso'},
   ];
   document.getElementById('equip-chips').innerHTML = chips.map(c => {
     const n = groups.filter(g => equipMatchesChip(g, c.id)).length;
     const active = _equipChip === c.id ? ' active' : '';
     return `<button type="button" class="filter-chip${active}" data-chip="${c.id}">${esc(c.label)}<span class="chip-count">${n}</span></button>`;
   }).join('');
+
+  const sel = document.getElementById('tipo-filtro');
+  if(sel && !sel.dataset.ready){
+    sel.innerHTML = '<option value="">Qualquer tipo de documento</option>' +
+      _TODOS_TIPOS.map(([t,l])=>`<option value="${t}">${esc(l)}</option>`).join('');
+    sel.dataset.ready = '1';
+  }
+  if(sel) sel.value = _tipoFiltro;
+  const modo = document.getElementById('tipo-modo');
+  if(modo){ modo.style.display = _tipoFiltro ? '' : 'none'; modo.value = _tipoModo; }
 }
 
-function renderDocs(){ renderGrid(); }
+function renderDocs(){ renderGrid(); renderProcessos(); }
 
 function renderGrid(){
   const groups = groupByEquip();
   renderChips(groups);
 
   const q = (document.getElementById('docs-search').value || '').trim().toLowerCase();
-  let filtered = groups.filter(g => equipMatchesChip(g, _equipChip));
+  let filtered = groups.filter(g => equipMatchesChip(g, _equipChip) && equipMatchesTipo(g));
   if(q){
     filtered = filtered.filter(g =>
       [g.equipamento, g.sku, g.fabricante,
@@ -1079,15 +1300,70 @@ function renderGrid(){
   grid.innerHTML = filtered.map(g => {
     const color = equipStatusColor(g);
     const c = equipCompletude(g);
+    const atr = equipAtrasados(g);
     const resumo = c.total
       ? `${c.ok}/${c.total} concluídos${c.na?` · ${c.na} N/A`:''}`
       : 'nenhum documento aplicável';
-    return `<div class="equip-card st-${color}" data-equip="${esc(g.key)}" onclick="openEquipModal('${esc(g.key).replace(/'/g,"\\'")}')">
-      <div class="equip-card-name">${esc(g.equipamento)}</div>
+    const flag = atr ? `<span class="equip-card-late" title="${atr} documento(s) com prazo vencido">⏰ ${atr}</span>` : '';
+    const key = esc(g.key).replace(/'/g,"\\'");
+    // Card é um botão de verdade: <div onclick> não recebia foco nem Enter/Espaço.
+    return `<div class="equip-card st-${color}" data-equip="${esc(g.key)}" role="button" tabindex="0"
+      aria-label="${esc(g.equipamento)} — ${esc(resumo)}"
+      onclick="openEquipModal('${key}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openEquipModal('${key}')}">
+      <div class="equip-card-name">${esc(g.equipamento)}${flag}</div>
       <div class="equip-card-sku">${g.sku?esc(g.sku):'<span class="muted">sem SKU</span>'}</div>
       <div class="equip-card-compl">${esc(resumo)}</div>
     </div>`;
   }).join('');
+}
+
+// ═══ DOCUMENTOS DE PROCESSO (POPs/ITs da área) ═══
+// Não têm equipamento nem os 12 tipos canônicos: uma tabela enxuta com troca de
+// status inline resolve. Antes eram invisíveis na prática (card fantasma) e
+// ineditáveis (STATUS_MAP não tinha o setor).
+function renderProcessos(){
+  const wrap = document.getElementById('proc-card');
+  if(!wrap) return;
+  const docs = _docsProcesso();
+  if(!docs.length){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  const podeEditar = currentUser.role!=='leitura';
+  const fluxo = (_enums.status_map && _enums.status_map['PDE']) || _MAN_STATUS;
+  document.getElementById('proc-badge').textContent = docs.length + ' documento(s)';
+  document.getElementById('proc-tbody').innerHTML = docs.map(d=>{
+    const opts = fluxo.map(s=>`<option value="${esc(s)}" ${s===d.status?'selected':''}>${esc(s)}</option>`).join('');
+    const sel = podeEditar
+      ? `<select class="filter-sel proc-status" data-id="${d.id}" data-ver="${d.version}" onchange="salvarStatusProcesso(this)">${opts}</select>`
+      : pillSt(d.status);
+    return `<tr>
+      <td class="mono">${esc(d.codigo_doc||'—')}</td>
+      <td class="bold">${esc(d.documento||'—')}</td>
+      <td>${sel}</td>
+      <td>${pillGlobal(d.status_global)}</td>
+      <td style="font-size:11px;color:var(--t3)">${esc(d.updated_em||'')}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function salvarStatusProcesso(el){
+  const id = el.dataset.id, novo = el.value, version = Number(el.dataset.ver);
+  el.disabled = true;
+  try{
+    const res = await apiFetch(`/documento/${id}/status`, {method:'PUT', body:JSON.stringify({status:novo, version})});
+    if(res && res.ok){
+      const doc = (await res.json()).documento;
+      const i = allDocs.findIndex(d=>d.id===doc.id);
+      if(i>=0) allDocs[i] = doc;
+      showToast('Status atualizado','success');
+      renderProcessos();
+    } else {
+      const e = res ? await res.json().catch(()=>({})) : {};
+      showToast(e.erro||'Erro ao salvar','error');
+      renderProcessos();          // devolve o select ao valor real
+    }
+  }catch(e){ showToast('Erro de rede','error'); renderProcessos(); }
+  finally{ el.disabled = false; }
 }
 
 // ═══ MODAL DE EQUIPAMENTO ═══
@@ -1150,6 +1426,7 @@ function switchEquipTab(tab){
   }
   btns.forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
+  refreshHistSections();   // trilha é carregada sob demanda, só da aba visível
 }
 
 function openEquipModal(key, opts){
@@ -1181,7 +1458,24 @@ function openEquipModal(key, opts){
   // após salvar, preserva a aba que o usuário estava vendo.
   switchEquipTab(opts.aba || _TODOS_TIPOS[0][0]);
   if(!opts.manterAberto) openBaseModal('equip');
-  _loadCartoesVinculados();
+  _loadCartoesVinculados();   // a trilha vem do switchEquipTab (só a aba ativa)
+  carregarResponsaveis();
+}
+
+// Datalist do campo "Responsável": o campo era texto livre e estava preenchido
+// em 2 de 522 documentos. Uma chamada por sessão.
+let _responsaveisCarregados = false;
+async function carregarResponsaveis(){
+  if(_responsaveisCarregados) return;
+  const dl = document.getElementById('lista-responsaveis');
+  if(!dl) return;
+  try{
+    const res = await apiFetch('/documentos/responsaveis');
+    if(!res || !res.ok) return;
+    const users = await res.json();
+    dl.innerHTML = users.map(u=>`<option value="${esc(u.nome)}">${esc(u.email)}</option>`).join('');
+    _responsaveisCarregados = true;
+  }catch(e){}
 }
 
 // Busca (1 chamada, em lote) os cartões de missão vinculados aos documentos do
@@ -1291,7 +1585,7 @@ function renderChecklistPanel(){
 function setChkSel(t){
   _chkSel = t;
   const p = document.querySelector('#equip-panels [data-panel="Checklist_Conferencia"]');
-  if(p){ p.innerHTML = renderChecklistPanel(); refreshMissoesSections(); }
+  if(p){ p.innerHTML = renderChecklistPanel(); refreshMissoesSections(); refreshHistSections(); }
 }
 
 // Painel da aba de manuais do usuário: toggle PT/ES sobre o mesmo painel
@@ -1308,7 +1602,7 @@ function renderManualPanel(){
 function setManLang(l){
   _manLang = l;
   const p = document.querySelector('#equip-panels [data-panel="Manual_Usuario"]');
-  if(p){ p.innerHTML = renderManualPanel(); refreshMissoesSections(); }
+  if(p){ p.innerHTML = renderManualPanel(); refreshMissoesSections(); refreshHistSections(); }
 }
 
 // Painel "Escopo": liga/desliga cada um dos 12 tipos para este equipamento.
@@ -1330,12 +1624,22 @@ function renderEscopoPanel(){
     const apl = pend ? false : d.aplicavel!==false;
     const dot = apl ? _statusDotColor(d) : 'var(--t4)';
     const status = apl ? esc(d.status) : 'Não se aplica';
-    const motivo = (!apl && !pend && d.motivo_na) ? `<div class="escopo-motivo">${esc(d.motivo_na)}</div>` : '';
-    // Ao desmarcar, a linha abre o campo de motivo (opcional) e só grava no Confirmar.
+    const rotulo = d.motivo_na_label || d.motivo_na;
+    const motivo = (!apl && !pend && rotulo) ? `<div class="escopo-motivo">${esc(rotulo)}</div>` : '';
+    // Ao desmarcar, a linha pede o motivo (OBRIGATÓRIO, lista fechada) e só grava
+    // no Confirmar. Texto livre só quando o motivo é "Outro" — motivo em lista
+    // fechada é analisável; texto livre não é, e antes ninguém preenchia.
+    const motivos = _enums.motivos_na || {};
+    const opts = ['<option value="">Selecione o motivo…</option>'].concat(
+      Object.keys(motivos).map(k=>`<option value="${esc(k)}" ${k===d.motivo_na_codigo?'selected':''}>${esc(motivos[k])}</option>`)
+    ).join('');
+    const livre = (_enums.motivo_na_livre || 'outro');
     const formMotivo = pend ? `
       <div class="escopo-na-form">
+        <select class="form-input" id="escopo-motivo-cod-${tipo}" onchange="_toggleMotivoLivre('${tipo}')">${opts}</select>
         <input class="form-input" id="escopo-motivo-${tipo}" maxlength="300"
-               placeholder="Por que não se aplica? (opcional)" value="${esc(d.motivo_na||'')}">
+               style="display:${d.motivo_na_codigo===livre?'':'none'}"
+               placeholder="Descreva o motivo" value="${esc(d.motivo_na||'')}">
         <button type="button" class="btn btn-primary btn-sm" onclick="confirmarNA('${tipo}')">Confirmar N/A</button>
         <button type="button" class="btn btn-ghost btn-sm" onclick="cancelarNA()">Cancelar</button>
       </div>` : '';
@@ -1399,10 +1703,74 @@ function renderMissoesDoc(tipo){
   if(!d || map===null) return '';                     // 403/erro → seção some
   if(map===undefined) return '<span style="color:var(--t4);font-size:12px">Carregando…</span>';
   const cartoes = map[d.id]||[];
-  if(!cartoes.length) return '<span style="color:var(--t4);font-size:12px">Nenhum cartão de missão vinculado a este documento.</span>';
-  return cartoes.map(c=>
-    `<a class="doc-missao-chip ${c.concluido?'done':''}" href="/missoes?missao=${c.missao_id}&cartao=${c.id}" title="Abrir no board de missões">🎯 ${esc(c.missao_nome)} · ${esc(c.coluna_nome)}${c.concluido?' ✓':''}</a>`
-  ).join('');
+  const chips = cartoes.length
+    ? cartoes.map(c=>{
+        const late = c.atrasado ? ' ⏰' : '';
+        const tit = c.prazo ? `Prazo ${c.prazo.split('-').reverse().join('/')}` : 'Abrir no board de missões';
+        return `<a class="doc-missao-chip ${c.concluido?'done':''} ${c.atrasado?'late':''}" href="/missoes?missao=${c.missao_id}&cartao=${c.id}" title="${esc(tit)}">🎯 ${esc(c.missao_nome)} · ${esc(c.coluna_nome)}${c.concluido?' ✓':late}</a>`;
+      }).join('')
+    : '<span style="color:var(--t4);font-size:12px">Nenhum cartão de missão vinculado a este documento.</span>';
+  // O vínculo só nascia de dentro do board: daqui dava para ver os cartões, mas
+  // não para abrir um.
+  return chips +
+    `<button type="button" class="doc-missao-novo" onclick="abrirNovoCartaoMissao('${tipo}')">＋ criar cartão</button>` +
+    `<div class="doc-missao-form" id="dmf-${tipo}" style="display:none"></div>`;
+}
+
+// Missões ativas, em cache (só nomes; usado pelo seletor do formulário acima)
+let _missoesLista = null;
+async function _carregarMissoesLista(){
+  if(_missoesLista) return _missoesLista;
+  try{
+    const res = await apiFetch('/missoes');
+    if(!res || !res.ok){ _missoesLista = []; return _missoesLista; }
+    _missoesLista = ((await res.json()).missoes)||[];
+  }catch(e){ _missoesLista = []; }
+  return _missoesLista;
+}
+
+async function abrirNovoCartaoMissao(tipo){
+  const box = document.getElementById('dmf-'+tipo);
+  const d = _equipCtx.byTipo[tipo];
+  if(!box || !d) return;
+  if(box.style.display !== 'none'){ box.style.display='none'; return; }
+  const missoes = await _carregarMissoesLista();
+  if(!missoes.length){ showToast('Nenhuma missão ativa — crie uma no módulo Missões','error'); return; }
+  const titulo = `${_tipoLabel(tipo)} — ${_equipCtx.equipamento||''}`.trim();
+  box.style.display = 'flex';
+  box.innerHTML = `
+    <input class="form-input" id="dmf-t-${tipo}" maxlength="200" placeholder="Título do cartão" value="${esc(titulo)}">
+    <select class="form-input" id="dmf-m-${tipo}">${missoes.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join('')}</select>
+    <input class="form-input" type="date" id="dmf-p-${tipo}" value="${esc(d.prazo||'')}" title="Prazo do cartão">
+    <button type="button" class="btn btn-primary btn-sm" onclick="criarCartaoMissao('${tipo}')">Criar</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('dmf-${tipo}').style.display='none'">Cancelar</button>`;
+  const inp = document.getElementById('dmf-t-'+tipo);
+  if(inp) inp.focus();
+}
+
+async function criarCartaoMissao(tipo){
+  const d = _equipCtx.byTipo[tipo];
+  if(!d) return;
+  const titulo = (document.getElementById('dmf-t-'+tipo).value||'').trim();
+  if(!titulo){ showToast('Informe o título do cartão','error'); return; }
+  const body = {
+    missao_id: parseInt(document.getElementById('dmf-m-'+tipo).value||'0'),
+    titulo,
+    prazo: document.getElementById('dmf-p-'+tipo).value||'',
+    ref_tipo: 'documento', ref_id: d.id,
+  };
+  try{
+    const res = await apiFetch('/missoes/cartao-rapido', {method:'POST', body: JSON.stringify(body)});
+    if(!res || !res.ok){
+      const b = res ? await res.json().catch(()=>({})) : {};
+      throw new Error(b.erro||'não foi possível criar');
+    }
+    const j = await res.json();
+    showToast(`Cartão criado em ${j.missao_nome} · ${j.coluna_nome}`,'success');
+    const box = document.getElementById('dmf-'+tipo);
+    if(box) box.style.display='none';
+    await _loadCartoesVinculados();
+  }catch(e){ showToast('Erro ao criar cartão: '+e.message,'error'); }
 }
 function refreshMissoesSections(){
   document.querySelectorAll('[data-missoes-tipo]').forEach(el=>{
@@ -1428,6 +1796,12 @@ function renderTipoPanel(tipo){
     </div>`;
   }
   const setorTag = `<span class="equip-tag">setor ${isPre?'PRE · 4 etapas':'Manuais · 3 etapas'}</span>`;
+  // Prazo (data ALVO). As datas abaixo são as REALIZADAS — sem prazo, nada podia
+  // estar atrasado.
+  const atrasoTag = d.atrasado
+    ? `<span class="equip-tag late">⏰ atrasado ${Math.abs(d.dias_para_prazo)} dia(s)</span>`
+    : (d.dias_para_prazo!==null && d.dias_para_prazo!==undefined && d.dias_para_prazo<=7 && d.aplicavel!==false
+        ? `<span class="equip-tag warn">vence em ${d.dias_para_prazo} dia(s)</span>` : '');
   const datasPre = isPre ? `
     <div class="g2" style="margin-top:12px">
       <div class="form-group"><label class="form-label">Data Treinamento Piloto</label><input class="form-input" type="date" id="et-treino-${tipo}" value="${_dateToInput(d.data_treinamento)}"></div>
@@ -1437,14 +1811,24 @@ function renderTipoPanel(tipo){
       <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="et-obstr-${tipo}" value="${esc(d.obs_treinamento)}"></div>
       <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="et-obshm-${tipo}" value="${esc(d.obs_homologacao)}"></div>
     </div>` : '';
+  // O caminho é do EQUIPAMENTO: o campo mostra o efetivo e, quando o documento
+  // não tem override, deixa claro que está herdando (editar não cria 12 cópias).
+  const herdado = !(d.armazenamento||'').trim() && !!(d.armazenamento_base||'').trim();
+  const armHint = herdado
+    ? `<span class="arm-hint" title="Vem do cadastro do equipamento e vale para todos os documentos dele">herdado do equipamento</span>`
+    : ((d.armazenamento||'').trim()
+        ? `<span class="arm-hint override" title="Caminho específico deste documento">exceção deste documento<button type="button" class="btn-link" onclick="limparOverrideArm('${tipo}')">usar o do equipamento</button></span>`
+        : '');
   return `
-    <div class="equip-panel-head"><span class="equip-panel-title">${esc(label)}</span>${setorTag}</div>
+    <div class="equip-panel-head"><span class="equip-panel-title">${esc(label)}</span>${setorTag}${atrasoTag}</div>
 
     <div class="doc-sec">
       <div class="doc-sec-title">Identificação</div>
       <div class="g2">
         <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="et-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
-        <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="et-resp-${tipo}" value="${esc(d.responsavel)}"></div>
+        <div class="form-group"><label class="form-label">Responsável</label>
+          <input class="form-input" id="et-resp-${tipo}" list="lista-responsaveis" value="${esc(d.responsavel)}" placeholder="Escolha ou digite">
+        </div>
       </div>
     </div>
 
@@ -1452,14 +1836,20 @@ function renderTipoPanel(tipo){
       <div class="doc-sec-title">Progresso</div>
       <input type="hidden" id="et-st-${tipo}" value="${esc(d.status)}">
       ${renderStepper(tipo, d.status)}
+      <div class="g2" style="margin-top:12px">
+        <div class="form-group"><label class="form-label">Prazo (data alvo)</label><input class="form-input" type="date" id="et-prazo-${tipo}" value="${esc(d.prazo||'')}"></div>
+        <div class="form-group"><label class="form-label">Histórico</label>
+          <div class="doc-hist" data-hist-tipo="${tipo}" id="et-hist-${tipo}"><span style="color:var(--t4);font-size:12px">Carregando…</span></div>
+        </div>
+      </div>
       ${datasPre}
     </div>
 
     <div class="doc-sec">
       <div class="doc-sec-title">Arquivos</div>
-      <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede)</label>
+      <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede) ${armHint}</label>
         <div class="armazenamento-row">
-          <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento)}">
+          <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento_efetivo||'')}">
           <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('et-arm-${tipo}').value, '${esc(label)} — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
         </div>
       </div>
@@ -1471,6 +1861,47 @@ function renderTipoPanel(tipo){
     </div>
 
     <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" type="button" onclick="saveTipoDoc('${tipo}')">Salvar alterações</button></div>`;
+}
+
+// Devolve o documento ao caminho do equipamento (remove o override).
+async function limparOverrideArm(tipo){
+  const d = _equipCtx.byTipo[tipo];
+  if(!d) return;
+  const base = d.armazenamento_base || '';
+  const el = document.getElementById('et-arm-'+tipo);
+  if(el) el.value = base;
+  await saveTipoDoc(tipo);
+}
+
+// Histórico do documento aberto (aging + últimas transições). Carregado sob
+// demanda: o payload do dashboard não carrega trilha.
+async function carregarHistorico(tipo){
+  const el = document.getElementById('et-hist-'+tipo);
+  const d = _equipCtx && _equipCtx.byTipo[tipo];
+  if(!el || !d) return;
+  try{
+    const res = await apiFetch(`/documentos/${d.id}/historico`);
+    if(!res || !res.ok){ el.innerHTML='<span style="color:var(--t4);font-size:12px">Indisponível</span>'; return; }
+    const j = await res.json();
+    const dias = j.dias_no_status;
+    const aging = (dias===null||dias===undefined) ? ''
+      : `<div class="doc-hist-aging">Neste status há <b>${dias}</b> dia(s) · desde ${esc(j.desde)}</div>`;
+    const linhas = (j.historico||[]).slice(0,5).map(h=>{
+      const txt = h.evento==='escopo'
+        ? (h.aplicavel ? 'voltou ao escopo' : 'marcado N/A'+(h.motivo?` (${esc(h.motivo)})`:''))
+        : (h.status_antigo ? `${esc(h.status_antigo)} → ${esc(h.status_novo)}` : `criado em ${esc(h.status_novo)}`);
+      return `<div class="doc-hist-row"><span class="doc-hist-when">${esc(h.em)}</span> ${txt} <span class="doc-hist-who">${esc(h.por||'')}</span></div>`;
+    }).join('');
+    el.innerHTML = aging + (linhas || '<span style="color:var(--t4);font-size:12px">Sem movimentações.</span>');
+  }catch(e){ el.innerHTML='<span style="color:var(--t4);font-size:12px">Indisponível</span>'; }
+}
+
+// Carrega o histórico só do painel ATIVO: os 12 painéis são renderizados juntos,
+// mas buscar a trilha de todos abriria 7 requisições por abertura do modal.
+function refreshHistSections(){
+  const ativo = document.querySelector('#equip-panels .equip-tab-panel.active');
+  (ativo ? ativo.querySelectorAll('[data-hist-tipo]') : []).forEach(
+    el => carregarHistorico(el.dataset.histTipo));
 }
 
 async function deleteEquip(){
@@ -1513,6 +1944,7 @@ async function saveTipoDoc(tipo){
     responsavel: val('et-resp-'+tipo),
     status: val('et-st-'+tipo),
     armazenamento: val('et-arm-'+tipo),
+    prazo: val('et-prazo-'+tipo),
   };
   if(_isPreTipo(tipo)){
     payload.data_treinamento = val('et-treino-'+tipo);
@@ -1524,16 +1956,36 @@ async function saveTipoDoc(tipo){
     const res = await _patchDoc(d.id, payload);
     if(res && res.ok){
       showToast(`${_tipoLabel(tipo)} salvo`,'success');
-      // Mantém o card aberto: recarrega os dados e re-hidrata o modal no lugar,
-      // preservando a aba ativa. O card fecha só quando o usuário pedir.
+      // O PATCH já devolve o documento atualizado: aplica no cache local em vez
+      // de recarregar /api/data + /api/equipamentos inteiros a cada campo salvo.
+      const doc = (await res.json()).documento;
+      _aplicarDocLocal(doc);
       const key = _equipCtx.g && _equipCtx.g.key;
       const abaEl = document.querySelector('#equip-tabs .equip-modal-tab.active');
       const aba = abaEl ? abaEl.dataset.tab : null;
-      await refreshAll();
+      renderDashboard(); renderDocs();
       if(key) openEquipModal(key, { aba, manterAberto:true });
     }
     else { const e = await res.json().catch(()=>({})); showToast(e.erro||'Erro ao salvar','error'); }
   }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// Substitui um documento no cache local e propaga o caminho base do equipamento
+// para os irmãos (o backend pode tê-lo promovido neste PATCH).
+function _aplicarDocLocal(doc){
+  if(!doc) return;
+  const i = allDocs.findIndex(x=>x.id===doc.id);
+  if(i>=0) allDocs[i] = doc; else allDocs.push(doc);
+  if(doc.equipamento_id){
+    allDocs.forEach(x=>{
+      if(x.equipamento_id===doc.equipamento_id && x.armazenamento_base!==doc.armazenamento_base){
+        x.armazenamento_base = doc.armazenamento_base;
+        if(!(x.armazenamento||'').trim()) x.armazenamento_efetivo = doc.armazenamento_base;
+      }
+    });
+    const eq = allEquipById[doc.equipamento_id];
+    if(eq) eq.armazenamento_base = doc.armazenamento_base;
+  }
 }
 
 // Liga/desliga um tipo no escopo do equipamento aberto.
@@ -1548,11 +2000,25 @@ function toggleEscopo(tipo, aplicavel){
 
 function cancelarNA(){ _escopoPendente = null; _repintarEscopo(); }
 
+// O campo de texto só aparece para o motivo "Outro"
+function _toggleMotivoLivre(tipo){
+  const cod = document.getElementById('escopo-motivo-cod-'+tipo);
+  const txt = document.getElementById('escopo-motivo-'+tipo);
+  if(cod && txt) txt.style.display = (cod.value === (_enums.motivo_na_livre||'outro')) ? '' : 'none';
+}
+
 function confirmarNA(tipo){
+  const codEl = document.getElementById('escopo-motivo-cod-'+tipo);
   const el = document.getElementById('escopo-motivo-'+tipo);
+  const codigo = codEl ? codEl.value : '';
   const motivo = el ? el.value.trim() : '';
+  // Validação no cliente só para dar retorno imediato — quem decide é a API.
+  if(!codigo){ showToast('Escolha o motivo do N/A','error'); return; }
+  if(codigo === (_enums.motivo_na_livre||'outro') && !motivo){
+    showToast('Descreva o motivo','error'); return;
+  }
   _escopoPendente = null;
-  _gravarEscopo(tipo, false, motivo);
+  _gravarEscopo(tipo, false, motivo, codigo);
 }
 
 // Repinta só o painel do escopo (sem reabrir o modal, para não perder o foco)
@@ -1561,16 +2027,17 @@ function _repintarEscopo(){
   if(p) p.innerHTML = renderEscopoPanel();
 }
 
-async function _gravarEscopo(tipo, aplicavel, motivo){
+async function _gravarEscopo(tipo, aplicavel, motivo, codigo){
   const d = _equipCtx.byTipo[tipo];
   const reopenKey = (_equipCtx.g && _equipCtx.g.key) || _equipCtx.equipamento;
   try{
     const res = await apiFetch(`/documentos/${d.id}/aplicabilidade`,
-      {method:'PUT', body:JSON.stringify({aplicavel, motivo_na: motivo})});
+      {method:'PUT', body:JSON.stringify({aplicavel, motivo_na: motivo, motivo_na_codigo: codigo||''})});
     if(res && res.ok){
       showToast(`${_tipoLabel(tipo)} ${aplicavel?'incluído no escopo':'marcado como N/A'}`,'success');
-      await refreshAll();
-      openEquipModal(reopenKey);     // recarrega o contexto com os dados novos
+      _aplicarDocLocal((await res.json()).documento);
+      renderDashboard(); renderDocs();
+      openEquipModal(reopenKey, {manterAberto:true});   // recarrega o contexto
       switchEquipTab('__escopo');
     } else {
       const e = res ? await res.json().catch(()=>({})) : {};

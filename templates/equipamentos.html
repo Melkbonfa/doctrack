@@ -4,12 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Equipamentos — DocTrack</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 <link rel="stylesheet" href="/static/equipamentos.css?v={{ asset_v }}">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
 </head>
 <body>
 <div id="app">
@@ -49,6 +46,11 @@
     <button type="button" class="nav-item" data-page="consumiveis">
       <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="18" cy="17" r="3" stroke="currentColor" stroke-width="1.6"/></svg>
       Consumíveis
+    </button>
+
+    <button type="button" class="nav-item" data-page="saude">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7l8-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Saúde do cadastro
     </button>
 
     <span class="nav-section-label">Configuração</span>
@@ -111,7 +113,11 @@
           <div class="card"><div class="card-title">Equipamentos por categoria</div><div style="position:relative;height:200px"><canvas id="chartBar" role="img" aria-label="Barras: equipamentos por categoria"></canvas></div></div>
           <div class="card"><div class="card-title">Lacunas mais comuns</div><div style="position:relative;height:200px"><canvas id="chartGaps" role="img" aria-label="Barras horizontais: lacunas mais comuns"></canvas></div></div>
         </div>
-        <div class="card mb"><div class="card-title">Menos completos · worklist</div><div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>SKU</th><th>Cadastro</th><th>Regulatório</th><th>Documental</th><th>ICE</th></tr></thead><tbody id="dash-table"></tbody></table></div></div>
+        <div class="g2">
+          <div class="card"><div class="card-title">Evolução do ICE médio</div><div style="position:relative;height:200px"><canvas id="chartEvol" role="img" aria-label="Linha: evolução do ICE médio da frota"></canvas></div><p class="muted" id="evol-hint" style="font-size:11px;margin-top:8px"></p></div>
+          <div class="card"><div class="card-title">Risco documental</div><div id="risco-list"></div></div>
+        </div>
+        <div class="card mb"><div class="card-title">Menos completos · worklist</div><div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>SKU</th><th>Cadastro</th><th>Regulatório</th><th>Documental</th><th>ICE</th><th class="num">Atrasados</th><th>Responsável</th><th>Atualizado</th></tr></thead><tbody id="dash-table"></tbody></table></div></div>
       </div>
 
       <!-- DESENVOLVIMENTO (IDP — 6 revisões + Pareto) -->
@@ -163,10 +169,19 @@
             <div class="filter-bar" style="margin:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
               <div class="search-wrap">
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                <input class="search-input" id="eq-busca" placeholder="Buscar nome, SKU, fabricante..." oninput="renderLista()">
+                <input class="search-input" id="eq-busca" placeholder="Buscar nome, SKU, fabricante..." oninput="buscaLista()">
               </div>
               <select class="filter-sel" id="eq-f-cat" onchange="renderLista()"><option value="">Categoria: todas</option></select>
+              <select class="filter-sel" id="eq-f-linha" onchange="renderLista()"><option value="">Linha: todas</option></select>
               <select class="filter-sel" id="eq-f-status" onchange="renderLista()"><option value="">Status: todos</option></select>
+              <select class="filter-sel" id="eq-ordem" onchange="renderLista()" aria-label="Ordenar equipamentos">
+                <option value="nome">Ordem: nome</option>
+                <option value="ice">Menor ICE primeiro</option>
+                <option value="ice-desc">Maior ICE primeiro</option>
+                <option value="atraso">Mais atrasados</option>
+                <option value="classe">Classe ABC</option>
+                <option value="atualizado">Atualizado há mais tempo</option>
+              </select>
               <label class="filter-count" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="eq-f-bloq" onchange="renderLista()"> incluir bloqueados</label>
             </div>
           </div>
@@ -174,10 +189,23 @@
         </div>
       </div>
 
+      <!-- SAÚDE DO CADASTRO -->
+      <div class="page" id="page-saude">
+        <div class="page-header">
+          <div><div class="page-title">Saúde do cadastro</div><div class="page-sub">Problemas que quebram o casamento por SKU e somem do ICE sem aviso</div></div>
+          <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+            <span class="docs-count-badge" id="saude-badge">—</span>
+            <button class="btn btn-ghost btn-sm" onclick="renderSaude(true)">Reavaliar</button>
+          </div>
+        </div>
+        <div class="kpi-grid" id="saude-kpis"></div>
+        <div id="saude-blocos"></div>
+      </div>
+
       <!-- CATEGORIAS -->
       <div class="page" id="page-cat">
         <div class="page-header">
-          <div><div class="page-title">Categorias &amp; Famílias</div><div class="page-sub">Taxonomia editável — família aninhada na categoria</div></div>
+          <div><div class="page-title">Categorias, Famílias &amp; Linhas</div><div class="page-sub">Taxonomia editável — família aninhada na categoria, linha de produto transversal</div></div>
         </div>
         <div class="eq-cat-cols">
           <div class="card">
@@ -186,6 +214,11 @@
             <div class="eq-addline"><input class="form-input" id="cat-new" placeholder="Nova categoria…"><button class="btn btn-primary btn-sm" onclick="addCategoria()">+</button></div>
           </div>
           <div class="card" id="cat-detail"></div>
+        </div>
+        <div class="card mb" style="margin-top:16px">
+          <div class="card-title">Linhas de produto</div>
+          <div class="eq-chips" id="linha-list"></div>
+          <div class="eq-addline" style="max-width:320px" id="linha-add"></div>
         </div>
       </div>
 
@@ -401,6 +434,13 @@
 </div>
 
 <div id="toast" class="toast" style="display:none"></div>
+<!-- Tempo real: a dimensão documental é 1/3 do ICE. Sem isto, homologar um
+     documento no módulo Documentos deixava o índice daqui velho até dar F5.
+     app-realtime.js não serve (é acoplado à tabela de documentos e ao token
+     'jwt'); equipamentos.js assina os eventos direto. -->
+<script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
+<script src="/socket-client.js"></script>
+<script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 <script src="/static/equipamentos.js?v={{ asset_v }}"></script>
 <script src="/static/consumiveis.js?v={{ asset_v }}"></script>
