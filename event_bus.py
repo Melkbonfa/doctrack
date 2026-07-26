@@ -46,9 +46,16 @@ class EventType:
     RESPONSAVEL_CHANGED = "RESPONSAVEL_CHANGED"
 
     # Entregáveis / Projetos
+    ENTREGAVEL_CREATED = "ENTREGAVEL_CREATED"
     ENTREGAVEL_UPDATED = "ENTREGAVEL_UPDATED"
+    ENTREGAVEL_DELETED = "ENTREGAVEL_DELETED"
     PROJETO_CREATED = "PROJETO_CREATED"
     PROJETO_UPDATED = "PROJETO_UPDATED"
+    PROJETO_ARQUIVADO = "PROJETO_ARQUIVADO"
+    MENSAL_CREATED = "MENSAL_CREATED"
+    MENSAL_UPDATED = "MENSAL_UPDATED"
+    MENSAL_DELETED = "MENSAL_DELETED"
+    BASELINE_CREATED = "BASELINE_CREATED"
 
     # Missões (kanban)
     MISSAO_CREATED = "MISSAO_CREATED"
@@ -63,6 +70,9 @@ class EventType:
     MISSAO_CARTAO_UPDATED = "MISSAO_CARTAO_UPDATED"
     MISSAO_CARTAO_DELETED = "MISSAO_CARTAO_DELETED"
     MISSAO_CARTAO_MOVIDO = "MISSAO_CARTAO_MOVIDO"
+    MISSAO_ARQUIVADA = "MISSAO_ARQUIVADA"
+    MISSAO_CARTAO_COMENTADO = "MISSAO_CARTAO_COMENTADO"
+    MISSAO_MODELO_CREATED = "MISSAO_MODELO_CREATED"
 
     # PDR (P&D de reagentes)
     PRODUTO_CREATED = "PRODUTO_CREATED"
@@ -116,6 +126,16 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
         if payload.get("documento_id"):
             rooms.append(f"doc:{payload['documento_id']}")
 
+    # Projetos / entregáveis / PMO: módulo é gestor+. O técnico também recebe
+    # porque atualiza os entregáveis sob sua responsabilidade; o front filtra
+    # pelo projeto aberto. Sem isto, o backend emitia para ninguém além do admin.
+    if (event_type.startswith("PROJETO_") or event_type.startswith("ENTREGAVEL_")
+            or event_type.startswith("MENSAL_") or event_type.startswith("BASELINE_")):
+        rooms.append("role:gestor")
+        rooms.append("role:tecnico")
+        if payload.get("projeto_id"):
+            rooms.append(f"projeto:{payload['projeto_id']}")
+
     # PDR: produtos / apresentações vão para gestor + técnico (e a sala da apres.)
     if event_type.startswith("PRODUTO_") or event_type.startswith("APRESENTACAO_"):
         rooms.append("role:gestor")
@@ -143,6 +163,14 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 # Função central — TODA mutação chama isto
 # ---------------------------------------------------------------------------
+def _fmt_valor(v):
+    """Serializa valor_antigo/valor_novo. Texto vai cru (o relatório de auditoria
+    mostra 'pendente', não '"pendente"'); o resto vira JSON."""
+    if v is None:
+        return None
+    return v if isinstance(v, str) else json.dumps(v, default=str)
+
+
 def publish_event(
     event_type: str,
     payload: dict,
@@ -152,6 +180,8 @@ def publish_event(
     db,                # SQLAlchemy session (passado para evitar import circular)
     AuditLog,          # Modelo (idem)
     socketio,          # Instância Flask-SocketIO (idem)
+    campo: str = "",   # campo alterado (auditoria legível)
+    ip: str = "",      # IP de origem — só persistido, nunca emitido no socket
 ) -> dict:
     """
     Publica um evento no sistema. Retorna o evento completo (com id e timestamp).
@@ -183,11 +213,11 @@ def publish_event(
         usuario_id=user_id,
         acao=event_type,
         entidade=payload.get("entidade", "documento"),
+        campo=campo or payload.get("campo", "") or "",
+        ip=ip,
         documento_id=payload.get("documento_id") or payload.get("id"),
-        valor_antigo=json.dumps(payload.get("old_value"), default=str)
-            if payload.get("old_value") is not None else None,
-        valor_novo=json.dumps(payload.get("new_value"), default=str)
-            if payload.get("new_value") is not None else None,
+        valor_antigo=_fmt_valor(payload.get("old_value")),
+        valor_novo=_fmt_valor(payload.get("new_value")),
         payload_json=json.dumps(payload, default=str),
         timestamp=timestamp,
     )

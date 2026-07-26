@@ -1,19 +1,17 @@
 /* Módulo Equipamentos — shell + gráficos no mesmo padrão do módulo de Documentos */
-const TOKEN_KEY = "doctrack_token";
-function token(){ return localStorage.getItem(TOKEN_KEY) || ""; }
+/* TOKEN_KEY, token(), esc(), doLogout() e o par de tema vêm de static/common.js. */
 function userObj(){ try{ return JSON.parse(localStorage.getItem("doctrack_user")||"{}")||{}; }catch(e){ return {}; } }
 const ROLE = (userObj().role)||"";
 const podeEditar = ["admin","gestor","tecnico"].includes(ROLE);
 const podeGerir  = ["admin","gestor"].includes(ROLE);
 sessionStorage.setItem("dt_module", "equip");
 
-function applyTheme(t){ const l=t==="light"; document.body.classList.toggle("theme-light",l);
-  const b=document.getElementById("theme-toggle"); if(b) b.textContent=l?"☀️":"🌙"; }
-function toggleTheme(){ const n=document.body.classList.contains("theme-light")?"dark":"light";
-  localStorage.setItem("doctrack_theme",n); applyTheme(n);
-  if(document.getElementById("page-dashboard").classList.contains("active")) renderDashboard(); }
-applyTheme(localStorage.getItem("doctrack_theme")||"dark");
-function doLogout(){ localStorage.removeItem("doctrack_token"); localStorage.removeItem("doctrack_refresh"); localStorage.removeItem("doctrack_user"); window.location.href="/"; }
+// Todo gráfico lê a cor do eixo na hora de desenhar (_chTxt/_chGrid), então
+// trocar o tema exige repintar a página ativa — não só o dashboard.
+window.onThemeChange = function(){
+  const ativa = document.querySelector(".page.active");
+  if(ativa) renderPagina((ativa.id||"").replace("page-",""));
+};
 
 async function api(url, opts={}){
   function hdr(){ return {"Content-Type":"application/json", "Authorization":"Bearer "+token(), ...(opts.headers||{})}; }
@@ -28,10 +26,17 @@ async function api(url, opts={}){
 function toast(msg, erro=false){ const t=document.getElementById("toast");
   t.textContent=msg; t.style.display="block"; t.style.borderColor=erro?"#ef4444":"#22d3ee";
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none",3000); }
-function esc(s){ const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; }
 function val(id){ const e=document.getElementById(id); return e?e.value:""; }
 
 // gráficos (mesmo visual do Documentos)
+// Cores dos eixos por tema — os gráficos daqui tinham "#94a3ff" fixo e ficavam
+// ilegíveis no tema claro. Mesmos helpers do módulo de Entregáveis.
+function _chTxt(){ return document.body.classList.contains("theme-light") ? "#475569" : "#94a3ff"; }
+function _chTxtStrong(){ return document.body.classList.contains("theme-light") ? "#1e293b" : "#c7d2fe"; }
+function _chGrid(){ return document.body.classList.contains("theme-light") ? "rgba(30,41,99,.10)" : "rgba(167,139,250,.06)"; }
+const _chFont={size:10,family:"Inter"};
+function _eixoX(extra){ return {ticks:{color:_chTxt(),font:_chFont,...(extra||{})},grid:{color:_chGrid()},border:{display:false}}; }
+function _eixoY(extra){ return {ticks:{color:_chTxt(),font:_chFont,...(extra||{})},grid:{color:_chGrid()},border:{display:false}}; }
 let chartInstances = {};
 function _darken(hex,f){ const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
   r=Math.round(r*(1-f)); g=Math.round(g*(1-f)); b=Math.round(b*(1-f)); return `rgb(${r},${g},${b})`; }
@@ -66,39 +71,19 @@ function donutTooltipExternal(context){
 }
 
 // ── estado ───────────────────────────────────────────────────────────────
-let EQUIP=[], DOCS_BY_EQ={}, TAX={categorias:[],linhas:[]}, selCatId=null;
+let EQUIP=[], COMPL={}, TAX={categorias:[],linhas:[]}, selCatId=null, EVOL=[], SAUDE=null;
 
-// ── completude (ICE) ───────────────────────────────────────────────────────
-const CAD = ["sku","sku_importacao","nome_tecnico","fabricante","categoria_id","familia_id"];
-const REG = ["anvisa","anvisa_registro","anvisa_validade"];
-const NDOC = 9;   // fallback: equipamento sem documentos carregados
-const CAD_LABEL = {sku:"SKU de Venda",sku_importacao:"SKU de Importação",nome_tecnico:"Nome técnico",
-  fabricante:"Fabricante",categoria_id:"Categoria",familia_id:"Família"};
-const REG_LABEL = {classificacao_reg:"Classificação (RUO/IVD)",anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",anvisa_validade:"Validade ANVISA"};
-function preenchido(e,f){ const v=e[f]; return f.endsWith("_id") ? !!v : !!(v&&String(v).trim()); }
-function docFinal(d){ return (d.setor==="PRE"&&d.status==="Homologado")||(d.setor==="Manuais"&&d.status==="Concluído"); }
-// Só os documentos APLICÁVEIS entram na completude documental. Marcar N/A não
-// apaga o status do documento, então sem este filtro um doc N/A que ficou
-// "Homologado" continuaria contando como entrega.
-function docsAplicaveis(eqId){ return (DOCS_BY_EQ[eqId]||[]).filter(d=>d.aplicavel!==false); }
-function docsFinais(eqId){ return docsAplicaveis(eqId).filter(docFinal).length; }
-// Denominador = documentos aplicáveis do equipamento (o escopo é por equipamento,
-// não mais um número fixo). Sem documentos carregados, cai no fallback.
-function docsAlvo(eqId){ return docsAplicaveis(eqId).length || NDOC; }
-// Campos regulatórios exigidos dependem da classificação: RUO (uso em pesquisa)
-// não tem registro ANVISA → basta a classificação; IVD/sem classe exige ANVISA.
-function regFields(e){
-  return e.classificacao_reg==="RUO" ? ["classificacao_reg"]
-                                     : ["classificacao_reg","anvisa","anvisa_registro","anvisa_validade"];
-}
-function scores(e){
-  const cad = Math.round(CAD.filter(f=>preenchido(e,f)).length/CAD.length*100);
-  const rf  = regFields(e);
-  const reg = Math.round(rf.filter(f=>preenchido(e,f)).length/rf.length*100);
-  const alvo = docsAlvo(e.id);
-  const doc = Math.round(Math.min(alvo, docsFinais(e.id))/alvo*100);
-  return {cad,reg,doc,ice:Math.round((cad+reg+doc)/3)};
-}
+// ── completude (ICE / IDP) ─────────────────────────────────────────────────
+// O cálculo mora no servidor (equipamentos_core.py) e chega pronto por
+// /api/equipamentos/completude. Antes o módulo baixava TODOS os documentos do
+// sistema só para dividir finalizados por aplicáveis, e a fórmula existia só
+// aqui — o export e qualquer relatório teriam de reimplementá-la.
+const COMPL_VAZIA = {cad:0,reg:0,doc:0,ice:0,idp:null,rev:{},lacunas:[],
+  docs_atrasados:0,atraso_max:0,responsaveis:[],reg_estado:"sem_data",reg_dias:null,
+  docs_finais:0,docs_alvo:0,docs_faltando:0};
+function compl(id){ return COMPL[id] || COMPL_VAZIA; }
+function scores(e){ return compl(e && e.id); }
+const LABEL_DOC_FALTANDO = "Docs não finalizados";
 const faixa = i=> i>=85?"completo":i>=50?"parcial":"inicial";
 const FCOLOR = {completo:"#10b981",parcial:"#f59e0b",inicial:"#f43f5e"};
 const FBG = {completo:"rgba(16,185,129,.15)",parcial:"rgba(245,158,11,.15)",inicial:"rgba(244,63,94,.15)"};
@@ -106,29 +91,36 @@ const cor = v=> v>=85?"#10b981":v>=50?"#f59e0b":"#f43f5e";
 const ehBloqueado = e=> e.bloqueado || e.status==="Obsoleto" || e.status==="Descontinuado";
 
 // ── navegação (sidebar) ─────────────────────────────────────────────────────
+const TITULO_PAGINA={dashboard:"Dashboard",dev:"Desenvolvimento",lista:"Equipamentos",
+  saude:"Saúde do cadastro",cat:"Categorias",consumiveis:"Consumíveis","tipos-cons":"Tipos de consumível"};
+function renderPagina(page){
+  if(page==="dashboard") renderDashboard();
+  if(page==="dev") renderDev();
+  if(page==="lista") renderLista();
+  if(page==="saude") renderSaude();
+  if(page==="cat") renderCategorias();
+  if(page==="consumiveis" && typeof renderConsumiveis==="function") renderConsumiveis();
+  if(page==="tipos-cons" && typeof renderTiposCons==="function") renderTiposCons();
+}
 function navigate(page){
   document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active", el.dataset.page===page));
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   const el=document.getElementById("page-"+page); if(el) el.classList.add("active");
-  document.getElementById("breadcrumb-current").textContent={dashboard:"Dashboard",dev:"Desenvolvimento",lista:"Equipamentos",cat:"Categorias",consumiveis:"Consumíveis","tipos-cons":"Tipos de consumível"}[page]||"";
-  if(page==="dashboard") renderDashboard();
-  if(page==="dev") renderDev();
-  if(page==="lista") renderLista();
-  if(page==="cat") renderCategorias();
-  if(page==="consumiveis" && typeof renderConsumiveis==="function") renderConsumiveis();
-  if(page==="tipos-cons" && typeof renderTiposCons==="function") renderTiposCons();
+  document.getElementById("breadcrumb-current").textContent=TITULO_PAGINA[page]||"";
+  renderPagina(page);
 }
 
 // ── carga ──────────────────────────────────────────────────────────────────
 async function loadAll(){
   try{
-    const [eqs, docs, tax] = await Promise.all([
-      api("/api/equipamentos"), api("/api/documentos"), api("/api/equip-taxonomia"),
+    const [eqs, completude, tax] = await Promise.all([
+      api("/api/equipamentos"), api("/api/equipamentos/completude"), api("/api/equip-taxonomia"),
     ]);
     EQUIP = eqs;
-    DOCS_BY_EQ = {};
-    (docs||[]).forEach(d=>{ if(d.equipamento_id){ (DOCS_BY_EQ[d.equipamento_id] ||= []).push(d); } });
+    COMPL = {};
+    ((completude&&completude.itens)||[]).forEach(c=>{ COMPL[c.id]=c; });
     TAX = tax || {categorias:[],linhas:[]};
+    if(!TAX.linhas) TAX.linhas=[];
   }catch(e){ toast(e.message||"Erro ao carregar", true); }
   const u=userObj(); const ini=(u.nome||"A").trim()[0]||"A";
   document.getElementById("nav-name").textContent=u.nome||"Usuário";
@@ -138,12 +130,22 @@ async function loadAll(){
   if(podeGerir){ document.getElementById("btn-import").style.display=""; const bp=document.getElementById("btn-import-pareto"); if(bp) bp.style.display=""; }
   preencherSelects();
   renderDashboard(); renderDev(); renderLista(); renderCategorias();
+  carregarEvolucao();   // série temporal: não bloqueia a tela se ainda não houver histórico
+}
+// A curva de evolução vem de uma tabela própria (equipamento_snapshot) e pode
+// estar vazia no primeiro dia — por isso não entra no Promise.all da carga.
+async function carregarEvolucao(){
+  try{ EVOL=await api("/api/equipamentos/evolucao"); }catch(_){ EVOL=[]; }
+  if(document.getElementById("page-dashboard").classList.contains("active")) renderEvolucao();
 }
 function preencherSelects(){
   const opts='<option value="">Todas as categorias</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join("");
   const dc=document.getElementById("dash-cat"); if(dc){ const v=dc.value; dc.innerHTML=opts; dc.value=v; }
   const vc=document.getElementById("dev-cat"); if(vc){ const v=vc.value; vc.innerHTML=opts; vc.value=v; }
   const fc=document.getElementById("eq-f-cat"); if(fc){ const v=fc.value; fc.innerHTML='<option value="">Categoria: todas</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join(""); fc.value=v; }
+  const fl=document.getElementById("eq-f-linha"); if(fl){ const v=fl.value;
+    fl.innerHTML='<option value="">Linha: todas</option>'+(TAX.linhas||[]).map(l=>`<option value="${l.id}">${esc(l.nome)}</option>`).join(""); fl.value=v;
+    fl.style.display=(TAX.linhas||[]).length?"":"none"; }
   const st=[...new Set(EQUIP.map(e=>e.status).filter(Boolean))];
   const fs=document.getElementById("eq-f-status"); if(fs){ const v=fs.value; fs.innerHTML='<option value="">Status: todos</option>'+st.map(s=>`<option>${esc(s)}</option>`).join(""); fs.value=v; }
 }
@@ -196,27 +198,90 @@ function renderDashboard(){
   if(cb){ const ctx=cb.getContext("2d"); const grad=ctx.createLinearGradient(0,0,0,200); grad.addColorStop(0,"#22d3ee"); grad.addColorStop(1,"#3b82f6");
     chartInstances.bar=new Chart(ctx,{type:"bar",data:{labels:cLabels,datasets:[{data:cVals,backgroundColor:grad,dotColors:dColors,borderRadius:8,borderWidth:0}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.y} equipamentos`}}},
-        scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{display:false},border:{display:false}},
-                y:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}}}}}); }
+        scales:{x:{ticks:{color:_chTxt(),font:_chFont},grid:{display:false},border:{display:false}},y:_eixoY()}}}); }
 
-  // bar horizontal: lacunas mais comuns
-  const gaps={}; S.forEach(o=>{ CAD.forEach(f=>{ if(!preenchido(o.e,f)) gaps[CAD_LABEL[f]]=(gaps[CAD_LABEL[f]]||0)+1; });
-    regFields(o.e).forEach(f=>{ if(!preenchido(o.e,f)) gaps[REG_LABEL[f]]=(gaps[REG_LABEL[f]]||0)+1; });
-    const alvo=docsAlvo(o.e.id);
-    const falt=alvo-Math.min(alvo,docsFinais(o.e.id)); if(falt) gaps["Docs não finalizados"]=(gaps["Docs não finalizados"]||0)+falt; });
+  // bar horizontal: lacunas mais comuns (a lista de lacunas vem do servidor)
+  const gaps={}; S.forEach(o=>{ (o.s.lacunas||[]).forEach(l=>{ gaps[l]=(gaps[l]||0)+1; });
+    if(o.s.docs_faltando) gaps[LABEL_DOC_FALTANDO]=(gaps[LABEL_DOC_FALTANDO]||0)+o.s.docs_faltando; });
   const top=Object.entries(gaps).sort((a,b)=>b[1]-a[1]).slice(0,6);
   if(chartInstances.gaps) chartInstances.gaps.destroy();
   const cg=document.getElementById("chartGaps");
   if(cg){ chartInstances.gaps=new Chart(cg,{type:"bar",
       data:{labels:top.map(t=>t[0]),datasets:[{data:top.map(t=>t[1]),backgroundColor:"#a78bfa",dotColors:top.map(()=>"#a78bfa"),borderRadius:8,borderWidth:0}]},
       options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.x}`}}},
-        scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"}},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}},
-                y:{ticks:{color:"#c7d2fe",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
+        scales:{x:_eixoX(),y:{ticks:{color:_chTxtStrong(),font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
 
-  // tabela worklist
-  const rank=[...S].sort((a,b)=>a.s.ice-b.s.ice).slice(0,10);
+  renderRisco(S);
+  renderEvolucao();
+
+  // Worklist: ICE mais baixo primeiro, com o risco que vem dos documentos.
+  // Antes a tabela mostrava só completude — um equipamento com ICE 70% e 3
+  // documentos vencidos parecia menos urgente que outro com 65% em dia.
+  const rank=[...S].sort((a,b)=> (b.s.docs_atrasados-a.s.docs_atrasados) || (a.s.ice-b.s.ice)).slice(0,10);
   const mini=v=>`<span class="mono" style="color:${cor(v)}">${v}%</span>`;
-  document.getElementById("dash-table").innerHTML=rank.map(o=>`<tr onclick="openView(${o.e.id})" style="cursor:pointer"><td class="bold">${esc(o.e.nome)}</td><td class="mono">${esc(o.e.sku||"—")}</td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="sg-badge ${o.s.ice>=85?'sg-finalizado':o.s.ice>=50?'sg-progresso':'sg-pendente'}">${o.s.ice}%</span></td></tr>`).join("")||'<tr><td colspan="6" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
+  document.getElementById("dash-table").innerHTML=rank.map(o=>{
+    const atr=o.s.docs_atrasados
+      ? `<span class="mono" style="color:#f43f5e" title="Pior atraso: ${o.s.atraso_max} dia(s)">${o.s.docs_atrasados}</span>`
+      : '<span class="muted">—</span>';
+    const resp=o.e.responsavel || (o.s.responsaveis||[])[0] || "";
+    return `<tr tabindex="0" role="button" aria-label="Abrir ficha de ${esc(o.e.nome)}" onclick="openView(${o.e.id})" onkeydown="teclaAbre(event,${o.e.id})" style="cursor:pointer"><td class="bold">${esc(o.e.nome)}</td><td class="mono">${esc(o.e.sku||"—")}</td><td>${mini(o.s.cad)}</td><td>${mini(o.s.reg)}</td><td>${mini(o.s.doc)}</td><td><span class="sg-badge ${o.s.ice>=85?'sg-finalizado':o.s.ice>=50?'sg-progresso':'sg-pendente'}">${o.s.ice}%</span></td><td class="num">${atr}</td><td>${resp?esc(resp):'<span class="muted">sem dono</span>'}</td><td class="muted" style="font-size:11px">${esc((o.e.updated_em||"").slice(0,10)||"—")}</td></tr>`;
+  }).join("")||'<tr><td colspan="9" style="text-align:center;color:var(--t4);padding:32px">Sem dados</td></tr>';
+}
+
+// Abrir por Enter/Espaço — cards e linhas eram <div>/<tr> com onclick, sem foco
+// nem acesso por teclado, apesar do resto da página ter skip-link e aria-label.
+function teclaAbre(ev,id){
+  if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); openView(id); }
+}
+
+// ── risco documental e regulatório (dados que já vinham e não eram usados) ──
+function renderRisco(S){
+  const el=document.getElementById("risco-list"); if(!el) return;
+  const atrasados=S.filter(o=>o.s.docs_atrasados>0).sort((a,b)=>b.s.atraso_max-a.s.atraso_max);
+  const docsAtrasados=atrasados.reduce((t,o)=>t+o.s.docs_atrasados,0);
+  const vencidos=S.filter(o=>o.s.reg_estado==="vencido");
+  const vencendo=S.filter(o=>o.s.reg_estado==="vencendo");
+  const semDono=S.filter(o=>!(o.e.responsavel||"").trim() && !(o.s.responsaveis||[]).length);
+  const linhas=[
+    ["Equipamentos com documento atrasado", atrasados.length, "#f43f5e",
+      docsAtrasados?`${docsAtrasados} documento(s), pior atraso ${atrasados[0].s.atraso_max} dia(s)`:""],
+    ["Registro ANVISA vencido", vencidos.length, "#f43f5e",
+      vencidos.length?vencidos.slice(0,3).map(o=>o.e.nome).join(", "):""],
+    ["Registro vence em até 90 dias", vencendo.length, "#f59e0b",
+      vencendo.length?vencendo.slice(0,3).map(o=>o.e.nome).join(", "):""],
+    ["Sem responsável definido", semDono.length, "#94a3b8", ""],
+  ];
+  el.innerHTML=linhas.map(([l,v,c,sub])=>
+    `<div class="prog-row" style="align-items:flex-start"><span class="prog-label" style="flex:1">${l}${sub?`<div class="muted" style="font-size:10px;margin-top:2px">${esc(sub)}</div>`:""}</span><span class="mono" style="font-weight:700;color:${v?c:'var(--t4)'}">${v}</span></div>`
+  ).join("");
+}
+
+// ── evolução do ICE médio (série temporal do equipamento_snapshot) ──────────
+function renderEvolucao(){
+  const cv=document.getElementById("chartEvol"); if(!cv||typeof Chart==="undefined") return;
+  const hint=document.getElementById("evol-hint");
+  if(chartInstances.evol){ chartInstances.evol.destroy(); chartInstances.evol=null; }
+  if(!EVOL.length){
+    if(hint) hint.textContent="A série começa a partir da primeira foto diária — volte amanhã para ver a curva.";
+    return;
+  }
+  const pts=EVOL.slice(-60);
+  const delta=pts.length>1?pts[pts.length-1].ice-pts[0].ice:0;
+  if(hint) hint.textContent=pts.length>1
+    ? `${pts.length} medições · ${delta>=0?"+":""}${delta} ponto(s) desde ${pts[0].data}`
+    : "Primeira medição registrada. A curva aparece a partir da segunda.";
+  const ctx=cv.getContext("2d");
+  const grad=ctx.createLinearGradient(0,0,0,200);
+  grad.addColorStop(0,"rgba(34,211,238,.35)"); grad.addColorStop(1,"rgba(34,211,238,0)");
+  chartInstances.evol=new Chart(ctx,{type:"line",
+    data:{labels:pts.map(p=>p.data.slice(5)),datasets:[
+      {label:"ICE",data:pts.map(p=>p.ice),borderColor:"#22d3ee",backgroundColor:grad,fill:true,tension:.35,pointRadius:pts.length>20?0:3,borderWidth:2,dotColors:pts.map(()=>"#22d3ee")},
+      {label:"IDP",data:pts.map(p=>p.idp),borderColor:"#a78bfa",fill:false,tension:.35,pointRadius:0,borderWidth:2,borderDash:[4,4],dotColors:pts.map(()=>"#a78bfa")}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom",labels:{color:_chTxt(),font:_chFont,boxWidth:10}},
+        tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y==null?"—":ctx.parsed.y+"%"}`}}},
+      scales:{x:{ticks:{color:_chTxt(),font:_chFont,maxTicksLimit:8},grid:{display:false},border:{display:false}},
+              y:_eixoY({precision:0,callback:v=>v+"%"})}}});
 }
 
 // ══ DESENVOLVIMENTO (IDP — 6 revisões + Pareto) ════════════════════════════
@@ -227,45 +292,10 @@ const DEV_ITEM_CAMPO = {cadastro:"rev_cadastro",estrutura:"rev_estrutura",descri
 const EST_COR = {"Revisado":"#10b981","Em revisão":"#f59e0b","Pendente":"#f43f5e","N/A":"#64748b"};
 const EST_BG  = {"Revisado":"rgba(16,185,129,.15)","Em revisão":"rgba(245,158,11,.15)","Pendente":"rgba(244,63,94,.15)","N/A":"rgba(100,116,139,.15)"};
 const EST_TODOS = ["Pendente","Em revisão","Revisado","N/A"];
-// status do doc → estado de revisão (PRE: Elaborar→…→Homologado; Manuais: Elaborar→Em andamento→Concluído)
-function _estPRE(st){ return st==="Homologado"?"Revisado":(!st||st==="Elaborar")?"Pendente":"Em revisão"; }
-function _estManuais(st){ return st==="Concluído"?"Revisado":(!st||st==="Elaborar")?"Pendente":"Em revisão"; }
-function _docsDoTipo(eqId,tipos){ return (DOCS_BY_EQ[eqId]||[]).filter(d=>tipos.includes(d.tipo_doc)); }
-// Documento marcado como "não se aplica" no módulo Documentos → item N/A no IDP
-// (sai do denominador, como o N/A das revisões manuais).
-function _aplicaveis(ds){ return ds.filter(d=>d.aplicavel!==false); }
-// estado de cada um dos 6 itens de revisão
-function revState(e,item){
-  if(item==="cadastro")   return e.rev_cadastro||"Pendente";
-  if(item==="estrutura")  return e.rev_estrutura||"Pendente";
-  if(item==="descritivo") return e.rev_descritivo||"Pendente";
-  if(item==="it"){
-    const todos=_docsDoTipo(e.id,["IT"]), ds=_aplicaveis(todos);
-    if(todos.length && !ds.length) return "N/A";      // existe, mas fora do escopo
-    return _estPRE(ds[0] && ds[0].status);            // sem documento → "Pendente"
-  }
-  if(item==="manual_usuario"){
-    const todos=_docsDoTipo(e.id,["Manual_Usuario"]), ds=_aplicaveis(todos);
-    if(todos.length && !ds.length) return "N/A";
-    return _estManuais(ds[0] && ds[0].status);
-  }
-  if(item==="checklists"){
-    const todos=_docsDoTipo(e.id,["Checklist_Conferencia","Checklist_BurnIn","Checklist_Limpeza_Embalagem","Checklist_Produto"]);
-    const ds=_aplicaveis(todos);
-    if(todos.length && !ds.length) return "N/A";      // os 4 checklists em N/A
-    if(!ds.length) return "Pendente";
-    const est=ds.map(d=>_estPRE(d.status));
-    if(est.every(x=>x==="Revisado")) return "Revisado";
-    if(est.every(x=>x==="Pendente")) return "Pendente";
-    return "Em revisão";
-  }
-  return "Pendente";
-}
-// IDP = Revisados / (6 − nº de N/A) × 100. null quando todos os itens são N/A.
-function idp(e){ let rev=0, apl=0;
-  DEV_ITENS.forEach(it=>{ const s=revState(e,it); if(s==="N/A") return; apl++; if(s==="Revisado") rev++; });
-  return apl ? Math.round(rev/apl*100) : null;
-}
+// Os 6 estados e o IDP são calculados no servidor (mesma regra do export e do
+// snapshot); aqui só lemos o que veio em /api/equipamentos/completude.
+function revState(e,item){ return (compl(e&&e.id).rev||{})[item] || "Pendente"; }
+function idp(e){ return compl(e&&e.id).idp; }
 const _CLASSE_ORD={"A":0,"B":1,"C":2,"":3};
 function _prioridade(a,b){
   const ca=_CLASSE_ORD[a.pareto_classe||""]??3, cb=_CLASSE_ORD[b.pareto_classe||""]??3;
@@ -276,8 +306,12 @@ function _prioridade(a,b){
   return (ia==null?101:ia)-(ib==null?101:ib);                 // menos completos primeiro
 }
 async function setRev(id,campo,valor){
-  try{ await api("/api/equipamentos/"+id,{method:"PATCH",body:JSON.stringify({[campo]:valor})});
-    const e=_eqById(id); if(e) e[campo]=valor; renderDev();
+  try{ const r=await api("/api/equipamentos/"+id,{method:"PATCH",body:JSON.stringify({[campo]:valor})});
+    const e=_eqById(id); if(e) e[campo]=valor;
+    // O PATCH devolve a completude recalculada: sem isso o IDP da linha só
+    // acertaria no próximo loadAll.
+    if(r&&r.equipamento&&r.equipamento.completude) COMPL[id]=r.equipamento.completude;
+    renderDev();
   }catch(err){ toast(err.message||"Erro ao gravar",true); }
 }
 function _chipAuto(estado){
@@ -329,9 +363,9 @@ function renderDev(){
       {label:"Completo",data:porClasse.map(p=>p.completo),backgroundColor:FCOLOR.completo,dotColors:classesLbl.map(()=>FCOLOR.completo),borderRadius:6,stack:"s"},
       {label:"Parcial", data:porClasse.map(p=>p.parcial), backgroundColor:FCOLOR.parcial, dotColors:classesLbl.map(()=>FCOLOR.parcial), borderRadius:6,stack:"s"},
       {label:"Inicial", data:porClasse.map(p=>p.inicial), backgroundColor:FCOLOR.inicial, dotColors:classesLbl.map(()=>FCOLOR.inicial), borderRadius:6,stack:"s"}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#94a3ff",font:{size:10,family:"Inter"},boxWidth:10}},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y}`}}},
-      scales:{x:{stacked:true,ticks:{color:"#94a3ff",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}},
-              y:{stacked:true,ticks:{color:"#94a3ff",font:{size:10,family:"Inter"},precision:0},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}}}}}); }
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:_chTxt(),font:_chFont,boxWidth:10}},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y}`}}},
+      scales:{x:{stacked:true,ticks:{color:_chTxt(),font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}},
+              y:{stacked:true,...(_eixoY({precision:0}))}}}}); }
 
   // barra horizontal: revisões mais pendentes (por item, na frota filtrada)
   const pend=DEV_ITENS.map(it=>[DEV_ITEM_LABEL[it], S.filter(o=>{const s=revState(o.e,it); return s!=="Revisado"&&s!=="N/A";}).length]).sort((a,b)=>b[1]-a[1]);
@@ -340,8 +374,8 @@ function renderDev(){
   if(ci){ chartInstances.devItens=new Chart(ci,{type:"bar",
     data:{labels:pend.map(p=>p[0]),datasets:[{data:pend.map(p=>p[1]),backgroundColor:"#a78bfa",dotColors:pend.map(()=>"#a78bfa"),borderRadius:8}]},
     options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.parsed.x} pendentes`}}},
-      scales:{x:{ticks:{color:"#94a3ff",font:{size:10,family:"Inter"},precision:0},grid:{color:"rgba(167,139,250,.06)"},border:{display:false}},
-              y:{ticks:{color:"#c7d2fe",font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
+      scales:{x:_eixoX({precision:0}),
+              y:{ticks:{color:_chTxtStrong(),font:{size:11,family:"Inter"}},grid:{display:false},border:{display:false}}}}}); }
 
   // matriz priorizada
   const classeBadge=c=> c?`<span class="abc-badge abc-${c}">${c}</span>`:'<span class="muted">—</span>';
@@ -373,19 +407,45 @@ async function rodarImportPareto(dryrun){
 }
 
 // ══ LISTA ══════════════════════════════════════════════════════════════════
+// A busca refiltrava e repintava a frota inteira a cada tecla. Com o debounce o
+// trabalho acontece uma vez por pausa de digitação.
+let _buscaTimer=null;
+function buscaLista(){ clearTimeout(_buscaTimer); _buscaTimer=setTimeout(renderLista,180); }
+
+const _CLASSE_ORD_LISTA={"A":0,"B":1,"C":2,"":3};
+const ORDENADORES={
+  nome:      (a,b)=>(a.e.nome||"").localeCompare(b.e.nome||""),
+  ice:       (a,b)=>a.s.ice-b.s.ice || (a.e.nome||"").localeCompare(b.e.nome||""),
+  "ice-desc":(a,b)=>b.s.ice-a.s.ice || (a.e.nome||"").localeCompare(b.e.nome||""),
+  atraso:    (a,b)=>b.s.docs_atrasados-a.s.docs_atrasados || b.s.atraso_max-a.s.atraso_max || a.s.ice-b.s.ice,
+  classe:    (a,b)=>(_CLASSE_ORD_LISTA[a.e.pareto_classe||""]??3)-(_CLASSE_ORD_LISTA[b.e.pareto_classe||""]??3)
+                    || (b.e.qtd_saidas||0)-(a.e.qtd_saidas||0),
+  atualizado:(a,b)=>(a.e.updated_iso||"").localeCompare(b.e.updated_iso||""),
+};
+
 function renderLista(){
-  const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"), st=val("eq-f-status"), inc=(document.getElementById("eq-f-bloq")||{}).checked;
+  const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"), linha=val("eq-f-linha"),
+        st=val("eq-f-status"), inc=(document.getElementById("eq-f-bloq")||{}).checked;
   let list=EQUIP.filter(e=>(inc||!ehBloqueado(e))
-    &&(!cat||String(e.categoria_id)===String(cat))&&(!st||e.status===st)
-    &&(!q||[e.nome,e.sku,e.nome_tecnico,e.fabricante,e.sku_importacao].filter(Boolean).join(" ").toLowerCase().includes(q)));
-  document.getElementById("eq-badge").textContent=list.length+" equip.";
-  document.getElementById("eq-grid").innerHTML=list.map(e=>{
-    const s=scores(e), f=faixa(s.ice);
-    return `<div class="equip-card st-${f==='completo'?'green':f==='parcial'?'amber':'red'}" onclick="openView(${e.id})">
+    &&(!cat||String(e.categoria_id)===String(cat))&&(!linha||String(e.linha_id)===String(linha))
+    &&(!st||e.status===st)
+    &&(!q||[e.nome,e.sku,e.nome_tecnico,e.fabricante,e.sku_importacao,e.codigo_interno,e.responsavel]
+        .filter(Boolean).join(" ").toLowerCase().includes(q)));
+  const S=list.map(e=>({e,s:scores(e)}));
+  S.sort(ORDENADORES[val("eq-ordem")||"nome"]||ORDENADORES.nome);
+  const atrasados=S.filter(o=>o.s.docs_atrasados>0).length;
+  document.getElementById("eq-badge").textContent=list.length+" equip."+(atrasados?` · ${atrasados} com atraso`:"");
+  document.getElementById("eq-grid").innerHTML=S.map(({e,s})=>{
+    const f=faixa(s.ice);
+    const risco=[];
+    if(s.docs_atrasados) risco.push(`<span class="eq-chip risco" title="Pior atraso: ${s.atraso_max} dia(s)">${s.docs_atrasados} atrasado${s.docs_atrasados>1?"s":""}</span>`);
+    if(s.reg_estado==="vencido") risco.push('<span class="eq-chip risco">ANVISA vencida</span>');
+    else if(s.reg_estado==="vencendo") risco.push(`<span class="eq-chip alerta">Vence em ${s.reg_dias}d</span>`);
+    return `<div class="equip-card st-${f==='completo'?'green':f==='parcial'?'amber':'red'}" tabindex="0" role="button" aria-label="Abrir ficha de ${esc(e.nome)} — ICE ${s.ice}%" onclick="openView(${e.id})" onkeydown="teclaAbre(event,${e.id})">
       <div class="eq-ring" style="background:conic-gradient(${FCOLOR[f]} ${s.ice*3.6}deg, var(--bg-elevated) 0)"><span>${s.ice}%</span></div>
       <div class="equip-card-name" style="padding-right:46px">${esc(e.nome)}</div>
       <div class="equip-card-sku">${e.sku?esc(e.sku):'<span class="muted">sem SKU</span>'}</div>
-      <div class="eq-card-meta">${e.categoria?`<span class="eq-chip">${esc(e.categoria)}</span>`:""}${ehBloqueado(e)?`<span class="eq-chip bloq">${esc(e.status)}</span>`:""}</div>
+      <div class="eq-card-meta">${e.categoria?`<span class="eq-chip">${esc(e.categoria)}</span>`:""}${ehBloqueado(e)?`<span class="eq-chip bloq">${esc(e.status)}</span>`:""}${risco.join("")}</div>
     </div>`;
   }).join("")||'<div class="muted" style="grid-column:1/-1;text-align:center;padding:30px">Nenhum equipamento.</div>';
 }
@@ -425,17 +485,23 @@ function fichaSwitch(k){
   fichaTab=k;
   document.querySelectorAll("#eq-ficha-tabs .equip-modal-tab").forEach(b=>b.classList.toggle("active",(b.getAttribute("onclick")||"").includes("'"+k+"'")));
   document.querySelectorAll("#eq-ficha-panels .equip-tab-panel").forEach(p=>p.classList.toggle("active",p.dataset.panel===k));
+  if(k==="hist" && fichaId) carregarHistorico(fichaId);
 }
 function fld(label,id,v,ph){ return `<div class="form-group"><label class="form-label">${label}</label><input class="form-input" id="${id}" value="${esc(v||"")}" placeholder="${ph||""}"></div>`; }
 function painelFicha(k,e){
   if(k==="geral"){
     const catOpts='<option value="">—</option>'+TAX.categorias.map(c=>`<option value="${c.id}" ${String(e.categoria_id)===String(c.id)?'selected':''}>${esc(c.nome)}</option>`).join("");
+    const linhaOpts='<option value="">—</option>'+(TAX.linhas||[]).map(l=>`<option value="${l.id}" ${String(e.linha_id)===String(l.id)?'selected':''}>${esc(l.nome)}</option>`).join("");
     const stOpts=["Ativo","Obsoleto","Descontinuado"].map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join("");
     return `<div class="g2">${fld("SKU de Venda","f-sku",e.sku)}${fld("SKU de Importação","f-sku_importacao",e.sku_importacao)}</div>
       <div class="g2">${fld("Nome comercial","f-nome",e.nome)}${fld("Nome técnico","f-nome_tecnico",e.nome_tecnico)}</div>
       <div class="g2">
         <div class="form-group"><label class="form-label">Categoria</label><select class="form-input" id="f-categoria_id" onchange="onCatChange()">${catOpts}</select></div>
         <div class="form-group"><label class="form-label">Família</label><select class="form-input" id="f-familia_id"></select></div>
+      </div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label">Linha de produto</label><select class="form-input" id="f-linha_id">${linhaOpts}</select></div>
+        ${fld("Responsável pelo cadastro","f-responsavel",e.responsavel,"quem cobra as pendências")}
       </div>
       <div class="g2">
         <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="f-status">${stOpts}</select></div>
@@ -445,8 +511,10 @@ function painelFicha(k,e){
       <div class="form-group"><label class="form-label">Observações (internas)</label><textarea class="form-input" id="f-observacoes" rows="2">${esc(e.observacoes||"")}</textarea></div>`;
   }
   if(k==="tecnico") return `<div class="g2">${fld("Fabricante","f-fabricante",e.fabricante)}${fld("Código do fabricante","f-codigo_fabricante",e.codigo_fabricante)}</div>
-      <div class="g2">${fld("Nome original","f-nome_original",e.nome_original)}${fld("Armazenamento base","f-armazenamento_base",e.armazenamento_base)}</div>
-      <p class="muted" style="font-size:12px">Campos técnicos avançados (modelo, tecnologia, aplicação) crescem por fase.</p>`;
+      <div class="g2">${fld("Nome original","f-nome_original",e.nome_original)}${fld("Código interno","f-codigo_interno",e.codigo_interno)}</div>
+      <div class="g2">${fld("Modelo","f-modelo",e.modelo)}${fld("Tecnologia","f-tecnologia",e.tecnologia,"princípio / plataforma")}</div>
+      <div class="form-group"><label class="form-label">Aplicação</label><input class="form-input" id="f-aplicacao" value="${esc(e.aplicacao||"")}" placeholder="para que serve, em uma linha"></div>
+      <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="f-armazenamento_base" value="${esc(e.armazenamento_base||"")}"></div>`;
   if(k==="reg"){
     const clOpts=["","RUO","IVD"].map(v=>`<option value="${v}" ${e.classificacao_reg===v?'selected':''}>${v||"— não definido —"}</option>`).join("");
     return `<div class="g2">
@@ -454,7 +522,14 @@ function painelFicha(k,e){
         ${fld("Registro ANVISA (nº)","f-anvisa",e.anvisa)}
       </div>
       <div class="g2"><div class="form-group"><label class="form-label">Data de registro</label><input class="form-input" type="date" id="f-anvisa_registro" value="${esc(e.anvisa_registro||"")}"></div><div class="form-group"><label class="form-label">Validade</label><input class="form-input" type="date" id="f-anvisa_validade" value="${esc(e.anvisa_validade||"")}"></div></div>
-      <p class="muted" style="font-size:12px" id="reg-hint">RUO (uso em pesquisa) não exige registro ANVISA. Classe de risco e alertas de vencimento entram na Fase 3.</p>`;
+      <div class="g2">
+        <div class="form-group"><label class="form-label">Classe de risco</label><select class="form-input" id="f-classe_risco">${
+          ["","I","II","III","IV"].map(v=>`<option value="${v}" ${e.classe_risco===v?'selected':''}>${v||"— não definida —"}</option>`).join("")}</select></div>
+        <div class="form-group"><label class="form-label">Situação do registro</label><select class="form-input" id="f-situacao_regulatoria">${
+          ["","Vigente","Em renovação","Cancelado","Não aplicável"].map(v=>`<option value="${v}" ${e.situacao_regulatoria===v?'selected':''}>${v||"— não definida —"}</option>`).join("")}</select></div>
+      </div>
+      <p class="muted" style="font-size:12px" id="reg-hint">RUO (uso em pesquisa) não exige registro ANVISA.</p>
+      <p class="muted" style="font-size:11px">Validade vencida deixa de contar como campo preenchido no ICE regulatório. Classe de risco e situação são coletadas, mas ainda ficam fora do índice.</p>`;
   }
   if(k==="dev"){
     const selRev=(campo,label)=>{ const cur=e[campo]||"Pendente";
@@ -470,7 +545,60 @@ function painelFicha(k,e){
   }
   if(k==="consumivel") return painelConsVinc(e);
   if(k==="acessorio") return painelItens(k,e);
-  return '<p class="muted">Auditoria de alterações deste equipamento — integra com o log na Fase 3.</p>';
+  return painelHistorico(e);
+}
+
+// ── Histórico da ficha (trilha de-para + evolução do ICE) ───────────────────
+const HIST_LABEL={nome:"Nome comercial",nome_tecnico:"Nome técnico",nome_original:"Nome original",
+  descricao:"Descrição",codigo_interno:"Código interno",sku:"SKU de Venda",sku_importacao:"SKU de Importação",
+  classificacao_reg:"Classificação regulatória",anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",
+  anvisa_validade:"Validade ANVISA",fabricante:"Fabricante",codigo_fabricante:"Código do fabricante",
+  status:"Status",observacoes:"Observações",armazenamento_base:"Armazenamento base",responsavel:"Responsável",
+  bloqueado:"Bloqueado",categoria_id:"Categoria",familia_id:"Família",linha_id:"Linha de produto",
+  rev_cadastro:"Revisão de cadastro",rev_estrutura:"Revisão de estrutura",rev_descritivo:"Revisão de descritivo",
+  ativo:"Ativo"};
+const HIST_EVENTO={create:"criação",update:"alteração",delete:"exclusão",import:"importação"};
+// O conteúdo é carregado só quando a aba é aberta (fichaSwitch): o painel fica
+// display:none até lá, e o Chart.js desenharia num canvas de tamanho zero.
+function painelHistorico(e){
+  if(!e||!e.id) return '<p class="muted">Salve o equipamento primeiro para ver o histórico.</p>';
+  return `<div id="hist-evol" style="height:150px;position:relative;margin-bottom:14px"><canvas id="chartHistEvol" role="img" aria-label="Evolução do ICE deste equipamento"></canvas></div>
+    <div id="hist-body"><p class="muted">Carregando histórico…</p></div>`;
+}
+async function carregarHistorico(id){
+  let linhas=[], evol=null;
+  try{ [linhas,evol]=await Promise.all([
+        api("/api/equipamentos/"+id+"/historico"),
+        api("/api/equipamentos/"+id+"/evolucao").catch(()=>null)]); }
+  catch(err){ const b=document.getElementById("hist-body");
+    if(b) b.innerHTML=`<p class="muted">Não foi possível carregar o histórico: ${esc(err.message||"erro")}</p>`;
+    return; }
+  const body=document.getElementById("hist-body"); if(!body) return;
+  const fmt=v=>v===""||v==null?'<span class="muted">—</span>':esc(String(v).length>60?String(v).slice(0,60)+"…":v);
+  body.innerHTML=linhas.length
+    ? `<table class="vw-itbl"><thead><tr><th style="width:130px">Quando</th><th>Campo</th><th>De</th><th>Para</th><th style="width:150px">Por</th></tr></thead><tbody>${
+        linhas.map(l=>`<tr><td class="muted" style="font-size:11px">${esc(l.em)}</td>`+
+          `<td>${esc(HIST_LABEL[l.campo]||l.campo||HIST_EVENTO[l.evento]||"—")}</td>`+
+          `<td>${fmt(l.valor_antigo)}</td><td>${fmt(l.valor_novo)}</td>`+
+          `<td class="muted" style="font-size:11px">${esc(l.por||"—")}</td></tr>`).join("")}</tbody></table>`
+    : '<p class="muted">Nenhuma alteração registrada ainda.</p>';
+  desenharHistEvol(evol);
+}
+function desenharHistEvol(evol){
+  const cv=document.getElementById("chartHistEvol"), box=document.getElementById("hist-evol");
+  if(!cv||typeof Chart==="undefined") return;
+  const pts=((evol&&evol.snapshots)||[]).slice(-60);
+  if(chartInstances.histEvol){ chartInstances.histEvol.destroy(); chartInstances.histEvol=null; }
+  if(pts.length<2){ if(box) box.innerHTML='<p class="muted" style="font-size:12px">A curva de ICE deste equipamento aparece a partir da segunda foto diária.</p>'; return; }
+  chartInstances.histEvol=new Chart(cv.getContext("2d"),{type:"line",
+    data:{labels:pts.map(p=>p.data.slice(5)),datasets:[
+      {label:"ICE",data:pts.map(p=>p.ice),borderColor:"#22d3ee",fill:false,tension:.35,pointRadius:0,borderWidth:2,dotColors:pts.map(()=>"#22d3ee")},
+      {label:"IDP",data:pts.map(p=>p.idp),borderColor:"#a78bfa",fill:false,tension:.35,pointRadius:0,borderWidth:2,borderDash:[4,4],dotColors:pts.map(()=>"#a78bfa")}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom",labels:{color:_chTxt(),font:_chFont,boxWidth:10}},
+        tooltip:{enabled:false,external:donutTooltipExternal,callbacks:{label:ctx=>` ${ctx.dataset.label}: ${ctx.parsed.y==null?"—":ctx.parsed.y+"%"}`}}},
+      scales:{x:{ticks:{color:_chTxt(),font:_chFont,maxTicksLimit:6},grid:{display:false},border:{display:false}},
+              y:_eixoY({precision:0,callback:v=>v+"%"})}}});
 }
 // ── itens (consumíveis / acessórios) na ficha ────────────────────────────────
 function painelItens(tipo,e){
@@ -590,19 +718,24 @@ function onCatChange(keepFam){
   const cur = keepFam && e ? e.familia_id : null;
   document.getElementById("f-familia_id").innerHTML='<option value="">—</option>'+fams.map(f=>`<option value="${f.id}" ${String(cur)===String(f.id)?'selected':''}>${esc(f.nome)}</option>`).join("");
 }
-async function salvarFicha(){
+async function salvarFicha(forcarSku){
   const nome=val("f-nome").trim();
   if(!nome){ toast("Informe o nome comercial", true); return; }
   const payload={ nome,
     sku:val("f-sku"), sku_importacao:val("f-sku_importacao"),
     nome_tecnico:val("f-nome_tecnico"), nome_original:val("f-nome_original"),
+    codigo_interno:val("f-codigo_interno"), responsavel:val("f-responsavel"),
+    modelo:val("f-modelo"), tecnologia:val("f-tecnologia"), aplicacao:val("f-aplicacao"),
+    classe_risco:val("f-classe_risco"), situacao_regulatoria:val("f-situacao_regulatoria"),
     descricao:val("f-descricao"), observacoes:val("f-observacoes"),
     status:val("f-status"), bloqueado:document.getElementById("f-bloqueado").checked,
     fabricante:val("f-fabricante"), codigo_fabricante:val("f-codigo_fabricante"),
     armazenamento_base:val("f-armazenamento_base"), classificacao_reg:val("f-classificacao_reg"),
     anvisa:val("f-anvisa"), anvisa_registro:val("f-anvisa_registro"), anvisa_validade:val("f-anvisa_validade"),
     rev_cadastro:val("f-rev_cadastro"), rev_estrutura:val("f-rev_estrutura"), rev_descritivo:val("f-rev_descritivo"),
-    categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null };
+    categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null,
+    linha_id:val("f-linha_id")||null };
+  if(forcarSku) payload.ignorar_sku_duplicado=true;
   try{
     if(fichaId) await api("/api/equipamentos/"+fichaId,{method:"PATCH",body:JSON.stringify(payload)});
     else await api("/api/equipamentos",{method:"POST",body:JSON.stringify(payload)});
@@ -610,7 +743,13 @@ async function salvarFicha(){
     const volta=fichaFromView&&fichaId; fichaFromView=false;
     await loadAll();
     if(volta) openView(fichaId);
-  }catch(e){ toast(e.message,true); }
+  }catch(e){
+    // O servidor recusa SKU repetido (409) porque o SKU é a chave de junção do
+    // importador mestre e do Pareto. Duplicar é possível, mas só de propósito.
+    if(!forcarSku && /já está em/i.test(e.message||"")
+       && confirm(e.message+"\n\nSalvar mesmo assim?")) return salvarFicha(true);
+    toast(e.message,true);
+  }
 }
 async function excluirEquip(){
   if(!fichaId) return;
@@ -626,6 +765,9 @@ async function openView(id){
   let e=_eqById(id);
   try{ e=await api("/api/equipamentos/"+id); }catch(_){ if(!e){ toast("Erro ao abrir a ficha",true); return; } }
   viewEq=e;
+  // O GET individual já traz a completude recalculada; mantém o cache alinhado
+  // para a lista e o dashboard não mostrarem um ICE diferente do da ficha.
+  if(e.completude) COMPL[id]=e.completude;
   const s=scores(e), f=faixa(s.ice);
   document.getElementById("eqview-body").innerHTML=renderView(e,s,f);
   document.getElementById("eqview-edit").style.display=podeEditar?"inline-flex":"none";
@@ -665,6 +807,10 @@ function renderView(e,s,f){
   const stCls=e.status==="Ativo"?"ok":"warn";
   chips.push(vchip(e.status||"Ativo",stCls));
   if(ehBloqueado(e)) chips.push(vchip("Bloqueado","bloq"));
+  // Risco que já vinha no payload dos documentos e nunca aparecia na ficha.
+  if(s.docs_atrasados) chips.push(vchip(`${s.docs_atrasados} documento(s) atrasado(s)`,"bloq"));
+  if(s.reg_estado==="vencido") chips.push(vchip("Registro ANVISA vencido","bloq"));
+  else if(s.reg_estado==="vencendo") chips.push(vchip(`Registro vence em ${s.reg_dias} dia(s)`,"warn"));
   return `
   <div class="vw-hero">
     <div class="eq-ring vw-ring" style="background:conic-gradient(${FCOLOR[f]} ${s.ice*3.6}deg, var(--bg-elevated) 0)"><span>${s.ice}%</span></div>
@@ -682,18 +828,34 @@ function renderView(e,s,f){
         vfield("Nome original",e.nome_original,true),
         vfield("Categoria",e.categoria),
         vfield("Família",e.familia),
+        vfield("Linha de produto",e.linha),
+        vfield("Responsável",e.responsavel),
         vfield("Descrição",e.descricao,true),
       ]))}
     ${vsection("Técnico", vfields([
         vfield("Fabricante",e.fabricante),
         vfield("Código do fabricante",e.codigo_fabricante),
+        vfield("Código interno",e.codigo_interno),
+        vfield("Modelo",e.modelo),
+        vfield("Tecnologia",e.tecnologia),
+        vfield("Aplicação",e.aplicacao,true),
         vfield("Armazenamento base",e.armazenamento_base,true),
       ]))}
     ${vsection("Regulatório", vfields([
         vfield("Classificação",e.classificacao_reg),
+        vfield("Classe de risco",e.classe_risco),
+        vfield("Situação do registro",e.situacao_regulatoria),
         vfield("Registro ANVISA",e.anvisa),
         vfield("Data de registro",e.anvisa_registro),
-        vfield("Validade",e.anvisa_validade),
+        vfield("Validade",e.anvisa_validade + (s.reg_estado==="vencido"?" (vencida)":s.reg_estado==="vencendo"?` (vence em ${s.reg_dias}d)`:"")),
+      ]))}
+    ${vsection("Situação", vfields([
+        vfield("ICE",`${s.ice}% (cadastro ${s.cad}% · regulatório ${s.reg}% · documental ${s.doc}%)`,true),
+        vfield("IDP",s.idp==null?"—":s.idp+"%"),
+        vfield("Documentos finalizados",`${s.docs_finais} de ${s.docs_alvo}`),
+        vfield("Documentos atrasados",s.docs_atrasados?`${s.docs_atrasados} (pior atraso: ${s.atraso_max} dia(s))`:"nenhum"),
+        vfield("Responsáveis nos documentos",(s.responsaveis||[]).join(", ")),
+        vfield("Última atualização",e.updated_em),
       ]))}
     <div class="vw-two">
       ${vsection("Consumíveis", vitensCons(e.consumiveis_vinc), (e.consumiveis_vinc||[]).length)}
@@ -710,7 +872,9 @@ function copiarFicha(){
   add("Categoria",e.categoria); add("Família",e.familia);
   add("Fabricante",e.fabricante); add("Código do fabricante",e.codigo_fabricante);
   add("Armazenamento base",e.armazenamento_base);
-  add("Classificação",e.classificacao_reg); add("Registro ANVISA",e.anvisa);
+  add("Modelo",e.modelo); add("Tecnologia",e.tecnologia); add("Aplicação",e.aplicacao);
+  add("Classificação",e.classificacao_reg); add("Classe de risco",e.classe_risco);
+  add("Situação do registro",e.situacao_regulatoria); add("Registro ANVISA",e.anvisa);
   add("Data de registro",e.anvisa_registro); add("Validade",e.anvisa_validade);
   add("Descrição",e.descricao); add("Observações",e.observacoes);
   const bloco=(arr,t)=>{ if(arr&&arr.length){ L.push(""); L.push(t+":"); arr.forEach(it=>L.push("  - "+it.nome+(it.sku?(" | Venda: "+it.sku):"")+(it.sku_importacao?(" | Import.: "+it.sku_importacao):""))); } };
@@ -729,6 +893,7 @@ function renderCategorias(){
     <input class="eq-tname" value="${esc(c.nome)}" onclick="event.stopPropagation()" onchange="renCategoria(${c.id},this.value)">
     <span class="eq-tct">${c.uso||0}</span>${podeEditar?`<button class="eq-tdel" onclick="event.stopPropagation();delCategoria(${c.id})">🗑</button>`:""}</div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma categoria.</p>';
   renderCatDetail();
+  renderLinhas();
 }
 function selCat(id){ selCatId=id; renderCategorias(); }
 function renderCatDetail(){
@@ -748,7 +913,95 @@ async function delCategoria(id){ const c=TAX.categorias.find(x=>x.id===id); if(c
 async function addFamilia(cid){ const nome=val("fam-new").trim(); if(!nome) return;
   try{ await api("/api/familias-equipamento",{method:"POST",body:JSON.stringify({nome,categoria_id:cid})}); await reloadTax(); }catch(e){ toast(e.message,true); } }
 async function delFamilia(id){ try{ await api("/api/familias-equipamento/"+id,{method:"DELETE"}); await reloadTax(); }catch(e){ toast(e.message,true); } }
-async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); preencherSelects(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
+async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); if(!TAX.linhas) TAX.linhas=[]; preencherSelects(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
+
+// ── LINHAS DE PRODUTO ───────────────────────────────────────────────────────
+// A tabela linhas_produto existia com FK, relationship e migração, e nenhuma
+// rota a lia ou escrevia — campo morto que o plano previa como filtro.
+function renderLinhas(){
+  const el=document.getElementById("linha-list"); if(!el) return;
+  const linhas=TAX.linhas||[];
+  el.innerHTML=linhas.map(l=>`<span class="eq-fchip">${esc(l.nome)} <span class="muted">(${l.uso||0})</span>${podeEditar?`<button onclick="delLinha(${l.id})" aria-label="Excluir linha ${esc(l.nome)}">×</button>`:""}</span>`).join("")
+    ||'<span class="muted" style="font-size:12px">Nenhuma linha cadastrada.</span>';
+  const add=document.getElementById("linha-add");
+  if(add) add.innerHTML=podeEditar
+    ? `<input class="form-input" id="linha-new" placeholder="Nova linha…"><button class="btn btn-ghost btn-sm" onclick="addLinha()">+ linha</button>`
+    : "";
+}
+async function addLinha(){ const nome=val("linha-new").trim(); if(!nome) return;
+  try{ await api("/api/linhas-produto",{method:"POST",body:JSON.stringify({nome})}); await reloadTax(); }
+  catch(e){ toast(e.message,true); } }
+async function delLinha(id){ const l=(TAX.linhas||[]).find(x=>x.id===id);
+  if(l&&l.uso&&!confirm(`"${l.nome}" está em uso por ${l.uso} equipamento(s). Excluir e desvincular?`)) return;
+  try{ await api("/api/linhas-produto/"+id,{method:"DELETE"}); await reloadTax(); }
+  catch(e){ toast(e.message,true); } }
+
+// ══ SAÚDE DO CADASTRO ══════════════════════════════════════════════════════
+// Duplicidade de SKU, texto corrompido e órfãos só apareciam rodando script
+// (scripts/dedup_equipamentos.py, reconciliar_orfaos.py) — nada na aplicação.
+const SAUDE_BLOCOS=[
+  ["sku_duplicado","SKU de Venda duplicado","Quebra o casamento por SKU do importador mestre e do Pareto: a planilha atualiza um só dos dois.","grupo"],
+  ["nome_duplicado","Nome duplicado","Provável cadastro repetido — confira antes de excluir.","grupo"],
+  ["texto_corrompido","Texto corrompido (encoding)","Caracteres quebrados vindos de importações antigas; some da busca e sai errado no CSV.","lista"],
+  ["registro_vencido","Registro ANVISA vencido","Não conta mais como campo preenchido no ICE regulatório.","validade"],
+  ["registro_vencendo","Registro vencendo em até 90 dias","Ainda conta no ICE, mas precisa de renovação.","validade"],
+  ["sem_documentos","Sem nenhum documento vinculado","A dimensão documental do ICE cai no denominador padrão de 12 tipos.","lista"],
+  ["sem_sku","Sem SKU de Venda","Nenhum importador consegue alcançá-lo.","lista"],
+  ["docs_orfaos","Documentos sem equipamento","Documento ativo que não entra na completude de ninguém.","docs"],
+];
+async function renderSaude(forcar){
+  const badge=document.getElementById("saude-badge");
+  if(!SAUDE||forcar){
+    if(badge) badge.textContent="analisando…";
+    try{ SAUDE=await api("/api/equipamentos/saude"); }
+    catch(e){ document.getElementById("saude-blocos").innerHTML=`<div class="card"><p class="muted">Falha ao analisar: ${esc(e.message||"erro")}</p></div>`; return; }
+  }
+  const conta=b=>(SAUDE[b[0]]||[]).length;
+  const total=SAUDE_BLOCOS.reduce((t,b)=>t+conta(b),0);
+  if(badge) badge.textContent=total?`${total} ponto(s) de atenção`:"cadastro sem apontamentos";
+  const criticos=conta(SAUDE_BLOCOS[0])+conta(SAUDE_BLOCOS[3]);
+  document.getElementById("saude-kpis").innerHTML=[
+    ["Equipamentos ativos",SAUDE.total,"#22d3ee"],
+    ["Pontos de atenção",total,total?"#f59e0b":"#10b981"],
+    ["Críticos (SKU/ANVISA)",criticos,criticos?"#f43f5e":"#10b981"],
+  ].map(([l,v,c])=>`<div class="kpi-ring"><div class="kpi-ring-canvas" style="width:110px;height:110px;display:flex;align-items:center;justify-content:center"><div class="kpi-ring-val" style="position:static;color:${c};font-size:34px">${v}</div></div><div class="kpi-ring-label">${l}</div></div>`).join("");
+
+  document.getElementById("saude-blocos").innerHTML=SAUDE_BLOCOS.map(([chave,titulo,porque,tipo])=>{
+    const itens=SAUDE[chave]||[];
+    if(!itens.length) return "";
+    let corpo="";
+    if(tipo==="grupo"){
+      corpo=itens.map(g=>`<div class="prog-row" style="align-items:flex-start"><span class="prog-label" style="flex:1"><span class="mono">${esc(g.chave)}</span><div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${
+        g.itens.map(i=>`<button class="eq-chip" style="cursor:pointer;border:0" onclick="openView(${i.id})">${esc(i.nome)}</button>`).join("")}</div></span><span class="mono" style="color:#f43f5e;font-weight:700">${g.itens.length}</span></div>`).join("");
+    }else if(tipo==="validade"){
+      corpo=`<div style="display:flex;gap:6px;flex-wrap:wrap">${itens.map(i=>`<button class="eq-chip" style="cursor:pointer;border:0" onclick="openView(${i.id})" title="Validade ${esc(i.validade||"—")}">${esc(i.nome)} · ${i.dias<0?`${-i.dias}d vencida`:`${i.dias}d`}</button>`).join("")}</div>`;
+    }else if(tipo==="docs"){
+      corpo=`<table class="vw-itbl"><thead><tr><th>Documento</th><th>Equipamento (texto)</th><th>SKU</th></tr></thead><tbody>${
+        itens.map(d=>`<tr><td>${esc(d.documento||"—")}</td><td>${esc(d.equipamento||"—")}</td><td class="mono">${esc(d.sku||"—")}</td></tr>`).join("")}</tbody></table>`;
+    }else{
+      corpo=`<div style="display:flex;gap:6px;flex-wrap:wrap">${itens.map(i=>`<button class="eq-chip" style="cursor:pointer;border:0" onclick="openView(${i.id})">${esc(i.nome)}</button>`).join("")}</div>`;
+    }
+    return `<div class="card mb"><div class="card-title">${titulo} <span class="filter-count" style="margin-left:8px">${itens.length}</span></div>
+      <p class="muted" style="font-size:11px;margin:-4px 0 10px">${porque}</p>${corpo}</div>`;
+  }).join("")||'<div class="card"><p class="muted">Nenhum apontamento: SKUs únicos, sem texto corrompido, sem órfãos e sem registro vencido.</p></div>';
+  if(podeGerir) renderImportacoes();
+}
+
+// Histórico de importações: o relatório completo de cada execução aplicada
+// (antes só sobrava uma linha resumida no audit).
+const ORIGEM_LABEL={mestra:"Planilha mestra",pareto:"Pareto ABC"};
+async function renderImportacoes(){
+  let linhas=[];
+  try{ linhas=await api("/api/equipamentos/importacoes?limit=15"); }catch(_){ return; }
+  const box=document.getElementById("saude-blocos"); if(!box) return;
+  const corpo=linhas.length
+    ? `<table class="vw-itbl"><thead><tr><th>Quando</th><th>Origem</th><th>Por</th><th class="num">Criados</th><th class="num">Atualizados</th><th class="num">Sem match</th><th class="num">Inconsistências</th></tr></thead><tbody>${
+        linhas.map(l=>`<tr><td class="muted" style="font-size:11px">${esc(l.em)}</td><td>${esc(ORIGEM_LABEL[l.origem]||l.origem)}</td><td class="muted" style="font-size:11px">${esc(l.por||"—")}</td><td class="num mono">${l.criados}</td><td class="num mono">${l.atualizados}</td><td class="num mono" style="color:${l.sem_match?"#f59e0b":"inherit"}">${l.sem_match}</td><td class="num mono" style="color:${l.inconsistencias?"#f43f5e":"inherit"}">${l.inconsistencias}</td></tr>`).join("")}</tbody></table>`
+    : '<p class="muted">Nenhuma importação aplicada ainda.</p>';
+  box.insertAdjacentHTML("beforeend",
+    `<div class="card mb"><div class="card-title">Importações aplicadas</div>
+     <p class="muted" style="font-size:11px;margin:-4px 0 10px">Cada execução guarda o relatório completo — dá para rever quais SKUs não casaram depois de aplicar.</p>${corpo}</div>`);
+}
 
 // ══ IMPORTAÇÃO / EXPORT ════════════════════════════════════════════════════
 function abrirImport(){ document.getElementById("import-preview").innerHTML="—";
@@ -767,9 +1020,20 @@ async function rodarImport(dryrun){
     if(!dryrun){ toast(`Importado: ${rel.a_criar} criados, ${rel.a_atualizar} atualizados`); await loadAll(); setTimeout(()=>closeModal("import"),1200); }
   }catch(e){ document.getElementById("import-preview").innerHTML=`<span style="color:#f43f5e">${esc(e.message)}</span>`; }
 }
+// Export segue os filtros da tela (o CSV ignorava tudo e devolvia 12 colunas
+// fixas, sem ICE/IDP, classe ABC, saídas, descrição nem observações).
 async function exportarCSV(){
-  try{ const res=await fetch("/api/equipamentos/export",{headers:{"Authorization":"Bearer "+token()}});
-    const blob=await res.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="equipamentos.csv"; a.click(); }
+  const p=new URLSearchParams();
+  const q=val("eq-busca").trim(); if(q) p.set("q",q);
+  const cat=val("eq-f-cat"); if(cat) p.set("categoria_id",cat);
+  const linha=val("eq-f-linha"); if(linha) p.set("linha_id",linha);
+  const st=val("eq-f-status"); if(st) p.set("status",st);
+  if(!(document.getElementById("eq-f-bloq")||{}).checked) p.set("incluir_bloqueados","0");
+  const ordem=val("eq-ordem"); if(ordem) p.set("ordem",ordem);
+  try{ const res=await fetch("/api/equipamentos/export?"+p.toString(),{headers:{"Authorization":"Bearer "+token()}});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const blob=await res.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="equipamentos.csv"; a.click();
+    toast("CSV exportado com os filtros da tela"); }
   catch(e){ toast("Erro ao exportar",true); }
 }
 
@@ -785,10 +1049,41 @@ const _st=document.getElementById("sidebar-toggle"), _sb=document.getElementById
 function toggleSidebar(f){ const open=f!==undefined?f:!_sn.classList.contains("open"); _sn.classList.toggle("open",open); _sb.classList.toggle("open",open); }
 _st&&_st.addEventListener("click",()=>toggleSidebar()); _sb&&_sb.addEventListener("click",()=>toggleSidebar(false));
 
+// ── tempo real ──────────────────────────────────────────────────────────────
+// A dimensão documental é 1/3 do ICE: homologar um documento no módulo
+// Documentos deixava o índice daqui velho até alguém dar F5. app-realtime.js
+// não serve (é acoplado à tabela de documentos e ao token 'jwt'), então
+// assinamos os eventos direto e só recarregamos a completude.
+let _dtSock=null, _refreshTimer=null;
+const EVENTOS_QUE_MEXEM_NO_ICE=["DOCUMENT_CREATED","DOCUMENT_UPDATED","DOCUMENT_DELETED",
+  "DOCUMENT_STATUS_UPDATED","ETAPA_COMPLETED"];
+function agendarRefresh(){
+  clearTimeout(_refreshTimer);
+  _refreshTimer=setTimeout(async()=>{
+    try{
+      const c=await api("/api/equipamentos/completude");
+      COMPL={}; ((c&&c.itens)||[]).forEach(x=>{ COMPL[x.id]=x; });
+      const ativa=document.querySelector(".page.active");
+      if(ativa) renderPagina((ativa.id||"").replace("page-",""));
+    }catch(_){}
+  },1200);   // agrupa rajadas (mudar 12 documentos dispara 12 eventos)
+}
+function iniciarRealtime(){
+  if(typeof DocTrackSocket==="undefined"||!token()) return;
+  try{
+    _dtSock=new DocTrackSocket({token:token()});
+    EVENTOS_QUE_MEXEM_NO_ICE.forEach(ev=>_dtSock.on(ev,agendarRefresh));
+    _dtSock.on("__connect__",()=>{ const l=document.getElementById("sync-label"); if(l) l.textContent="Conectado"; });
+    _dtSock.on("__disconnect__",()=>{ const l=document.getElementById("sync-label"); if(l) l.textContent="Offline"; });
+    _dtSock.connect();
+  }catch(_){}
+}
+
 if(!token()){ window.location.href="/"; }
 else { document.getElementById("app").style.display="block";
   Promise.resolve(loadAll()).then(()=>{   // deep-link: /equipamentos?ficha=<id> abre a ficha (ex.: chip do Missões)
     const f=parseInt(new URLSearchParams(location.search).get("ficha")||"");
     if(f && _eqById(f)){ navigate("lista"); abrirFicha(f); }
+    iniciarRealtime();
   });
 }

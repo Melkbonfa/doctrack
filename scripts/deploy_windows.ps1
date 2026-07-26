@@ -3,7 +3,7 @@
 # ----------------------------------------------------------------------------
 #  O que faz (passo a passo, automatizado):
 #    1. Cria o ambiente virtual Python (venv)
-#    2. Instala as dependências (requirements.txt + waitress)
+#    2. Instala as dependências (requirements.txt)
 #    3. Cria o arquivo .env com as senhas/configurações
 #    4. Inicializa as tabelas no banco PostgreSQL
 #    5. Libera a porta 5000 no Firewall do Windows
@@ -13,7 +13,14 @@
 #    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 #    cd C:\apps\doctrack
 #    .\deploy_windows.ps1
+#
+#  -ComTarefaAgendada troca a thread interna de snapshots por uma Tarefa
+#  Agendada do Windows (as duas fazem o mesmo; a thread e o padrao).
 # ============================================================================
+
+param(
+    [switch]$ComTarefaAgendada
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -58,7 +65,6 @@ $pip = "$Projeto\venv\Scripts\pip.exe"
 Titulo "PASSO 2/6 - Instalando dependencias (pode demorar alguns minutos)"
 & $py -m pip install --upgrade pip | Out-Null
 & $pip install -r "$Projeto\requirements.txt"
-& $pip install waitress
 OK "Dependencias instaladas."
 
 # --- PASSO 3: arquivo .env --------------------------------------------------
@@ -119,7 +125,7 @@ if (-not $nssm) {
     Write-Host "  Baixe em https://nssm.cc/download , coloque o nssm.exe numa pasta"
     Write-Host "  do PATH (ex: C:\Windows) e rode este script de novo."
     Write-Host "  -- OU -- inicie manualmente para testar agora:" -ForegroundColor Yellow
-    Write-Host "     .\venv\Scripts\waitress-serve.exe --listen=0.0.0.0:$Porta servidor:app"
+    Write-Host "     .\venv\Scripts\waitress-serve.exe --listen=0.0.0.0:$Porta wsgi:app"
     exit 1
 }
 
@@ -136,14 +142,41 @@ if (Get-Service $Servico -ErrorAction SilentlyContinue) {
     Start-Sleep -Seconds 2
 }
 
+# wsgi:app (nao servidor:app): a preparacao do banco -- schema, backfills e a
+# foto do dia -- saiu do import de servidor.py e virou init_app(), chamado por
+# wsgi.py. Apontar para servidor:app sobe o app com o banco sem preparar.
 & $nssm install $Servico $waitress
-& $nssm set $Servico AppParameters "--listen=0.0.0.0:$Porta servidor:app"
+& $nssm set $Servico AppParameters "--listen=0.0.0.0:$Porta wsgi:app"
 & $nssm set $Servico AppDirectory $Projeto
 & $nssm set $Servico Start SERVICE_AUTO_START
 & $nssm set $Servico AppStdout "$Projeto\logs\out.log"
 & $nssm set $Servico AppStderr "$Projeto\logs\err.log"
 & $nssm start $Servico
 OK "Servico '$Servico' instalado e iniciado."
+
+# --- Tarefa agendada (opcional) ---------------------------------------------
+# As fotos diarias (ICE/IDP, missoes, projetos) rodam por padrao na thread
+# interna do proprio servico. Quem preferir enxergar o agendamento no Windows
+# usa -ComTarefaAgendada: registra a tarefa e desliga a thread no .env para as
+# duas nao fazerem o mesmo trabalho.
+if ($ComTarefaAgendada) {
+    Titulo "Extra - Tarefa Agendada das fotos diarias"
+    $tarefa = "DocTrack - Snapshot diario"
+    if (Get-ScheduledTask -TaskName $tarefa -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $tarefa -Confirm:$false
+    }
+    $acao    = New-ScheduledTaskAction -Execute $py `
+                 -Argument "scripts\snapshot_diario.py" -WorkingDirectory $Projeto
+    $gatilho = New-ScheduledTaskTrigger -Daily -At 03:00
+    Register-ScheduledTask -TaskName $tarefa -Action $acao -Trigger $gatilho `
+        -User "SYSTEM" -RunLevel Highest `
+        -Description "Grava as fotos diarias de equipamentos, missoes e projetos." | Out-Null
+    if (-not (Select-String -Path $envFile -Pattern "^DOCTRACK_AGENDADOR=" -Quiet)) {
+        Add-Content -Path $envFile -Value "DOCTRACK_AGENDADOR=0" -Encoding UTF8
+    }
+    & $nssm restart $Servico | Out-Null
+    OK "Tarefa '$tarefa' registrada para 03:00 (thread interna desligada)."
+}
 
 # --- Final ------------------------------------------------------------------
 $ip = (Get-NetIPAddress -AddressFamily IPv4 |

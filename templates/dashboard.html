@@ -8,11 +8,10 @@
 <meta property="og:title" content="DocTrack v4 — Gestão Documental Industrial">
 <meta property="og:description" content="Sistema enterprise de gestão documental industrial com rastreabilidade completa">
 <meta property="og:type" content="website">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Bibliotecas servidas pelo próprio app (static/vendor): em rede fabril sem
+     saída para a internet, o CDN deixava o dashboard sem gráficos e sem tempo real. -->
+<script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
 </head>
 <body>
 
@@ -87,7 +86,7 @@
         <label class="form-label" for="pa-senha">Nova senha</label>
         <div class="login-field">
           <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <input class="form-input" id="pa-senha" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
+          <input class="form-input" id="pa-senha" type="password" placeholder="Mínimo 8 caracteres" autocomplete="new-password" required>
         </div>
       </div>
       <div class="form-group">
@@ -165,6 +164,7 @@
         <div class="page-header">
           <div><div class="page-title">Dashboard Executivo</div><div class="page-sub" id="dash-updated">Carregando dados...</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center;">
+            <span class="dash-extra" id="dash-extra"></span>
             <span id="dash-pct-badge" class="docs-count-badge">—</span>
             <button id="btn-export-kpis" class="btn btn-ghost btn-sm" onclick="openExportModal()" style="display:none">Exportar relatório</button>
           </div>
@@ -186,6 +186,27 @@
           <div class="card"><div class="card-title">Documentos por Origem</div><div style="position:relative;height:200px"><canvas id="chartBar" role="img" aria-label="Gráfico de barras: documentos por origem"></canvas></div></div>
           <div class="card"><div class="card-title">Distribuição por Status</div><div style="position:relative;height:200px"><canvas id="chartStatus" role="img" aria-label="Gráfico de barras horizontais: distribuição por status"></canvas></div></div>
         </div>
+        <!-- FLUXO: leituras da trilha (documento_historico), que era gravada a
+             cada troca de status e nunca lida para métrica nenhuma. -->
+        <div class="g2">
+          <div class="card">
+            <div class="card-title">Fluxo de trabalho
+              <span class="filter-count" id="flx-janela" style="float:right;font-weight:400"></span>
+            </div>
+            <div class="metric-row" id="flx-cards"></div>
+            <div id="flx-status"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Precisa de atenção
+              <span class="filter-count" id="flx-alertas-total" style="float:right;font-weight:400"></span>
+            </div>
+            <div id="flx-alertas" style="max-height:340px;overflow-y:auto"></div>
+          </div>
+        </div>
+        <div class="g2">
+          <div class="card"><div class="card-title">Parados há mais tempo</div><div id="flx-aging"></div></div>
+          <div class="card"><div class="card-title">Carga por responsável</div><div id="flx-carga"></div></div>
+        </div>
         <div class="card mb"><div class="card-title">Últimos Documentos</div><div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>Documento</th><th>Tipo</th><th>Status Global</th><th>Versão</th></tr></thead><tbody id="dash-table"></tbody></table></div></div>
       </div>
 
@@ -195,6 +216,8 @@
           <div><div class="page-title">Documentos</div><div class="page-sub">Visão por equipamento — IT/PRE e Manuais</div></div>
           <div class="page-actions" style="display:flex; gap:10px; align-items:center;">
             <span class="filter-count" id="docs-badge">—</span>
+            <button class="btn btn-ghost btn-sm" id="btn-diag" onclick="abrirDiagnostico()" title="Documentos sem caminho e pastas que não existem mais" style="display:none">🔍 Diagnóstico</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportarDocumentosCSV()" title="Baixar CSV dos documentos (respeita a busca)">⬇ CSV</button>
             <button class="btn btn-primary btn-sm" id="btn-add-equip" onclick="openNewEquip()">+ Novo equipamento</button>
           </div>
         </div>
@@ -209,7 +232,25 @@
             </div>
             <div class="equip-chips" id="equip-chips"></div>
           </div>
+          <!-- Recorte por tipo de documento: "quais equipamentos ainda não têm
+               o Manual de Serviço?" — os chips de status não respondem isso. -->
+          <div class="equip-toolbar tipo-bar">
+            <select class="filter-sel" id="tipo-filtro" onchange="setTipoFiltro(this.value)" aria-label="Filtrar por tipo de documento"></select>
+            <select class="filter-sel" id="tipo-modo" onchange="setTipoModo(this.value)" aria-label="Situação do tipo escolhido" style="display:none">
+              <option value="pendente">— não concluído</option>
+              <option value="finalizado">— concluído</option>
+              <option value="na">— marcado N/A</option>
+              <option value="ausente">— fora do escopo ou inexistente</option>
+            </select>
+          </div>
           <div class="equip-grid" id="equip-grid"></div>
+        </div>
+
+        <!-- Documentos de processo da área (POPs/ITs do P&D): não pertencem a
+             equipamento, então ficam fora do grid e da completude. -->
+        <div class="card mb" id="proc-card" style="display:none">
+          <div class="card-title">Documentos de processo (P&amp;D) <span class="filter-count" id="proc-badge">—</span></div>
+          <div class="tbl-wrap"><table><thead><tr><th>Código</th><th>Documento</th><th>Status</th><th>Status global</th><th>Atualizado</th></tr></thead><tbody id="proc-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -318,6 +359,19 @@
   </div>
 </div>
 
+<!-- Diagnóstico: cadastro × filesystem (admin/gestor) -->
+<div class="modal-overlay" id="modal-diag" role="dialog" aria-modal="true" aria-labelledby="diag-title" aria-hidden="true">
+  <div class="modal" style="width:900px;max-width:96vw" tabindex="-1">
+    <div class="modal-title" id="diag-title">Diagnóstico de arquivos</div>
+    <div class="modal-sub">Documentos sem caminho definido e caminhos que não existem mais na rede. Considera o caminho efetivo (o do equipamento, quando o documento não tem exceção).</div>
+    <div id="diag-body"></div>
+    <div class="modal-footer"><button class="btn btn-ghost" type="button" onclick="closeModal('diag')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- Usuários reais para o campo "Responsável" dos documentos -->
+<datalist id="lista-responsaveis"></datalist>
+
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"><div class="toast-dot" id="toast-dot"></div><span id="toast-msg"></span></div>
 
 <!-- Confirm modal (substitui confirm() nativo — U8) -->
@@ -332,13 +386,14 @@
   </div>
 </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.5/dist/docx-preview.min.js"></script>
+  <script src="/static/vendor/html2pdf.bundle.min.js?v={{ asset_v }}"></script>
+  <script src="/static/vendor/jspdf.umd.min.js?v={{ asset_v }}"></script>
+  <script src="/static/vendor/jszip.min.js?v={{ asset_v }}"></script>
+  <script src="/static/vendor/docx-preview.min.js?v={{ asset_v }}"></script>
 
   
-<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
+<script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
 <script src="/socket-client.js"></script>

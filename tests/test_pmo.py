@@ -207,13 +207,38 @@ def test_data_conclusao_explicita(client, gestor_token, auth_headers, projeto_id
     assert res.get_json()["entregavel"]["data_conclusao"] == "2026-03-10"
 
 
-def test_desconcluir_limpa_data(client, gestor_token, auth_headers, projeto_id):
+def test_desconcluir_preserva_data_mas_nao_conta_como_pronto(
+        client, gestor_token, auth_headers, projeto_id):
+    """Reabrir uma tarefa não pode reescrever a história.
+
+    Antes, voltar para 'pendente' apagava data_conclusao e a curva-S histórica
+    mudava retroativamente. Agora a data fica registrada e é o histórico de
+    status que determina o que estava pronto em cada data.
+    """
+    eid = _add_entregavel(client, gestor_token, auth_headers, projeto_id)
+    client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
+               json={"status": "concluido", "data_conclusao": "2026-03-10"})
+    res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
+                     json={"status": "pendente"})
+    assert res.status_code == 200
+    assert res.get_json()["entregavel"]["data_conclusao"] == "2026-03-10"
+
+    from models import Entregavel
+    with client.application.app_context():
+        e = Entregavel.query.get(eid)
+        # hoje ele não está pronto, mesmo com a data preservada
+        assert e.pct_em(_dt.date.today()) == 0
+        # e o histórico registrou as duas transições
+        assert [h.status_novo for h in e.historico] == ["concluido", "pendente"]
+
+
+def test_status_na_limpa_data_conclusao(client, gestor_token, auth_headers, projeto_id):
+    """'Não se aplica' é diferente de 'reaberto': aí a data some mesmo."""
     eid = _add_entregavel(client, gestor_token, auth_headers, projeto_id)
     client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                json={"status": "concluido"})
     res = client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
-                     json={"status": "pendente"})
-    assert res.status_code == 200
+                     json={"status": "na"})
     assert res.get_json()["entregavel"]["data_conclusao"] == ""
 
 

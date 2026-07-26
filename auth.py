@@ -18,11 +18,19 @@ from flask_jwt_extended import (
 )
 from datetime import datetime
 from functools import wraps
+import os
 
-from models import db, User, AuditLog, RevokedToken, Responsavel
+from models import db, User, AuditLog, RevokedToken
 from areas import dump_areas, parse_areas, AREA_SLUGS
+import ratelimit
 
 auth_bp = Blueprint("auth", __name__)
+
+# Mínimo de caracteres para uma senha nova. Eram 6 — curto o bastante para
+# caber num ataque de dicionário e abaixo de qualquer recomendação atual.
+# Só afeta senhas NOVAS; as existentes continuam valendo até a próxima troca.
+SENHA_MIN = int(os.environ.get("DOCTRACK_SENHA_MIN", "8"))
+ERRO_SENHA_CURTA = f"Senha deve ter pelo menos {SENHA_MIN} caracteres"
 
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
@@ -107,6 +115,13 @@ def login():
     if not email or not senha:
         return jsonify({"erro": "Email e senha são obrigatórios"}), 400
 
+    # Limite de tentativas antes de tocar o banco: o bcrypt é a parte caríssima
+    # da requisição, então checar depois seria pagar o custo do ataque.
+    chaves = ratelimit.chaves_login(email)
+    travado = ratelimit.checar(chaves, ratelimit.LIMITE_LOGIN, ratelimit.JANELA_LOGIN)
+    if travado is not None:
+        return travado
+
     user = User.query.filter_by(email=email, ativo=True).first()
 
     # Conta pendente de primeiro acesso/reset: orienta a definir a senha
@@ -117,7 +132,11 @@ def login():
         }), 403
 
     if not user or not user.check_senha(senha):
+        for chave in chaves:
+            ratelimit.registrar_falha(chave)
         return jsonify({"erro": "Email ou senha incorretos"}), 401
+
+    ratelimit.limpar_chave(chaves[0])
 
     # Atualiza último login
     user.ultimo_login = datetime.now()
@@ -189,8 +208,15 @@ def primeiro_acesso():
 
     if not email or not codigo or not senha:
         return jsonify({"erro": "E-mail, código e nova senha são obrigatórios"}), 400
-    if len(senha) < 6:
-        return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
+    if len(senha) < SENHA_MIN:
+        return jsonify({"erro": ERRO_SENHA_CURTA}), 400
+
+    # Um código de ativação é 8 caracteres que valem uma conta inteira — é o
+    # alvo mais atraente do sistema e o que mais precisava de limite.
+    chaves = ratelimit.chaves_ativacao(email)
+    travado = ratelimit.checar(chaves, ratelimit.LIMITE_ATIVACAO, ratelimit.JANELA_ATIVACAO)
+    if travado is not None:
+        return travado
 
     user = User.query.filter_by(email=email, ativo=True).first()
 
@@ -200,8 +226,11 @@ def primeiro_acesso():
     if user.ativacao_expira and datetime.now() > user.ativacao_expira:
         return jsonify({"erro": "Código de ativação expirado. Peça um novo ao administrador."}), 400
     if not user.check_codigo(codigo):
+        for chave in chaves:
+            ratelimit.registrar_falha(chave)
         return jsonify({"erro": "Código de ativação incorreto."}), 400
 
+    ratelimit.limpar_chave(chaves[0])
     user.set_senha(senha)          # também limpa o código e o estado pendente
     user.ultimo_login = datetime.now()
     db.session.commit()
@@ -255,8 +284,8 @@ def create_user():
         return jsonify({"erro": "Nome e email são obrigatórios"}), 400
     if role not in ("admin", "gestor", "tecnico", "leitura"):
         return jsonify({"erro": "Role inválido. Use: admin, gestor, tecnico, leitura"}), 400
-    if senha and len(senha) < 6:
-        return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
+    if senha and len(senha) < SENHA_MIN:
+        return jsonify({"erro": ERRO_SENHA_CURTA}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({"erro": "Este e-mail já está cadastrado"}), 409
 
@@ -374,8 +403,8 @@ def update_user(user_id):
 
     if "senha" in data:
         nova_senha = data["senha"].strip()
-        if len(nova_senha) < 6:
-            return jsonify({"erro": "Senha deve ter pelo menos 6 caracteres"}), 400
+        if len(nova_senha) < SENHA_MIN:
+            return jsonify({"erro": ERRO_SENHA_CURTA}), 400
         user.set_senha(nova_senha)
         changes.append(("senha", "***", "***atualizada***"))
 
@@ -419,9 +448,6 @@ def delete_user(user_id):
 
     # Exclusão permanente — limpar dependências para não violar FKs
     email = user.email
-    Responsavel.query.filter_by(user_id=user.id).delete(synchronize_session=False)
-    Responsavel.query.filter_by(atribuido_por_id=user.id).update(
-        {"atribuido_por_id": None}, synchronize_session=False)
     AuditLog.query.filter_by(usuario_id=user.id).update(
         {"usuario_id": None}, synchronize_session=False)
 

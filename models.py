@@ -1,7 +1,7 @@
 """
 models.py — Modelos SQLAlchemy para o DocTrack v4.0
-Tabelas: User, Documento, AuditLog, RevokedToken, Responsavel
-Nova estrutura: 3 setores (PRE, Fabricante, PDE) com status lineares.
+Tabelas: User, Documento, DocumentoHistorico, AuditLog, RevokedToken
+Nova estrutura: 3 setores (PRE, Manuais, PDE) com status lineares.
 """
 
 from flask_sqlalchemy import SQLAlchemy
@@ -17,7 +17,15 @@ bcrypt = Bcrypt()
 
 # ── CONSTANTES DE DOMÍNIO ─────────────────────────────────────────────────────
 
+# Setores de documento DE EQUIPAMENTO. É esta lista que define a completude, os
+# cards e os KPIs — todo documento de equipamento tem um destes dois pipelines.
 SETORES = ["PRE", "Manuais"]
+
+# Documentos de PROCESSO da área (POPs e ITs do próprio P&D: "IT - Elaboração do
+# Manual de Serviço"). Não pertencem a nenhum equipamento, então ficam fora da
+# completude e do grid — mas são documentos reais, editáveis, com pipeline.
+SETOR_PROCESSO = "PDE"
+SETORES_TODOS = SETORES + [SETOR_PROCESSO]
 
 STATUS_PRE = ["Elaborar", "Treinamento Piloto", "Enviado para Homologação", "Homologado"]
 STATUS_FABRICANTE = ["Elaborar", "Em andamento", "Concluído"]
@@ -25,6 +33,10 @@ STATUS_FABRICANTE = ["Elaborar", "Em andamento", "Concluído"]
 STATUS_MAP = {
     "PRE": STATUS_PRE,
     "Manuais": STATUS_FABRICANTE,
+    # Processo usa o pipeline curto: sem ele, STATUS_MAP.get("PDE") devolvia []
+    # e TODO PATCH/PUT de status destes documentos morria em 400 — eles eram
+    # permanentemente ineditáveis.
+    SETOR_PROCESSO: STATUS_FABRICANTE,
 }
 
 # Tipos de documento por setor. Todo equipamento nasce com 1 documento de cada um
@@ -68,6 +80,21 @@ TIPOS_DOC_LABELS = {
 # O índice conta só "Revisado"; "N/A" sai do denominador (item não se aplica).
 ESTADOS_REVISAO = ["Pendente", "Em revisão", "Revisado", "N/A"]
 
+# Motivos canônicos para marcar um documento como "não se aplica" (N/A).
+# Lista fechada de propósito: marcar N/A muda o denominador da completude de
+# todo mundo, e motivo em texto livre não é analisável (dos 47 N/A existentes
+# quando isto foi criado, ZERO tinham motivo preenchido — o campo era opcional).
+# 'outro' é a válvula de escape e exige a descrição livre em motivo_na.
+MOTIVOS_NA = {
+    "nao_se_aplica_produto": "Não se aplica a este produto",
+    "fornecido_fabricante":  "Fornecido pelo fabricante",
+    "coberto_outro_doc":     "Coberto por outro documento",
+    "equipamento_legado":    "Equipamento legado / fora de linha",
+    "sem_registro_anvisa":   "Produto sem registro ANVISA",
+    "outro":                 "Outro (descrever)",
+}
+MOTIVO_NA_LIVRE = "outro"
+
 ACOES_AUDIT = [
     "CREATE", "UPDATE", "DELETE", "STATUS_CHANGE", "LOGIN", "REIMPORT",
     "DOCUMENT_CREATED", "DOCUMENT_UPDATED", "DOCUMENT_DELETED",
@@ -76,19 +103,6 @@ ACOES_AUDIT = [
     "NOTIFICATION", "USER_CONNECTED", "USER_DISCONNECTED",
     "FIRST_ACCESS", "PASSWORD_RESET",
 ]
-
-
-# ── Roles de responsável ─────────────────────────────────────────────────────
-class ResponsavelRole:
-    ELABORADOR = "elaborador"
-    REVISOR_1 = "revisor_1"
-    REVISOR_2 = "revisor_2"
-    APROVADOR = "aprovador"
-    GESTOR = "gestor"
-
-    @classmethod
-    def all(cls):
-        return [cls.ELABORADOR, cls.REVISOR_1, cls.REVISOR_2, cls.APROVADOR, cls.GESTOR]
 
 
 # ── USER ──────────────────────────────────────────────────────────────────────
@@ -119,11 +133,6 @@ class User(db.Model):
     precisa_definir_senha = db.Column(db.Boolean, default=False, nullable=False)
     ativacao_codigo_hash  = db.Column(db.String(256), nullable=True)
     ativacao_expira       = db.Column(db.DateTime, nullable=True)
-
-    responsabilidades = db.relationship(
-        "Responsavel", back_populates="user",
-        foreign_keys="Responsavel.user_id"
-    )
 
     # Validade padrão do código de ativação
     ATIVACAO_VALIDADE_DIAS = 7
@@ -186,6 +195,22 @@ class User(db.Model):
 
 # ── DOCUMENTO ─────────────────────────────────────────────────────────────────
 
+# N:N documento ↔ usuário. `Documento.responsavel` segue sendo o texto exibido
+# (e o que veio da planilha), mas quem responde "é meu?" é esta tabela. Mesmo
+# desenho de entregavel_responsaveis e missao_cartao_responsaveis: era o único
+# dos três módulos onde responsabilidade ainda era string digitada à mão, o que
+# impedia qualquer agregação por pessoa.
+documento_responsaveis = db.Table(
+    "documento_responsaveis",
+    db.Column("documento_id", db.Integer,
+              db.ForeignKey("documentos.id", ondelete="CASCADE"),
+              primary_key=True),
+    db.Column("user_id", db.Integer,
+              db.ForeignKey("users.id", ondelete="CASCADE"),
+              primary_key=True),
+)
+
+
 class Documento(db.Model):
     __tablename__ = "documentos"
 
@@ -203,13 +228,33 @@ class Documento(db.Model):
     status          = db.Column(db.String(60), default="Elaborar")
     tipo_doc        = db.Column(db.String(60), default="")
     fabricante      = db.Column(db.String(200), default="")
+    # data_treinamento / data_homologacao são datas REALIZADAS (o que aconteceu).
+    # `prazo` é a data ALVO de conclusão — sem ela nada pode estar "atrasado".
     data_treinamento  = db.Column(db.DateTime, nullable=True)
     obs_treinamento   = db.Column(db.Text, default="")
     data_homologacao  = db.Column(db.DateTime, nullable=True)
     obs_homologacao   = db.Column(db.Text, default="")
+    prazo             = db.Column(db.Date, nullable=True, index=True)
+    # Caminho da pasta. Vazio = herda o Equipamento.armazenamento_base (o caso
+    # normal: o caminho é do equipamento, não de cada um dos 12 documentos).
+    # Preenchido = override deliberado só deste documento.
     armazenamento   = db.Column(db.String(500), default="")
     criado_em       = db.Column(db.DateTime, default=datetime.now)
     updated_em      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    # ── marcos temporais ─────────────────────────────────────────────────────
+    # Documento era o modelo menos instrumentado do sistema, apesar de ser o
+    # maior conjunto de dados: `updated_em` é sobrescrito a cada save, então não
+    # havia como responder "quanto tempo levou para homologar", "há quantos dias
+    # está parado neste status" ou "quantos foram concluídos em março" sem varrer
+    # a trilha inteira. Missões e Entregáveis já tinham estas colunas.
+    concluido_em     = db.Column(db.DateTime, nullable=True, index=True)
+    concluido_por    = db.Column(db.String(120), default="")
+    # Quando o documento entrou no status atual — aging sem varrer o histórico
+    # (a trilha continua sendo a fonte da série completa).
+    entrou_status_em = db.Column(db.DateTime, nullable=True)
+    # Início efetivo do trabalho. Com `prazo` fecha a duração planejada.
+    data_inicio      = db.Column(db.Date, nullable=True)
+    peso             = db.Column(db.Float, default=1.0)   # esforço relativo
     ativo           = db.Column(db.Boolean, default=True, nullable=False, index=True)
     deleted_at      = db.Column(db.DateTime, nullable=True)
     version         = db.Column(db.Integer, default=0, nullable=False)
@@ -217,14 +262,20 @@ class Documento(db.Model):
     # O documento continua existindo (status, código, histórico preservados), mas
     # sai do denominador da completude (card, chips, KPIs, IDP). Reversível.
     aplicavel       = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    # motivo_na_codigo: chave de MOTIVOS_NA (analisável, obrigatória ao marcar N/A).
+    # motivo_na: descrição livre — obrigatória apenas quando o código é 'outro'.
+    motivo_na_codigo = db.Column(db.String(40), default="")
     motivo_na       = db.Column(db.String(300), default="")
 
-    responsaveis = db.relationship(
-        "Responsavel", back_populates="documento", cascade="all, delete-orphan"
-    )
     # Identidade do equipamento (fonte única). joined evita N+1 ao serializar listas.
     equipamento_rel = db.relationship("Equipamento", foreign_keys=[equipamento_id],
                                       lazy="joined")
+    responsaveis_users = db.relationship("User", secondary=documento_responsaveis,
+                                         backref=db.backref("documentos_atribuidos",
+                                                            lazy="dynamic"))
+    historico = db.relationship(
+        "DocumentoHistorico", back_populates="documento",
+        cascade="all, delete-orphan", order_by="DocumentoHistorico.em.desc()")
 
     @property
     def status_global(self):
@@ -250,6 +301,76 @@ class Documento(db.Model):
     def tipo_doc_label(self):
         return TIPOS_DOC_LABELS.get(self.tipo_doc, self.tipo_doc or "")
 
+    @property
+    def armazenamento_efetivo(self):
+        """Caminho que vale para este documento: o override, ou o do equipamento.
+
+        O caminho é atributo do EQUIPAMENTO — antes ele era copiado nas 12 linhas
+        de documento, e editá-lo numa aba não refletia nas outras 11.
+        """
+        proprio = (self.armazenamento or "").strip()
+        if proprio:
+            return proprio
+        eq = self.equipamento_rel
+        return (eq.armazenamento_base or "").strip() if eq else ""
+
+    @property
+    def motivo_na_label(self):
+        """Texto do motivo de N/A: rótulo canônico + detalhe livre, se houver."""
+        if self.aplicavel:
+            return ""
+        base = MOTIVOS_NA.get(self.motivo_na_codigo or "", "")
+        detalhe = (self.motivo_na or "").strip()
+        if self.motivo_na_codigo == MOTIVO_NA_LIVRE:
+            return detalhe or base
+        return f"{base} — {detalhe}" if (base and detalhe) else (base or detalhe)
+
+    @property
+    def dias_para_prazo(self):
+        """Dias até o prazo (negativo = atrasado). None quando não há prazo."""
+        if not self.prazo:
+            return None
+        return (self.prazo - datetime.now().date()).days
+
+    @property
+    def atrasado(self):
+        """Prazo vencido e documento ainda não finalizado. N/A nunca atrasa."""
+        if not self.prazo or not self.aplicavel:
+            return False
+        if self.status_global == "Finalizado":
+            return False
+        return self.prazo < datetime.now().date()
+
+    @property
+    def concluido(self):
+        """Estado terminal, na definição dos KPIs: status_global 'Finalizado'
+        (Homologado no PRE, Concluído nos demais setores)."""
+        return self.status_global == "Finalizado"
+
+    @property
+    def dias_no_status(self):
+        """Aging: dias no status atual. É o que separa backlog novo de documento
+        parado há dois anos — os dois aparecem como "Elaborar" na lista."""
+        base = self.entrou_status_em or self.criado_em
+        return (datetime.now() - base).days if base else 0
+
+    @property
+    def dias_ciclo(self):
+        """Da criação à conclusão, em dias (None enquanto não concluído)."""
+        if not self.concluido_em or not self.criado_em:
+            return None
+        return max((self.concluido_em - self.criado_em).days, 0)
+
+    @property
+    def responsaveis_nomes(self):
+        """Nomes dos responsáveis: os usuários vinculados quando existem, senão
+        o texto livre legado (a planilha só tem nome digitado)."""
+        nomes = [u.nome for u in self.responsaveis_users]
+        if nomes:
+            return nomes
+        texto = (self.responsavel or "").strip()
+        return [n.strip() for n in texto.split(",") if n.strip()] if texto else []
+
     def to_dict(self):
         return {
             "id":               self.id,
@@ -272,15 +393,35 @@ class Documento(db.Model):
             "obs_treinamento":  self.obs_treinamento or "",
             "data_homologacao": self.data_homologacao.strftime("%d/%m/%Y") if self.data_homologacao else "",
             "obs_homologacao":  self.obs_homologacao or "",
+            "prazo":            self.prazo.strftime("%Y-%m-%d") if self.prazo else "",
+            "dias_para_prazo":  self.dias_para_prazo,
+            "atrasado":         self.atrasado,
+            # armazenamento = override do documento (vazio = herda);
+            # armazenamento_base = o do equipamento; efetivo = o que vale de fato.
             "armazenamento":    self.armazenamento or "",
+            "armazenamento_base": ((self.equipamento_rel.armazenamento_base or "")
+                                   if self.equipamento_rel else ""),
+            "armazenamento_efetivo": self.armazenamento_efetivo,
             "status_global":    self.status_global,
             "criado_em":        self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
             "updated_em":       self.updated_em.strftime("%d/%m/%Y %H:%M") if self.updated_em else "",
+            # Marcos temporais e responsabilidade tipada
+            "responsaveis_ids":   [u.id for u in self.responsaveis_users],
+            "responsaveis_nomes": self.responsaveis_nomes,
+            "data_inicio":      self.data_inicio.strftime("%Y-%m-%d") if self.data_inicio else "",
+            "peso":             self.peso if self.peso is not None else 1.0,
+            "concluido":        self.concluido,
+            "concluido_em":     self.concluido_em.strftime("%d/%m/%Y %H:%M") if self.concluido_em else "",
+            "concluido_por":    self.concluido_por or "",
+            "dias_no_status":   self.dias_no_status,
+            "dias_ciclo":       self.dias_ciclo,
             "ativo":            bool(self.ativo),
             "deleted_at":       self.deleted_at.isoformat() if self.deleted_at else None,
             "version":          self.version or 0,
             "aplicavel":        bool(self.aplicavel),
+            "motivo_na_codigo": self.motivo_na_codigo or "",
             "motivo_na":        self.motivo_na or "",
+            "motivo_na_label":  self.motivo_na_label,
         }
 
     def snapshot(self):
@@ -291,6 +432,47 @@ class Documento(db.Model):
         return {
             k: {"old": snapshot_anterior.get(k), "new": atual.get(k)}
             for k in atual if atual.get(k) != snapshot_anterior.get(k)
+        }
+
+
+class DocumentoHistorico(db.Model):
+    """Trilha de mudanças de status/escopo de um documento.
+
+    O AuditLog genérico registra "alguém mexeu", mas não serve de série temporal:
+    é por usuário/entidade, com valores em texto, e sem ele não dá para responder
+    quanto tempo um documento levou de Elaborar até Homologado, há quantos dias
+    está parado, ou quantos foram concluídos em março. Mesmo papel do
+    EntregavelHistorico no módulo de projetos.
+
+    `evento`: 'status' (mudou de etapa) | 'escopo' (entrou/saiu do N/A).
+    """
+    __tablename__ = "documento_historico"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    documento_id  = db.Column(db.Integer, db.ForeignKey("documentos.id"),
+                              nullable=False, index=True)
+    evento        = db.Column(db.String(20), default="status", index=True)
+    status_antigo = db.Column(db.String(60), default="")
+    status_novo   = db.Column(db.String(60), default="")
+    aplicavel     = db.Column(db.Boolean, nullable=True)
+    motivo        = db.Column(db.String(300), default="")
+    em            = db.Column(db.DateTime, default=datetime.now, index=True)
+    por           = db.Column(db.String(120), default="")
+
+    documento = db.relationship("Documento", back_populates="historico")
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "documento_id":  self.documento_id,
+            "evento":        self.evento or "status",
+            "status_antigo": self.status_antigo or "",
+            "status_novo":   self.status_novo or "",
+            "aplicavel":     self.aplicavel,
+            "motivo":        self.motivo or "",
+            "em":            self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
+            "em_iso":        self.em.isoformat() if self.em else "",
+            "por":           self.por or "",
         }
 
 
@@ -308,12 +490,27 @@ class Equipamento(db.Model):
     nome_tecnico       = db.Column(db.String(400), default="")  # nome longo/descritivo (planilha mestra)
     descricao          = db.Column(db.Text, default="")         # descritivo livre (≠ nome_tecnico ≠ observacoes)
     codigo_interno     = db.Column(db.String(50), default="")
-    sku                = db.Column(db.String(50), default="")   # SKU de Venda (chave de junção)
+    # SKU de Venda é a chave de junção do importador mestre, do Pareto e dos
+    # documentos: indexado para não varrer a tabela em cada casamento e porque
+    # a checagem de duplicidade (servidor) consulta por ele a cada gravação.
+    sku                = db.Column(db.String(50), default="", index=True)   # SKU de Venda (chave de junção)
     sku_importacao     = db.Column(db.String(50), default="")   # SKU de Importação
     classificacao_reg  = db.Column(db.String(20), default="")   # "RUO" | "IVD" | "" (nem todo equip. tem registro ANVISA)
     anvisa             = db.Column(db.String(60), default="")   # nº de registro ANVISA
     anvisa_registro    = db.Column(db.String(40), default="")   # data (texto, padrão do projeto)
     anvisa_validade    = db.Column(db.String(40), default="")   # data (texto)
+    # Situação do registro e classe de risco previstas no plano do módulo. Ficam
+    # FORA do denominador do ICE de propósito: incluí-las derrubaria o índice de
+    # toda a frota de uma vez e tornaria ilegível o efeito da correção da
+    # validade vencida. Para passar a exigi-las, basta acrescentá-las em
+    # equipamentos_core.campos_regulatorios().
+    classe_risco         = db.Column(db.String(10), default="")   # I | II | III | IV (RDC 751)
+    situacao_regulatoria = db.Column(db.String(30), default="")   # Vigente | Em renovação | Cancelado | Não aplicável
+    # Descritores técnicos do plano (antes só existia "campos técnicos avançados
+    # crescem por fase" escrito na aba).
+    modelo             = db.Column(db.String(120), default="")
+    tecnologia         = db.Column(db.String(200), default="")
+    aplicacao          = db.Column(db.String(300), default="")
     fabricante         = db.Column(db.String(200), default="")
     codigo_fabricante  = db.Column(db.String(80), default="")   # código interno do fabricante (part number)
     familia            = db.Column(db.String(120), default="")  # LEGADO (texto); migrar p/ familia_id
@@ -321,6 +518,10 @@ class Equipamento(db.Model):
     bloqueado          = db.Column(db.Boolean, default=False, nullable=False, index=True)
     observacoes        = db.Column(db.Text, default="")
     armazenamento_base = db.Column(db.String(500), default="")
+    # Dono do cadastro. A worklist do dashboard listava o que está incompleto sem
+    # dizer para quem cobrar; o responsável do documento é por documento, não
+    # cobre os campos de cadastro/regulatório do próprio equipamento.
+    responsavel        = db.Column(db.String(120), default="")
     # Revisões manuais do IDP (Índice de Desenvolvimento de Produto). Os itens
     # Manual do usuário / IT / Checklists são derivados do status dos documentos
     # (não persistidos aqui); estes três são marcados à mão. Valores: ESTADOS_REVISAO.
@@ -341,6 +542,12 @@ class Equipamento(db.Model):
     categoria_rel = db.relationship("CategoriaEquipamento", foreign_keys=[categoria_id], lazy="joined")
     familia_rel   = db.relationship("FamiliaEquipamento", foreign_keys=[familia_id], lazy="joined")
     linha_rel     = db.relationship("LinhaProduto", foreign_keys=[linha_id], lazy="joined")
+    historico     = db.relationship("EquipamentoHistorico", back_populates="equipamento",
+                                    cascade="all, delete-orphan",
+                                    order_by="EquipamentoHistorico.em.desc()")
+    snapshots     = db.relationship("EquipamentoSnapshot", back_populates="equipamento",
+                                    cascade="all, delete-orphan",
+                                    order_by="EquipamentoSnapshot.data")
 
     def to_dict(self):
         return {
@@ -356,12 +563,18 @@ class Equipamento(db.Model):
             "anvisa":             self.anvisa or "",
             "anvisa_registro":    self.anvisa_registro or "",
             "anvisa_validade":    self.anvisa_validade or "",
+            "classe_risco":         self.classe_risco or "",
+            "situacao_regulatoria": self.situacao_regulatoria or "",
+            "modelo":             self.modelo or "",
+            "tecnologia":         self.tecnologia or "",
+            "aplicacao":          self.aplicacao or "",
             "fabricante":         self.fabricante or "",
             "codigo_fabricante":  self.codigo_fabricante or "",
             "status":             self.status or "Ativo",
             "bloqueado":          bool(self.bloqueado),
             "observacoes":        self.observacoes or "",
             "armazenamento_base": self.armazenamento_base or "",
+            "responsavel":        self.responsavel or "",
             "rev_cadastro":       self.rev_cadastro or "Pendente",
             "rev_estrutura":      self.rev_estrutura or "Pendente",
             "rev_descritivo":     self.rev_descritivo or "Pendente",
@@ -371,8 +584,148 @@ class Equipamento(db.Model):
             "categoria":          (self.categoria_rel.nome if self.categoria_rel else ""),
             "familia_id":         self.familia_id,
             "familia":            (self.familia_rel.nome if self.familia_rel else (self.familia or "")),
+            "linha_id":           self.linha_id,
+            "linha":              (self.linha_rel.nome if self.linha_rel else ""),
             "ativo":              bool(self.ativo),
+            # Sem as datas não dá para responder "quais cadastros estão parados
+            # há meses" — a coluna existia e nunca chegava ao cliente.
+            "criado_em":          self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
+            "updated_em":         self.updated_em.strftime("%d/%m/%Y %H:%M") if self.updated_em else "",
+            "updated_iso":        self.updated_em.isoformat() if self.updated_em else "",
         }
+
+
+class EquipamentoHistorico(db.Model):
+    """Trilha de-para das alterações do equipamento (campo, antigo, novo, quem).
+
+    O AuditLog registrava só QUAIS campos mudaram — `valor_novo` ia vazio e o
+    antigo só existia para o nome. Num módulo com pretensão regulatória
+    (ISO 13485 / RDC 665) o de-para é justamente o que precisa ser auditável.
+    Mesmo papel do DocumentoHistorico, e é isto que alimenta a aba Histórico da
+    ficha (que era um texto fixo prometendo "Fase 3").
+    """
+    __tablename__ = "equipamento_historico"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                               nullable=False, index=True)
+    evento         = db.Column(db.String(20), default="update", index=True)  # create|update|delete|import
+    campo          = db.Column(db.String(60), default="", index=True)
+    valor_antigo   = db.Column(db.Text, default="")
+    valor_novo     = db.Column(db.Text, default="")
+    em             = db.Column(db.DateTime, default=datetime.now, index=True)
+    por            = db.Column(db.String(120), default="")
+
+    equipamento = db.relationship("Equipamento", back_populates="historico")
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "equipamento_id": self.equipamento_id,
+            "evento":         self.evento or "update",
+            "campo":          self.campo or "",
+            "valor_antigo":   self.valor_antigo or "",
+            "valor_novo":     self.valor_novo or "",
+            "em":             self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
+            "em_iso":         self.em.isoformat() if self.em else "",
+            "por":            self.por or "",
+        }
+
+
+class EquipamentoSnapshot(db.Model):
+    """Foto diária dos índices do equipamento (ICE e suas 3 dimensões + IDP).
+
+    Sem isto o ICE é sempre recalculado com os dados de hoje: dá para dizer que
+    a frota está em 61%, nunca que subiu de 48% no trimestre nem quem mais
+    avançou. Um registro por (equipamento, data), como o ProjetoSnapshot.
+    """
+    __tablename__ = "equipamento_snapshot"
+    __table_args__ = (
+        db.UniqueConstraint("equipamento_id", "data", name="uq_snapshot_equip_data"),
+    )
+
+    id             = db.Column(db.Integer, primary_key=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                               nullable=False, index=True)
+    data           = db.Column(db.String(10), nullable=False, index=True)   # 'YYYY-MM-DD'
+    ice            = db.Column(db.Integer, default=0)
+    cad            = db.Column(db.Integer, default=0)
+    reg            = db.Column(db.Integer, default=0)
+    doc            = db.Column(db.Integer, default=0)
+    idp            = db.Column(db.Integer, nullable=True)
+    docs_finais    = db.Column(db.Integer, default=0)
+    docs_alvo      = db.Column(db.Integer, default=0)
+    docs_atrasados = db.Column(db.Integer, default=0)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    equipamento = db.relationship("Equipamento", back_populates="snapshots")
+
+    def to_dict(self):
+        return {
+            "data": self.data, "ice": self.ice or 0, "cad": self.cad or 0,
+            "reg": self.reg or 0, "doc": self.doc or 0, "idp": self.idp,
+            "docs_finais": self.docs_finais or 0, "docs_alvo": self.docs_alvo or 0,
+            "docs_atrasados": self.docs_atrasados or 0,
+        }
+
+
+class ImportacaoLog(db.Model):
+    """Execução de um importador (planilha mestra ou Pareto), com o relatório.
+
+    Antes ficava uma única linha resumida no AuditLog ("criados=3 atualizados=8"):
+    quem importou não conseguia mais rever quais SKUs não casaram nem quais
+    linhas vieram inconsistentes, e não havia como comparar duas importações.
+    O relatório é gravado como JSON, igual ao que a prévia mostra na tela.
+    """
+    __tablename__ = "importacao_log"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    origem     = db.Column(db.String(30), nullable=False, index=True)  # 'mestra' | 'pareto'
+    por        = db.Column(db.String(120), default="")
+    em         = db.Column(db.DateTime, default=datetime.now, index=True)
+    criados    = db.Column(db.Integer, default=0)
+    atualizados = db.Column(db.Integer, default=0)
+    sem_match  = db.Column(db.Integer, default=0)
+    inconsistencias = db.Column(db.Integer, default=0)
+    relatorio  = db.Column(db.Text, default="")   # JSON do relatório completo
+
+    def to_dict(self, com_relatorio=False):
+        d = {
+            "id": self.id, "origem": self.origem or "", "por": self.por or "",
+            "em": self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
+            "em_iso": self.em.isoformat() if self.em else "",
+            "criados": self.criados or 0, "atualizados": self.atualizados or 0,
+            "sem_match": self.sem_match or 0,
+            "inconsistencias": self.inconsistencias or 0,
+        }
+        if com_relatorio:
+            try:
+                d["relatorio"] = json.loads(self.relatorio or "{}")
+            except (ValueError, TypeError):
+                d["relatorio"] = {}
+        return d
+
+
+class ParetoHistorico(db.Model):
+    """Retrato de cada importação do Pareto (classe ABC + quantidade de saídas).
+
+    O import sobrescreve `pareto_classe`/`qtd_saidas` e zera quem saiu da
+    planilha: existia o retrato de hoje e nenhuma tendência de demanda. Aqui
+    fica uma linha por equipamento por importação.
+    """
+    __tablename__ = "pareto_historico"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                               nullable=False, index=True)
+    data           = db.Column(db.String(10), nullable=False, index=True)   # 'YYYY-MM-DD'
+    classe         = db.Column(db.String(1), default="")
+    qtd_saidas     = db.Column(db.Integer, default=0)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {"data": self.data, "classe": self.classe or "",
+                "qtd_saidas": self.qtd_saidas or 0}
 
 
 # ── TAXONOMIA DE EQUIPAMENTOS (gerenciável) ──────────────────────────────────
@@ -644,38 +997,14 @@ class ConsumivelEquipamento(db.Model):
                 "obrigatorio": bool(self.obrigatorio), "observacao": self.observacao or ""}
 
 
-# ── RESPONSAVEL ───────────────────────────────────────────────────────────────
-
-class Responsavel(db.Model):
-    __tablename__ = "responsaveis"
-    __table_args__ = (
-        db.UniqueConstraint("documento_id", "user_id", "role",
-                            name="uq_doc_user_role"),
-    )
-
-    id = db.Column(db.Integer, primary_key=True)
-    documento_id = db.Column(db.Integer, db.ForeignKey("documentos.id"),
-                             nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"),
-                        nullable=False, index=True)
-    role = db.Column(db.String(40), nullable=False)
-    atribuido_em = db.Column(db.DateTime, default=datetime.now)
-    atribuido_por_id = db.Column(db.Integer, db.ForeignKey("users.id"))
-
-    documento = db.relationship("Documento", back_populates="responsaveis")
-    user = db.relationship("User", foreign_keys=[user_id],
-                           back_populates="responsabilidades")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "documento_id": self.documento_id,
-            "user_id": self.user_id,
-            "user_email": self.user.email if self.user else None,
-            "user_nome": self.user.nome if self.user else None,
-            "role": self.role,
-            "atribuido_em": self.atribuido_em.isoformat() if self.atribuido_em else None,
-        }
+# ── RESPONSAVEL (removido) ────────────────────────────────────────────────────
+# O modelo `Responsavel` (N:N documento↔usuário com papéis elaborador/revisor_1/
+# revisor_2/aprovador) foi removido: nasceu para um fluxo de aprovação que nunca
+# existiu — zero linhas, nenhuma rota ativa (o CRUD ficou em
+# scripts/legado/servidor_v4_backup.py) e nenhuma UI. Quem responde pelo
+# documento é `Documento.responsavel`, agora alimentado por um seletor dos
+# usuários reais (GET /api/documentos/responsaveis).
+# A TABELA `responsaveis` não é derrubada — só deixa de ser mapeada.
 
 
 # ── AUDIT LOG ─────────────────────────────────────────────────────────────────
@@ -693,7 +1022,10 @@ class AuditLog(db.Model):
     valor_antigo  = db.Column(db.Text)
     valor_novo    = db.Column(db.Text)
     payload_json  = db.Column(db.Text, nullable=True)
-    timestamp     = db.Column(db.DateTime, default=datetime.now)
+    # index: /api/audit e /api/export/audit ordenam por timestamp DESC e filtram
+    # por período. Sem ele, a tela de auditoria fazia full scan + sort na tabela
+    # que mais cresce no banco.
+    timestamp     = db.Column(db.DateTime, default=datetime.now, index=True)
     ip            = db.Column(db.String(50))
 
     def to_dict(self):
@@ -728,6 +1060,12 @@ STATUS_ENTREGAVEL = ["na", "pendente", "em_progresso", "concluido"]
 MOSCOW = ["Must", "Should", "Could", "Wont"]
 TIPOS_PROJETO = ["OEM", "Revenda"]   # tipo do projeto → define o modelo de entregáveis
 
+# Ciclo de vida do projeto. Ortogonal a `ativo` (que é só arquivamento): um
+# projeto arquivado pode ter terminado bem (concluido) ou morrido no meio
+# (cancelado) — sem esta coluna as duas coisas eram indistinguíveis.
+STATUS_PROJETO = ["planejado", "execucao", "suspenso", "concluido", "cancelado"]
+STATUS_PROJETO_ABERTO = ("planejado", "execucao", "suspenso")
+
 
 # ── PMO / EVM ────────────────────────────────────────────────────────────────
 # Faixas de semáforo para índices de desempenho (SPI/CPI).
@@ -760,6 +1098,34 @@ def _parse_iso(s):
     if m:
         return datetime(int(m[1]), 1, 1).date()
     return None
+
+
+#: Chaves monetárias removidas de um projeto serializado quando o perfil não
+#: pode ver dinheiro. Manter em um só lugar evita vazar um campo novo por
+#: esquecimento — quem adicionar métrica em R$ acrescenta a chave aqui.
+CAMPOS_FINANCEIROS_PROJETO = ("orcamento",)
+#: `sv`/`cv` são variações em R$ (EV−PV e EV−AC), não percentuais — entram aqui.
+CAMPOS_FINANCEIROS_PMO = ("bac", "pv", "ev", "ac", "sv", "cv", "cpi", "eac",
+                          "status_custo")
+
+
+def _despir_financeiro(d):
+    """Remove in-place os valores em R$ de um projeto já serializado."""
+    for k in CAMPOS_FINANCEIROS_PROJETO:
+        d.pop(k, None)
+    pmo = d.get("pmo")
+    if isinstance(pmo, dict):
+        for k in CAMPOS_FINANCEIROS_PMO:
+            pmo.pop(k, None)
+    for linha in (d.get("serie_mensal") or []):
+        linha.pop("custo_mes", None)
+        linha.pop("custo_acumulado", None)
+    for b in (d.get("baselines") or []):
+        b.pop("orcamento", None)
+    for s in (d.get("tendencia") or []):
+        for k in ("ac", "bac", "cpi"):
+            s.pop(k, None)
+    return d
 
 
 def _classificar_indice(idx):
@@ -800,6 +1166,19 @@ def converter_celula(valor):
     return ("em_progresso", round(x * 100))
 
 
+# Responsáveis de um entregável — N:N com users. O campo texto `responsaveis`
+# continua existindo como legado/rótulo livre, mas quem manda nas métricas de
+# carga é esta tabela (texto livre gerava "Melk" e "Guilherme/Melk" como pessoas
+# diferentes).
+entregavel_responsaveis = db.Table(
+    "entregavel_responsaveis",
+    db.Column("entregavel_id", db.Integer, db.ForeignKey("entregaveis.id", ondelete="CASCADE"),
+              primary_key=True),
+    db.Column("user_id", db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"),
+              primary_key=True),
+)
+
+
 class Projeto(db.Model):
     __tablename__ = "projetos"
 
@@ -812,7 +1191,8 @@ class Projeto(db.Model):
     prioridade  = db.Column(db.Integer, default=0)
     consumivel  = db.Column(db.Boolean, default=False)
     lancamento  = db.Column(db.String(40), default="")   # data ou ano em texto livre
-    ano         = db.Column(db.Integer, default=2026, index=True)
+    ano         = db.Column(db.Integer, default=lambda: datetime.now().year, index=True)
+    status      = db.Column(db.String(20), default="execucao", nullable=False, index=True)
     ativo       = db.Column(db.Boolean, default=True, nullable=False, index=True)
     criado_em   = db.Column(db.DateTime, default=datetime.now)
 
@@ -828,31 +1208,57 @@ class Projeto(db.Model):
     mensais = db.relationship("ProjetoMensal", back_populates="projeto",
                               cascade="all, delete-orphan",
                               order_by="ProjetoMensal.competencia")
+    snapshots = db.relationship("ProjetoSnapshot", back_populates="projeto",
+                                cascade="all, delete-orphan",
+                                order_by="ProjetoSnapshot.data")
+    baselines = db.relationship("ProjetoBaseline", back_populates="projeto",
+                                cascade="all, delete-orphan",
+                                order_by="ProjetoBaseline.versao")
 
     @property
     def avanco(self):
-        """Avanço 0-100: média dos entregáveis aplicáveis (status != na)."""
-        valores = []
+        """Avanço 0-100: média dos entregáveis aplicáveis (status != na),
+        ponderada pelo `peso` de cada um — 'Homologação ANVISA' não vale o mesmo
+        que 'Folder de divulgação'."""
+        soma = base = 0.0
         for e in self.entregaveis:
             if e.status == "na":
                 continue
+            peso = e.peso if e.peso and e.peso > 0 else 1.0
+            base += peso
             if e.status == "concluido":
-                valores.append(100)
+                soma += peso * 100
             elif e.status == "em_progresso":
-                valores.append(e.percentual or 0)
-            else:
-                valores.append(0)
-        return round(sum(valores) / len(valores)) if valores else 0
+                soma += peso * (e.percentual or 0)
+        return round(soma / base) if base else 0
 
     @property
     def pendentes(self):
         return sum(1 for e in self.entregaveis if e.status == "pendente")
 
+    @property
+    def atrasados(self):
+        """Entregáveis aplicáveis cujo término previsto já passou sem conclusão."""
+        hoje = datetime.now().date()
+        n = 0
+        for e in self.entregaveis:
+            if e.status in ("na", "concluido"):
+                continue
+            fim = _parse_iso(e.data_fim_prev)
+            if fim and fim < hoje:
+                n += 1
+        return n
+
     # ── PMO / EVM ────────────────────────────────────────────────────────────
     @property
     def pct_prazo_decorrido(self):
-        """% do cronograma já decorrido (início real ou previsto → fim previsto)."""
-        ini = _parse_iso(self.data_inicio_real) or _parse_iso(self.data_inicio_prev)
+        """% do cronograma já decorrido, medido sobre a LINHA DE BASE.
+
+        Usa o início planejado (e só cai para o real se não houver planejado),
+        na mesma precedência de `previsto_em` — senão o PV do SPI e a curva-S
+        partiriam de datas diferentes e mostrariam previstos divergentes.
+        """
+        ini = _parse_iso(self.data_inicio_prev) or _parse_iso(self.data_inicio_real)
         fim = _parse_iso(self.data_fim_prev)
         if not ini or not fim or fim <= ini:
             return None
@@ -886,16 +1292,25 @@ class Projeto(db.Model):
         return [e for e in self.entregaveis if e.status != "na"]
 
     def realizado_em(self, ref):
-        """% realizado até a data `ref`, pela CONCLUSÃO das tarefas (count-based).
-        No ponto presente/futuro usa o avanço vivo (que inclui parciais em andamento)."""
-        aplic = self._aplicaveis()
-        if not aplic:
-            return 0
-        if ref >= datetime.now().date():
-            return self.avanco
-        done = sum(1 for e in aplic
-                   if (_parse_iso(e.data_conclusao) and _parse_iso(e.data_conclusao) <= ref))
-        return round(done / len(aplic) * 100)
+        """% realizado (ponderado por peso) na data `ref`.
+
+        Fórmula ÚNICA para passado e presente. Antes o passado era contagem de
+        tarefas concluídas e o ponto de hoje era o avanço vivo (que soma
+        parciais) — duas escalas diferentes no mesmo gráfico, o que produzia um
+        degrau artificial no último ponto da curva-S.
+
+        Cada entregável contribui com `peso × pct_em(ref)`; `pct_em` usa o
+        histórico de status quando existe e reconstrói pela data de conclusão
+        quando não existe (projetos anteriores ao histórico).
+        """
+        soma = base = 0.0
+        for e in self.entregaveis:
+            if e.status == "na":
+                continue
+            peso = e.peso if e.peso and e.peso > 0 else 1.0
+            base += peso
+            soma += peso * e.pct_em(ref)
+        return round(soma / base) if base else 0
 
     def recompute_acumulados(self):
         """Recalcula custo_acumulado de cada mês como a soma corrida dos custos
@@ -1020,7 +1435,68 @@ class Projeto(db.Model):
                 concluidas.append(e.to_dict())
         return {"iniciadas": iniciadas, "concluidas": concluidas}
 
-    def to_dict(self, com_entregaveis=False, com_pmo=False):
+    def previsao_termino(self):
+        """Data provável de término pela velocidade real observada.
+
+        Complementa o SPI: em vez de um índice abstrato, devolve uma data que o
+        gestor compara direto com o fim planejado. None enquanto não houver
+        histórico suficiente (menos de 14 dias corridos ou avanço 0/100).
+        """
+        ini = _parse_iso(self.data_inicio_real) or _parse_iso(self.data_inicio_prev)
+        if not ini:
+            return None
+        dias = (datetime.now().date() - ini).days
+        av = self.avanco
+        if dias < 14 or av <= 0 or av >= 100:
+            return None
+        return (ini + timedelta(days=round(dias * 100 / av))).isoformat()
+
+    # ── Linha de base e snapshots ────────────────────────────────────────────
+    def baseline_atual(self):
+        """Última versão da linha de base (maior `versao`, não a última da lista:
+        a coleção pode ter itens ainda não ordenados pelo banco)."""
+        return max(self.baselines, key=lambda b: b.versao or 0, default=None)
+
+    def registrar_baseline(self, email="", motivo=""):
+        """Congela cronograma + orçamento atuais como uma nova versão da linha
+        de base. Não commita — quem chama controla a transação."""
+        atual = self.baseline_atual()
+        nova = ProjetoBaseline(
+            versao=(atual.versao + 1) if atual else 1,
+            data_inicio_prev=self.data_inicio_prev or "",
+            data_fim_prev=self.data_fim_prev or "",
+            orcamento=self.orcamento or 0.0,
+            motivo=(motivo or "").strip(),
+            criado_por=email or "",
+        )
+        # Entra na COLEÇÃO: duas chamadas na mesma transação precisam enxergar a
+        # anterior, senão as duas nascem como versão 1 e violam o unique.
+        self.baselines.append(nova)
+        return nova
+
+    def registrar_snapshot(self):
+        """Grava (ou atualiza) a foto de HOJE. Idempotente no dia — chamar a
+        cada mutação é barato e dispensa agendador externo. Não commita."""
+        hoje = datetime.now().date().isoformat()
+        m = self.pmo_metrics()
+        snap = next((s for s in self.snapshots if s.data == hoje), None)
+        if snap is None:
+            snap = ProjetoSnapshot(data=hoje)
+            self.snapshots.append(snap)   # a cascata cuida do INSERT
+        snap.avanco = self.avanco
+        snap.pct_previsto = m.get("pct_previsto")
+        snap.spi = m.get("spi")
+        snap.cpi = m.get("cpi")
+        snap.ac = m.get("ac")
+        snap.bac = m.get("bac")
+        return snap
+
+    def to_dict(self, com_entregaveis=False, com_pmo=False, com_financeiro=True):
+        """Serializa o projeto.
+
+        `com_financeiro=False` remove orçamento, custos e derivados (para
+        perfis sem direito a ver dinheiro — ver entregaveis.pode_ver_financeiro).
+        """
         d = {
             "id":         self.id,
             "nome":       (self.nome or "").strip(),
@@ -1032,21 +1508,28 @@ class Projeto(db.Model):
             "consumivel": bool(self.consumivel),
             "lancamento": self.lancamento or "",
             "ano":        self.ano,
+            "status":     self.status or "execucao",
             "ativo":      bool(self.ativo),
             "avanco":     self.avanco,
             "pendentes":  self.pendentes,
+            "atrasados":  self.atrasados,
             "total_entregaveis": sum(1 for e in self.entregaveis if e.status != "na"),
             "data_inicio_prev": self.data_inicio_prev or "",
             "data_inicio_real": self.data_inicio_real or "",
             "data_fim_prev":    self.data_fim_prev or "",
             "data_fim_real":    self.data_fim_real or "",
             "orcamento":        self.orcamento or 0.0,
+            "previsao_termino": self.previsao_termino(),
             "pmo":              self.pmo_metrics(),
         }
         if com_entregaveis:
             d["entregaveis"] = [e.to_dict() for e in self.entregaveis]
         if com_pmo:
             d["serie_mensal"] = self.serie_mensal()
+            d["baselines"]    = [b.to_dict() for b in self.baselines]
+            d["tendencia"]    = [s.to_dict() for s in self.snapshots][-90:]
+        if not com_financeiro:
+            _despir_financeiro(d)
         return d
 
 
@@ -1060,7 +1543,10 @@ class Entregavel(db.Model):
     categoria      = db.Column(db.String(40), default="Produto")
     status         = db.Column(db.String(20), default="pendente", index=True)
     percentual     = db.Column(db.Integer, nullable=True)
-    responsaveis   = db.Column(db.String(200), default="")
+    peso           = db.Column(db.Float, default=1.0)       # esforço relativo (EVM)
+    responsaveis   = db.Column(db.String(200), default="")  # legado / rótulo livre
+    data_inicio_prev = db.Column(db.String(40), default="") # ISO — planejado
+    data_fim_prev    = db.Column(db.String(40), default="") # ISO — planejado
     data_inicio    = db.Column(db.String(40), default="")   # ISO — quando a tarefa começou
     data_conclusao = db.Column(db.String(40), default="")   # ISO — quando foi concluída
     atualizado_por = db.Column(db.String(120), default="")
@@ -1068,6 +1554,48 @@ class Entregavel(db.Model):
                                onupdate=datetime.now)
 
     projeto = db.relationship("Projeto", back_populates="entregaveis")
+    responsaveis_users = db.relationship("User", secondary=entregavel_responsaveis,
+                                         backref=db.backref("entregaveis_atribuidos",
+                                                            lazy="dynamic"))
+    historico = db.relationship("EntregavelHistorico", back_populates="entregavel",
+                                cascade="all, delete-orphan",
+                                order_by="EntregavelHistorico.em")
+
+    @property
+    def atrasado(self):
+        """Passou do término previsto sem estar concluído."""
+        if self.status in ("na", "concluido"):
+            return False
+        fim = _parse_iso(self.data_fim_prev)
+        return bool(fim and fim < datetime.now().date())
+
+    def pct_em(self, ref):
+        """% concluído DESTE entregável na data `ref` (0-100).
+
+        Presente/futuro: estado atual. Passado: último registro do histórico
+        até `ref`; sem histórico (ou sem registro anterior a `ref`), reconstrói
+        pela data de conclusão, como faziam os projetos antigos.
+        """
+        if ref >= datetime.now().date():
+            if self.status == "concluido":
+                return 100
+            return (self.percentual or 0) if self.status == "em_progresso" else 0
+
+        anterior = None
+        for h in self.historico:                      # já vem ordenado por `em`
+            if h.em and h.em.date() <= ref:
+                anterior = h
+            else:
+                break
+        if anterior is not None:
+            if anterior.status_novo == "concluido":
+                return 100
+            return (anterior.percentual or 0) if anterior.status_novo == "em_progresso" else 0
+
+        # Sem histórico aplicável: cai para a data de conclusão. Exige o status
+        # atual 'concluido' para não contar tarefa reaberta como pronta.
+        dc = _parse_iso(self.data_conclusao)
+        return 100 if (dc and dc <= ref and self.status == "concluido") else 0
 
     def to_dict(self):
         return {
@@ -1077,11 +1605,48 @@ class Entregavel(db.Model):
             "categoria":      self.categoria or "",
             "status":         self.status or "pendente",
             "percentual":     self.percentual,
+            "peso":           self.peso if self.peso is not None else 1.0,
             "responsaveis":   self.responsaveis or "",
+            "responsaveis_ids":   [u.id for u in self.responsaveis_users],
+            "responsaveis_nomes": [u.nome for u in self.responsaveis_users],
+            "data_inicio_prev": self.data_inicio_prev or "",
+            "data_fim_prev":    self.data_fim_prev or "",
             "data_inicio":    self.data_inicio or "",
             "data_conclusao": self.data_conclusao or "",
+            "atrasado":       self.atrasado,
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
+        }
+
+
+class EntregavelHistorico(db.Model):
+    """Trilha de mudanças de status/percentual de um entregável.
+
+    É o que permite responder "como estava este projeto em março?" depois que
+    alguém reabre uma tarefa — antes, reabrir apagava `data_conclusao` e a
+    curva-S histórica mudava retroativamente.
+    """
+    __tablename__ = "entregavel_historico"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    entregavel_id = db.Column(db.Integer, db.ForeignKey("entregaveis.id"),
+                              nullable=False, index=True)
+    status_antigo = db.Column(db.String(20), default="")
+    status_novo   = db.Column(db.String(20), default="")
+    percentual    = db.Column(db.Integer, nullable=True)
+    em            = db.Column(db.DateTime, default=datetime.now, index=True)
+    por           = db.Column(db.String(120), default="")
+
+    entregavel = db.relationship("Entregavel", back_populates="historico")
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "status_antigo": self.status_antigo or "",
+            "status_novo":   self.status_novo or "",
+            "percentual":    self.percentual,
+            "em":            self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
+            "por":           self.por or "",
         }
 
 
@@ -1098,6 +1663,7 @@ class ModeloEntregavel(db.Model):
     tipo_projeto  = db.Column(db.String(20), nullable=False, index=True)   # "OEM" | "Revenda"
     categoria     = db.Column(db.String(40), default="Produto")
     tipo          = db.Column(db.String(120), nullable=False)              # nome do entregável
+    peso          = db.Column(db.Float, default=1.0)   # esforço relativo padrão
     responsavel_padrao = db.Column(db.String(200), default="")
     ordem         = db.Column(db.Integer, default=0)
 
@@ -1107,6 +1673,7 @@ class ModeloEntregavel(db.Model):
             "tipo_projeto":       self.tipo_projeto,
             "categoria":          self.categoria or "Produto",
             "tipo":               (self.tipo or "").strip(),
+            "peso":               self.peso if self.peso is not None else 1.0,
             "responsavel_padrao": self.responsavel_padrao or "",
             "ordem":              self.ordem or 0,
         }
@@ -1150,6 +1717,82 @@ class ProjetoMensal(db.Model):
         }
 
 
+class ProjetoSnapshot(db.Model):
+    """Foto diária do projeto: avanço, previsto e índices no dia em que foram medidos.
+
+    Sem isto, todo indicador é recalculado com as datas de HOJE — mexer no
+    cronograma reescrevia o passado e não existia série temporal de SPI/CPI.
+    Um registro por (projeto, data).
+    """
+    __tablename__ = "projeto_snapshot"
+    __table_args__ = (
+        db.UniqueConstraint("projeto_id", "data", name="uq_snapshot_projeto_data"),
+    )
+
+    id            = db.Column(db.Integer, primary_key=True)
+    projeto_id    = db.Column(db.Integer, db.ForeignKey("projetos.id"),
+                              nullable=False, index=True)
+    data          = db.Column(db.String(10), nullable=False, index=True)   # 'YYYY-MM-DD'
+    avanco        = db.Column(db.Integer, default=0)
+    pct_previsto  = db.Column(db.Integer, nullable=True)
+    spi           = db.Column(db.Float, nullable=True)
+    cpi           = db.Column(db.Float, nullable=True)
+    ac            = db.Column(db.Float, nullable=True)
+    bac           = db.Column(db.Float, nullable=True)
+    criado_em     = db.Column(db.DateTime, default=datetime.now)
+
+    projeto = db.relationship("Projeto", back_populates="snapshots")
+
+    def to_dict(self):
+        return {
+            "data":         self.data,
+            "avanco":       self.avanco or 0,
+            "pct_previsto": self.pct_previsto,
+            "spi":          self.spi,
+            "cpi":          self.cpi,
+            "ac":           self.ac,
+            "bac":          self.bac,
+        }
+
+
+class ProjetoBaseline(db.Model):
+    """Linha de base versionada (cronograma + orçamento aprovados).
+
+    Replanejar deixa de ser indistinguível de maquiar indicador: cada mudança
+    de datas/orçamento cria uma versão nova, com autor e motivo, e a anterior
+    fica preservada para comparação.
+    """
+    __tablename__ = "projeto_baseline"
+    __table_args__ = (
+        db.UniqueConstraint("projeto_id", "versao", name="uq_baseline_projeto_versao"),
+    )
+
+    id               = db.Column(db.Integer, primary_key=True)
+    projeto_id       = db.Column(db.Integer, db.ForeignKey("projetos.id"),
+                                 nullable=False, index=True)
+    versao           = db.Column(db.Integer, nullable=False, default=1)
+    data_inicio_prev = db.Column(db.String(40), default="")
+    data_fim_prev    = db.Column(db.String(40), default="")
+    orcamento        = db.Column(db.Float, default=0.0)
+    motivo           = db.Column(db.String(300), default="")
+    criado_por       = db.Column(db.String(120), default="")
+    criado_em        = db.Column(db.DateTime, default=datetime.now)
+
+    projeto = db.relationship("Projeto", back_populates="baselines")
+
+    def to_dict(self):
+        return {
+            "id":               self.id,
+            "versao":           self.versao,
+            "data_inicio_prev": self.data_inicio_prev or "",
+            "data_fim_prev":    self.data_fim_prev or "",
+            "orcamento":        self.orcamento or 0.0,
+            "motivo":           self.motivo or "",
+            "criado_por":       self.criado_por or "",
+            "criado_em":        self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
+        }
+
+
 # ── MISSÕES (kanban nativo tipo Planner) ─────────────────────────────────────
 # Hierarquia flat Missão → Coluna → Cartão (≈ plannerPlan → bucket → task).
 # Ordenação por `ordem` int reindexado em transação; `versao` no cartão é o lock
@@ -1159,6 +1802,34 @@ class ProjetoMensal(db.Model):
 PRIORIDADES_CARTAO = ["baixa", "media", "alta", "urgente"]
 REF_TIPOS_CARTAO   = ["equipamento", "projeto", "documento"]
 CATEGORIAS_COLUNA  = ["todo", "doing", "done"]
+# Obrigação periódica (calibração, requalificação, revisão anual): ao concluir,
+# o cartão se reagenda sozinho. Valor = passo aplicado ao prazo.
+RECORRENCIAS_CARTAO = {
+    "":            None,
+    "semanal":     ("dias", 7),
+    "quinzenal":   ("dias", 14),
+    "mensal":      ("meses", 1),
+    "bimestral":   ("meses", 2),
+    "trimestral":  ("meses", 3),
+    "semestral":   ("meses", 6),
+    "anual":       ("meses", 12),
+}
+# Eventos da trilha do cartão (ver MissaoCartaoHistorico)
+EVENTOS_CARTAO = ["criado", "movido", "concluido", "reaberto", "campo"]
+
+# N:N cartão ↔ usuário. O CSV `responsaveis` continua sendo o texto exibido, mas
+# quem responde "é meu?" é esta tabela — o LIKE por nome casava "Ana" com
+# "Mariana" e quebrava ao renomear o usuário. Mesmo desenho do
+# entregavel_responsaveis (migration 007).
+missao_cartao_responsaveis = db.Table(
+    "missao_cartao_responsaveis",
+    db.Column("cartao_id", db.Integer,
+              db.ForeignKey("missao_cartoes.id", ondelete="CASCADE"),
+              primary_key=True),
+    db.Column("user_id", db.Integer,
+              db.ForeignKey("users.id", ondelete="CASCADE"),
+              primary_key=True),
+)
 
 
 class Missao(db.Model):
@@ -1178,8 +1849,12 @@ class Missao(db.Model):
                               order_by="MissaoColuna.ordem")
     cartoes = db.relationship("MissaoCartao", back_populates="missao",
                               cascade="all, delete-orphan")
+    snapshots = db.relationship("MissaoSnapshot", back_populates="missao",
+                                cascade="all, delete-orphan",
+                                order_by="MissaoSnapshot.data")
 
-    def to_dict(self, com_colunas=False, n_cartoes=None, refs_map=None):
+    def to_dict(self, com_colunas=False, n_cartoes=None, n_abertos=None,
+                refs_map=None, extras_map=None):
         d = {
             "id":         self.id,
             "nome":       (self.nome or "").strip(),
@@ -1192,8 +1867,13 @@ class Missao(db.Model):
             # n_cartoes pré-computado evita carregar os cartões só para contar (N+1 na lista)
             "n_cartoes":  len(self.cartoes) if n_cartoes is None else n_cartoes,
         }
+        # O badge da sidebar mostra o que ainda dá trabalho: uma missão 38/40
+        # pronta exibia "40" e parecia intocada.
+        d["n_abertos"] = (len([c for c in self.cartoes if not c.concluido])
+                          if n_abertos is None else n_abertos)
         if com_colunas:
-            d["colunas"] = [c.to_dict(com_cartoes=True, refs_map=refs_map)
+            d["colunas"] = [c.to_dict(com_cartoes=True, refs_map=refs_map,
+                                      extras_map=extras_map)
                             for c in self.colunas]
         return d
 
@@ -1210,27 +1890,33 @@ class MissaoColuna(db.Model):
     # Tag opcional p/ rollup/relatório sem virar enum global (à la Notion/Linear):
     # a coluna É o estado; a categoria só classifica (todo|doing|done).
     categoria = db.Column(db.String(10), default="")
+    # Limite de trabalho em progresso. 0 = sem limite. Sinal SOFT: o board pinta
+    # a coluna e os alertas avisam, mas nada bloqueia o arrasto — kanban trata
+    # estouro como conversa, não como erro de sistema.
+    limite_wip = db.Column(db.Integer, default=0)
 
     missao  = db.relationship("Missao", back_populates="colunas")
     cartoes = db.relationship("MissaoCartao", back_populates="coluna",
                               cascade="all, delete-orphan",
                               order_by="MissaoCartao.ordem")
 
-    def to_dict(self, com_cartoes=False, refs_map=None):
+    def to_dict(self, com_cartoes=False, refs_map=None, extras_map=None):
         d = {
-            "id":        self.id,
-            "missao_id": self.missao_id,
-            "nome":      (self.nome or "").strip(),
-            "cor":       self.cor or "",
-            "ordem":     self.ordem or 0,
-            "categoria": self.categoria or "",
+            "id":         self.id,
+            "missao_id":  self.missao_id,
+            "nome":       (self.nome or "").strip(),
+            "cor":        self.cor or "",
+            "ordem":      self.ordem or 0,
+            "categoria":  self.categoria or "",
+            "limite_wip": self.limite_wip or 0,
         }
         if com_cartoes:
             # refs_map (ver _mapa_refs em missoes.py) evita 1 query por cartão
             vazio = {"label": "", "status": "", "status_global": ""}
             d["cartoes"] = [
                 c.to_dict(ref_info=(refs_map.get((c.ref_tipo, c.ref_id), vazio)
-                                    if refs_map is not None else None))
+                                    if refs_map is not None else None),
+                          extras=(extras_map.get(c.id) if extras_map is not None else None))
                 for c in self.cartoes]
         return d
 
@@ -1259,33 +1945,86 @@ class MissaoCartao(db.Model):
     atualizado_por = db.Column(db.String(120), default="")
     atualizado_em  = db.Column(db.DateTime, default=datetime.now,
                                onupdate=datetime.now)
+    # ── marcos temporais ─────────────────────────────────────────────────────
+    # Sem eles nada de fluxo era calculável: `atualizado_em` é sobrescrito a cada
+    # save, então nem a idade do cartão dava para derivar.
+    criado_em        = db.Column(db.DateTime, default=datetime.now, index=True)
+    concluido_em     = db.Column(db.DateTime, nullable=True, index=True)
+    concluido_por    = db.Column(db.String(120), default="")
+    # Momento em que o cartão entrou na coluna atual — aging sem varrer o
+    # histórico (o histórico continua sendo a fonte da série completa).
+    entrou_coluna_em = db.Column(db.DateTime, default=datetime.now)
+    data_inicio      = db.Column(db.String(40), default="")   # ISO; com `prazo` dá duração planejada
+    peso             = db.Column(db.Float, default=1.0)       # esforço relativo (avanço ponderado)
+    recorrencia      = db.Column(db.String(20), default="")   # ver RECORRENCIAS_CARTAO
 
-    __table_args__ = (db.Index("ix_missao_cartoes_coluna_ordem", "coluna_id", "ordem"),)
+    __table_args__ = (
+        db.Index("ix_missao_cartoes_coluna_ordem", "coluna_id", "ordem"),
+        # cartoes-vinculados é chamado a cada abertura de ficha no dashboard e
+        # fazia full scan por (ref_tipo, ref_id).
+        db.Index("ix_missao_cartoes_ref", "ref_tipo", "ref_id"),
+    )
 
     missao = db.relationship("Missao", back_populates="cartoes")
     coluna = db.relationship("MissaoColuna", back_populates="cartoes")
+    responsaveis_users = db.relationship("User", secondary=missao_cartao_responsaveis,
+                                         backref=db.backref("cartoes_atribuidos",
+                                                            lazy="dynamic"))
+    historico = db.relationship("MissaoCartaoHistorico", back_populates="cartao",
+                                cascade="all, delete-orphan",
+                                order_by="MissaoCartaoHistorico.em")
+    itens = db.relationship("MissaoCartaoItem", back_populates="cartao",
+                            cascade="all, delete-orphan",
+                            order_by="MissaoCartaoItem.ordem")
+    comentarios = db.relationship("MissaoCartaoComentario", back_populates="cartao",
+                                  cascade="all, delete-orphan",
+                                  order_by="MissaoCartaoComentario.em")
+
+    @property
+    def atrasado(self):
+        """Passou do prazo sem estar concluído."""
+        if self.concluido or not self.prazo:
+            return False
+        d = _parse_iso(self.prazo)
+        return bool(d and d < datetime.now().date())
+
+    @property
+    def dias_parado(self):
+        """Dias na coluna atual — o aging que denuncia cartão esquecido."""
+        base = self.entrou_coluna_em or self.criado_em
+        return (datetime.now() - base).days if base else 0
+
+    @property
+    def dias_ciclo(self):
+        """Da criação à conclusão, em dias (None enquanto aberto)."""
+        if not self.concluido_em or not self.criado_em:
+            return None
+        return max((self.concluido_em - self.criado_em).days, 0)
 
     def _ref_meta(self):
         """Metadados leves do vínculo (chip): label + status vivo (documento).
         1 query por cartão — em listagens grandes, passe ref_info pré-computado
-        ao to_dict (ver _mapa_refs em missoes.py) para evitar N+1."""
-        meta = {"label": "", "status": "", "status_global": ""}
+        ao to_dict (ver _mapa_refs em missoes.py) para evitar N+1.
+
+        `ativo=False` quando a entidade existe mas foi desativada: antes o chip
+        simplesmente sumia e o cartão perdia o contexto sem avisar ninguém."""
+        meta = {"label": "", "status": "", "status_global": "", "ativo": True}
         if not self.ref_tipo or not self.ref_id:
             return meta
         try:
             if self.ref_tipo == "equipamento":
                 e = Equipamento.query.get(self.ref_id)
-                if e and e.ativo:
-                    meta["label"] = e.nome
+                if e:
+                    meta.update(label=e.nome, ativo=bool(e.ativo))
             elif self.ref_tipo == "projeto":
                 p = Projeto.query.get(self.ref_id)
-                if p and p.ativo:
-                    meta["label"] = p.nome
+                if p:
+                    meta.update(label=p.nome, ativo=bool(p.ativo))
             elif self.ref_tipo == "documento":
                 doc = Documento.query.get(self.ref_id)
-                if doc and doc.ativo:
+                if doc:
                     meta.update(label=doc.documento, status=doc.status or "",
-                                status_global=doc.status_global)
+                                status_global=doc.status_global, ativo=bool(doc.ativo))
         except Exception:
             pass
         return meta
@@ -1294,7 +2033,7 @@ class MissaoCartao(db.Model):
         """Rótulo leve do vínculo (compat; prefira _ref_meta)."""
         return self._ref_meta()["label"]
 
-    def to_dict(self, com_descricao=False, ref_info=None):
+    def to_dict(self, com_descricao=False, ref_info=None, extras=None):
         ref = ref_info if ref_info is not None else self._ref_meta()
         d = {
             "id":             self.id,
@@ -1303,20 +2042,218 @@ class MissaoCartao(db.Model):
             "titulo":         (self.titulo or "").strip(),
             "responsaveis":   self.responsaveis or "",
             "prazo":          self.prazo or "",
+            "data_inicio":    self.data_inicio or "",
             "prioridade":     self.prioridade or "media",
             "etiquetas":      self.etiquetas or "",
             "concluido":      bool(self.concluido),
             "ordem":          self.ordem or 0,
             "versao":         self.versao or 0,
+            "peso":           self.peso if self.peso is not None else 1.0,
+            "recorrencia":    self.recorrencia or "",
             "ref_tipo":       self.ref_tipo or "",
             "ref_id":         self.ref_id,
             "ref_label":      ref.get("label", ""),
             "ref_status":     ref.get("status", ""),
             "ref_status_global": ref.get("status_global", ""),
+            "ref_ativo":      ref.get("ativo", True),
             "tem_descricao":  bool((self.descricao or "").strip()),
+            "atrasado":       self.atrasado,
+            "dias_parado":    self.dias_parado,
+            "criado_por":     self.criado_por or "",
+            "criado_em":      self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
+            "criado_em_iso":  self.criado_em.isoformat() if self.criado_em else "",
+            "concluido_em":   self.concluido_em.strftime("%d/%m/%Y %H:%M") if self.concluido_em else "",
+            "concluido_por":  self.concluido_por or "",
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
         }
+        # extras pré-computado (ver _mapa_extras em missoes.py): contar checklist
+        # e comentários por cartão no board seria 2 queries por cartão.
+        if extras is not None:
+            d["n_itens"]        = extras.get("itens", 0)
+            d["n_itens_feitos"] = extras.get("itens_feitos", 0)
+            d["n_comentarios"]  = extras.get("comentarios", 0)
         if com_descricao:
             d["descricao"] = self.descricao or ""
+            d["itens"] = [i.to_dict() for i in self.itens]
+            d["comentarios"] = [c.to_dict() for c in self.comentarios]
+            d["n_itens"] = len(self.itens)
+            d["n_itens_feitos"] = len([i for i in self.itens if i.feito])
+            d["n_comentarios"] = len(self.comentarios)
+        return d
+
+
+class MissaoCartaoHistorico(db.Model):
+    """Trilha temporal do cartão — o que o AuditLog não consegue ser.
+
+    O `publish_event` já grava cada mutação em audit_logs, mas em texto genérico
+    por usuário/entidade: não responde quanto tempo o cartão ficou em "Fazendo",
+    quantos foram concluídos na semana passada nem onde está o gargalo do fluxo.
+    Mesmo papel do DocumentoHistorico e do EntregavelHistorico nos outros
+    módulos — Missões era o único que nunca recebeu esse passo.
+
+    `evento`: criado | movido | concluido | reaberto | campo (ver EVENTOS_CARTAO).
+    `origem`: 'manual' | 'doc-sync' | 'recorrencia' — separa o que a pessoa fez
+    do que o sistema fez por ela (antes só existia no payload do socket, que
+    não fica gravado em lugar nenhum consultável).
+    """
+    __tablename__ = "missao_cartao_historico"
+
+    id               = db.Column(db.Integer, primary_key=True)
+    cartao_id        = db.Column(db.Integer,
+                                 db.ForeignKey("missao_cartoes.id", ondelete="CASCADE"),
+                                 nullable=False, index=True)
+    missao_id        = db.Column(db.Integer, db.ForeignKey("missoes.id"),
+                                 nullable=False, index=True)
+    evento           = db.Column(db.String(20), default="campo", index=True)
+    coluna_origem_id  = db.Column(db.Integer, nullable=True)
+    coluna_destino_id = db.Column(db.Integer, nullable=True)
+    campo            = db.Column(db.String(40), default="")
+    valor_antigo     = db.Column(db.Text, default="")
+    valor_novo       = db.Column(db.Text, default="")
+    origem           = db.Column(db.String(20), default="manual")
+    em               = db.Column(db.DateTime, default=datetime.now, index=True)
+    por              = db.Column(db.String(120), default="")
+
+    cartao = db.relationship("MissaoCartao", back_populates="historico")
+
+    def to_dict(self, nomes_coluna=None):
+        nomes = nomes_coluna or {}
+        return {
+            "id":           self.id,
+            "cartao_id":    self.cartao_id,
+            "missao_id":    self.missao_id,
+            "evento":       self.evento or "campo",
+            "coluna_origem":  nomes.get(self.coluna_origem_id, ""),
+            "coluna_destino": nomes.get(self.coluna_destino_id, ""),
+            "campo":        self.campo or "",
+            "valor_antigo": self.valor_antigo or "",
+            "valor_novo":   self.valor_novo or "",
+            "origem":       self.origem or "manual",
+            "em":           self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
+            "em_iso":       self.em.isoformat() if self.em else "",
+            "por":          self.por or "",
+        }
+
+
+class MissaoSnapshot(db.Model):
+    """Foto diária dos indicadores da missão.
+
+    Recalcular com as datas de hoje reescreve o passado — mesma razão do
+    ProjetoSnapshot e do EquipamentoSnapshot. É o que permite burndown e
+    tendência de WIP sem depender de reprocessar o histórico inteiro."""
+    __tablename__ = "missao_snapshot"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    missao_id      = db.Column(db.Integer, db.ForeignKey("missoes.id"),
+                               nullable=False, index=True)
+    data           = db.Column(db.String(10), nullable=False, index=True)  # ISO
+    total          = db.Column(db.Integer, default=0)
+    abertos        = db.Column(db.Integer, default=0)
+    concluidos     = db.Column(db.Integer, default=0)
+    atrasados      = db.Column(db.Integer, default=0)
+    wip            = db.Column(db.Integer, default=0)   # cartões em coluna 'doing'
+    sem_responsavel = db.Column(db.Integer, default=0)
+    peso_total     = db.Column(db.Float, default=0.0)
+    peso_concluido = db.Column(db.Float, default=0.0)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    __table_args__ = (db.UniqueConstraint("missao_id", "data",
+                                          name="uq_missao_snapshot_dia"),)
+
+    missao = db.relationship("Missao", back_populates="snapshots")
+
+    def to_dict(self):
+        return {
+            "data":            self.data,
+            "total":           self.total or 0,
+            "abertos":         self.abertos or 0,
+            "concluidos":      self.concluidos or 0,
+            "atrasados":       self.atrasados or 0,
+            "wip":             self.wip or 0,
+            "sem_responsavel": self.sem_responsavel or 0,
+            "peso_total":      round(self.peso_total or 0.0, 2),
+            "peso_concluido":  round(self.peso_concluido or 0.0, 2),
+        }
+
+
+class MissaoCartaoItem(db.Model):
+    """Item de checklist do cartão (paridade com o checklistItem do Planner)."""
+    __tablename__ = "missao_cartao_itens"
+
+    id        = db.Column(db.Integer, primary_key=True)
+    cartao_id = db.Column(db.Integer,
+                          db.ForeignKey("missao_cartoes.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    texto     = db.Column(db.String(300), nullable=False)
+    feito     = db.Column(db.Boolean, default=False)
+    ordem     = db.Column(db.Integer, default=0)
+    criado_em = db.Column(db.DateTime, default=datetime.now)
+
+    cartao = db.relationship("MissaoCartao", back_populates="itens")
+
+    def to_dict(self):
+        return {"id": self.id, "texto": (self.texto or "").strip(),
+                "feito": bool(self.feito), "ordem": self.ordem or 0}
+
+
+class MissaoCartaoComentario(db.Model):
+    """Comentário do cartão — onde nasce o registro do 'por que isso travou',
+    hoje perdido em conversa fora do sistema."""
+    __tablename__ = "missao_cartao_comentarios"
+
+    id        = db.Column(db.Integer, primary_key=True)
+    cartao_id = db.Column(db.Integer,
+                          db.ForeignKey("missao_cartoes.id", ondelete="CASCADE"),
+                          nullable=False, index=True)
+    texto     = db.Column(db.Text, nullable=False)
+    por       = db.Column(db.String(120), default="")
+    em        = db.Column(db.DateTime, default=datetime.now, index=True)
+
+    cartao = db.relationship("MissaoCartao", back_populates="comentarios")
+
+    def to_dict(self):
+        return {"id": self.id, "texto": self.texto or "", "por": self.por or "",
+                "em": self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
+                "em_iso": self.em.isoformat() if self.em else ""}
+
+
+class MissaoModelo(db.Model):
+    """Template de missão: colunas (com WIP e categoria) + cartões iniciais.
+
+    Toda missão nascia com as mesmas 3 colunas vazias, mas os processos daqui
+    se repetem (validação de equipamento novo, submissão ANVISA). Mesma função
+    do modelos_entregavel em Projetos; a estrutura vai em JSON porque o template
+    é lido inteiro de uma vez e nunca consultado por parte."""
+    __tablename__ = "missao_modelos"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    nome       = db.Column(db.String(160), nullable=False)
+    descricao  = db.Column(db.Text, default="")
+    accent     = db.Column(db.String(9), default="")
+    estrutura  = db.Column(db.Text, default="[]")   # JSON: [{nome, categoria, limite_wip, cartoes:[…]}]
+    criado_por = db.Column(db.String(120), default="")
+    criado_em  = db.Column(db.DateTime, default=datetime.now)
+
+    def colunas(self):
+        try:
+            dados = json.loads(self.estrutura or "[]")
+            return dados if isinstance(dados, list) else []
+        except (ValueError, TypeError):
+            return []
+
+    def to_dict(self, com_estrutura=False):
+        cols = self.colunas()
+        d = {
+            "id":         self.id,
+            "nome":       (self.nome or "").strip(),
+            "descricao":  self.descricao or "",
+            "accent":     self.accent or "",
+            "n_colunas":  len(cols),
+            "n_cartoes":  sum(len(c.get("cartoes") or []) for c in cols),
+            "criado_por": self.criado_por or "",
+            "criado_em":  self.criado_em.strftime("%d/%m/%Y") if self.criado_em else "",
+        }
+        if com_estrutura:
+            d["colunas"] = cols
         return d

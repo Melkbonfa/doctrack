@@ -8,26 +8,35 @@ Rotas:
   PATCH  /api/documentos/<id>            — editar campos do próprio documento
   DELETE /api/documentos/<id>            — soft delete (admin/gestor)
   PUT    /api/documentos/<id>/aplicabilidade — liga/desliga o tipo no escopo (N/A)
+  GET    /api/documentos/metricas        — fluxo: WIP, aging, cycle time, throughput
+  GET    /api/documentos/alertas         — o que precisa de atenção hoje
+  GET    /api/documentos/<id>/historico  — trilha de status/escopo do documento
+  GET    /api/documentos/responsaveis    — usuários atribuíveis (picker)
+  GET    /api/documentos/export          — CSV bruto para análise externa
+  GET    /api/documentos/diagnostico     — pastas ausentes / documentos sem local
   POST   /api/documentos/abrir-pasta     — abre a pasta no servidor (acesso local)
   GET    /api/documentos/arquivos        — lista arquivos da pasta do equipamento
   GET    /api/documentos/arquivo         — serve um arquivo (preview/download)
   PUT    /api/documento/<id>/status      — troca de status com checagem de versão
 
 Identidade (equipamento / SKU / fabricante) é canônica no Equipamento e imutável
-pelo documento — ver módulo Equipamentos.
+pelo documento — ver módulo Equipamentos. O caminho da pasta também: o documento
+só guarda override (ver Documento.armazenamento_efetivo).
 """
+import csv
+import io
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import (
-    db, Documento, Equipamento, AuditLog,
-    SETORES, STATUS_MAP,
+    db, Documento, DocumentoHistorico, Equipamento, AuditLog, User,
+    SETORES, SETORES_TODOS, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS,
-    SETOR_DO_TIPO, TIPOS_DOC_LABELS,
+    SETOR_DO_TIPO, TIPOS_DOC_LABELS, MOTIVOS_NA, MOTIVO_NA_LIVRE,
 )
 from auth import require_role, log_action, get_client_ip
 from event_bus import EventType
@@ -51,6 +60,11 @@ ARQUIVOS_ROOTS = [
 
 _EXT_INLINE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt"}
 
+# Status terminais dos dois pipelines (STATUS_PRE / STATUS_FABRICANTE) — os que
+# `Documento.status_global` traduz para "Finalizado". Usado para decidir quando
+# gravar (ou limpar) `concluido_em`.
+_STATUS_FINAIS = {"Homologado", "Concluído"}
+
 
 # preenchido por servidor.py para emitir tempo real sem import circular
 _rt = {"socketio": None, "publish_event": None, "AuditLog": None, "EventType": None}
@@ -69,6 +83,99 @@ def _emit(event_type, payload, email):
                                  socketio=_rt["socketio"])
         except Exception:
             pass  # tempo real é best-effort; a gravação já foi feita
+
+
+def _registrar_historico(doc, por, *, evento="status", status_antigo="",
+                         status_novo="", aplicavel=None, motivo=""):
+    """Enfileira uma linha na trilha do documento (commit fica com o chamador).
+
+    É esta trilha que permite medir tempo de ciclo, aging e throughput — o
+    AuditLog genérico não serve de série temporal.
+    """
+    db.session.add(DocumentoHistorico(
+        documento_id=doc.id, evento=evento,
+        status_antigo=status_antigo or "", status_novo=status_novo or "",
+        aplicavel=aplicavel, motivo=(motivo or "")[:300],
+        em=datetime.now(), por=por or ""))
+
+
+def _parse_data(valor):
+    """'YYYY-MM-DD' → date. Devolve (ok, date|None); vazio limpa o campo."""
+    if valor in (None, ""):
+        return True, None
+    try:
+        return True, datetime.strptime(str(valor)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return False, None
+
+
+def _marcar_troca_status(doc, caller, status_antigo):
+    """Atualiza os marcos temporais do documento numa troca de status.
+
+    Sem isto a trilha registrava o evento mas o documento não sabia desde quando
+    estava no status atual (aging) nem quando foi concluído (cycle time e
+    throughput) — só `updated_em`, que qualquer edição de observação sobrescreve.
+
+    Reabrir um documento concluído LIMPA `concluido_em`: deixar a data ali faria
+    o documento contar duas vezes no throughput do mês em que voltou.
+    """
+    agora = datetime.now()
+    doc.entrou_status_em = agora
+
+    era_final = (status_antigo or "") in _STATUS_FINAIS
+    virou_final = doc.concluido
+    if virou_final and not era_final:
+        doc.concluido_em = agora
+        doc.concluido_por = caller or ""
+    elif era_final and not virou_final:
+        doc.concluido_em = None
+        doc.concluido_por = ""
+
+
+def _aplicar_responsaveis(doc, data, caller):
+    """Aplica `responsaveis_ids` (N:N) mantendo `responsavel` como texto exibido.
+
+    Os dois campos andam juntos de propósito: o texto é o que a planilha e as
+    telas antigas leem, o N:N é o que permite agregar por pessoa. Devolve o erro
+    de validação ou None.
+    """
+    if "responsaveis_ids" not in data:
+        return None
+    ids = data.get("responsaveis_ids") or []
+    if not isinstance(ids, list):
+        return "responsaveis_ids deve ser uma lista de ids de usuário"
+    try:
+        ids = [int(i) for i in ids]
+    except (TypeError, ValueError):
+        return "responsaveis_ids deve conter apenas ids numéricos"
+    users = User.query.filter(User.id.in_(ids), User.ativo == True).all() if ids else []
+    if len(users) != len(set(ids)):
+        return "Um ou mais responsáveis não existem ou estão inativos"
+    antigo = doc.responsavel or ""
+    doc.responsaveis_users = users
+    doc.responsavel = ", ".join(u.nome for u in users)
+    if antigo != doc.responsavel:
+        log_action(caller, "UPDATE", entidade=doc.documento, campo="responsavel",
+                   antigo=antigo, novo=doc.responsavel, documento_id=doc.id,
+                   ip=get_client_ip())
+    return None
+
+
+def _validar_motivo_na(data):
+    """Valida o motivo de um N/A. Devolve (codigo, detalhe, erro|None).
+
+    Obrigatório de propósito: marcar N/A muda o denominador da completude de
+    todo mundo. Código vem da lista fechada (analisável); o texto livre só é
+    exigido — e só é usado sozinho — quando o código é 'outro'.
+    """
+    codigo = (data.get("motivo_na_codigo") or "").strip()
+    detalhe = (data.get("motivo_na") or "").strip()[:300]
+    if codigo not in MOTIVOS_NA:
+        return "", "", (f"Informe o motivo do N/A. Valores aceitos em "
+                        f"'motivo_na_codigo': {', '.join(MOTIVOS_NA)}")
+    if codigo == MOTIVO_NA_LIVRE and not detalhe:
+        return "", "", "Motivo 'Outro' exige a descrição em 'motivo_na'."
+    return codigo, detalhe, None
 
 
 # ── API — CRUD DOCUMENTOS ────────────────────────────────────────────────────
@@ -142,6 +249,9 @@ def create_documento():
         else:
             if sku and not equip_obj.sku:
                 equip_obj.sku = sku
+            # o caminho é do equipamento: semeia o base se ainda estiver vazio
+            if data.get("armazenamento") and not (equip_obj.armazenamento_base or "").strip():
+                equip_obj.armazenamento_base = data["armazenamento"]
             # identidade canônica vem da entidade
             sku = equip_obj.sku or sku
             fab = equip_obj.fabricante or fab
@@ -162,6 +272,7 @@ def create_documento():
             existentes.setdefault(d.tipo_doc, d)
 
     doc = existentes.get(selected_tipo)
+    criados = []
     # Todos os 12 tipos nascem com o equipamento. Os opcionais nascem em N/A
     # (fora da completude); ligá-los é um toggle na aba Escopo. Se o opcional for
     # o tipo explicitamente selecionado neste POST, ele já nasce aplicável.
@@ -182,9 +293,15 @@ def create_documento():
             tipo_doc=t,
             fabricante=fab,
             aplicavel=(is_sel or t not in TIPOS_DOC_OPCIONAIS),
+            motivo_na_codigo=("" if (is_sel or t not in TIPOS_DOC_OPCIONAIS)
+                              else "nao_se_aplica_produto"),
             obs_treinamento=data.get("obs_treinamento", "") if is_sel else "",
             obs_homologacao=data.get("obs_homologacao", "") if is_sel else "",
-            armazenamento=data.get("armazenamento", "") if is_sel else (equip_obj.armazenamento_base if equip_obj else ""),
+            # caminho herda do equipamento; só grava override se divergir do base
+            armazenamento="",
+            # Marco de entrada no status inicial: sem ele o aging de um documento
+            # recém-criado começaria sem referência (era o caso de todos).
+            entrou_status_em=datetime.now(),
         )
         if is_sel:
             if data.get("data_treinamento"):
@@ -193,13 +310,44 @@ def create_documento():
             if data.get("data_homologacao"):
                 try: novo.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d")
                 except: pass
+            ok_prazo, prazo = _parse_data(data.get("prazo"))
+            if ok_prazo:
+                novo.prazo = prazo
+            ok_ini, data_ini = _parse_data(data.get("data_inicio"))
+            if ok_ini:
+                novo.data_inicio = data_ini
+            try:
+                peso = float(data.get("peso") or 1.0)
+                novo.peso = peso if peso > 0 else 1.0
+            except (TypeError, ValueError):
+                novo.peso = 1.0
+            # Documento pode nascer já em status terminal (importação/retroativo)
+            if novo.concluido:
+                novo.concluido_em = datetime.now()
+                novo.concluido_por = caller or ""
         db.session.add(novo)
+        criados.append(novo)
         if is_sel:
             doc = novo
 
+    db.session.flush()          # garante o id de cada documento novo
+    # marco inicial da trilha: sem ele o aging não teria data de referência
+    for novo in criados:
+        _registrar_historico(novo, caller, status_novo=novo.status or "Elaborar",
+                             motivo="Documento criado")
     db.session.commit()
+    novo_criado = doc is not None
     if doc is None:   # tipo selecionado já existia e nada foi criado
         doc = existentes.get(selected_tipo) or next(iter(existentes.values()), None)
+
+    # Responsáveis tipados só no documento que ACABOU de nascer: quando o tipo já
+    # existia este POST não cria nada, e sobrescrever o responsável de um
+    # documento em andamento não é o que "criar documento" deveria fazer.
+    if novo_criado and doc is not None:
+        erro_resp = _aplicar_responsaveis(doc, data, caller)
+        if erro_resp:
+            return jsonify({"erro": erro_resp}), 400
+        db.session.commit()
 
     log_action(caller, "CREATE", entidade=doc.documento, campo="setor", novo=setor, documento_id=doc.id, ip=get_client_ip())
 
@@ -233,9 +381,37 @@ def update_documento(doc_id):
         if data.get("status") not in setor_status:
             return jsonify({"erro": f"Status inválido para o setor {doc.setor}. Use: {', '.join(setor_status)}"}), 400
 
+    # Prazo é validado AQUI, antes de qualquer escrita: log_action() faz commit,
+    # então rejeitar mais adiante gravaria os campos já processados e devolveria
+    # 400 — um PATCH pela metade.
+    prazo_novo = doc.prazo
+    if "prazo" in data:
+        ok_prazo, prazo_novo = _parse_data(data.get("prazo"))
+        if not ok_prazo:
+            return jsonify({"erro": "Prazo inválido. Use o formato AAAA-MM-DD."}), 400
+
     # tipo_doc foi retirado dos campos editáveis: é imutável — parte do invariante
     # dos 9 tipos por equipamento e da coerência com SETOR_DO_TIPO (trocar o tipo
     # não moveria o setor junto). O tipo nasce fixo na criação.
+
+    status_antigo = doc.status
+
+    # O caminho da pasta pertence ao EQUIPAMENTO: gravar o mesmo valor nas 12
+    # linhas era o que fazia uma aba divergir das outras. Aqui, salvar o caminho
+    # herdado não cria override (fica vazio = continua herdando); só um caminho
+    # DIFERENTE do base vira exceção deste documento.
+    if "armazenamento" in data:
+        base = ((doc.equipamento_rel.armazenamento_base or "").strip()
+                if doc.equipamento_rel else "")
+        val = (data.get("armazenamento") or "").strip()
+        if val and val == base:
+            data["armazenamento"] = ""
+        elif val and not base and doc.equipamento_rel:
+            # equipamento ainda sem caminho: promove este a base do equipamento
+            doc.equipamento_rel.armazenamento_base = val
+            log_action(caller, "UPDATE", entidade=f"Equipamento: {doc.equipamento}",
+                       campo="armazenamento_base", antigo="", novo=val, ip=get_client_ip())
+            data["armazenamento"] = ""
 
     for campo in CAMPOS_STR:
         if campo in data:
@@ -252,9 +428,43 @@ def update_documento(doc_id):
         try:
             doc.data_homologacao = datetime.strptime(data["data_homologacao"], "%Y-%m-%d") if data["data_homologacao"] else None
         except: pass
+    if "prazo" in data and prazo_novo != doc.prazo:
+        log_action(caller, "UPDATE", entidade=doc.documento, campo="prazo",
+                   antigo=(doc.prazo.isoformat() if doc.prazo else ""),
+                   novo=(prazo_novo.isoformat() if prazo_novo else ""),
+                   documento_id=doc.id, ip=get_client_ip())
+        doc.prazo = prazo_novo
+
+    if "data_inicio" in data:
+        ok_ini, data_ini = _parse_data(data.get("data_inicio"))
+        if not ok_ini:
+            return jsonify({"erro": "Data de início inválida. Use o formato AAAA-MM-DD."}), 400
+        if data_ini != doc.data_inicio:
+            log_action(caller, "UPDATE", entidade=doc.documento, campo="data_inicio",
+                       antigo=(doc.data_inicio.isoformat() if doc.data_inicio else ""),
+                       novo=(data_ini.isoformat() if data_ini else ""),
+                       documento_id=doc.id, ip=get_client_ip())
+            doc.data_inicio = data_ini
+
+    if "peso" in data:
+        try:
+            peso = float(data.get("peso") or 1.0)
+        except (TypeError, ValueError):
+            return jsonify({"erro": "Peso deve ser numérico"}), 400
+        if peso <= 0:
+            return jsonify({"erro": "Peso deve ser maior que zero"}), 400
+        doc.peso = peso
+
+    erro_resp = _aplicar_responsaveis(doc, data, caller)
+    if erro_resp:
+        return jsonify({"erro": erro_resp}), 400
 
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    if status_mudou:
+        _marcar_troca_status(doc, caller, status_antigo)
+        _registrar_historico(doc, caller, status_antigo=status_antigo,
+                             status_novo=doc.status)
     # documento é a fonte da verdade: se o status mudou, move os cartões
     # vinculados no kanban (mesma transação; eventos emitidos após o commit)
     eventos_sync = sincronizar_cartoes_documento(doc, caller) if status_mudou else []
@@ -289,6 +499,9 @@ def update_aplicabilidade(doc_id):
     do documento); mexer no escopo muda o denominador da completude de todo mundo,
     então fica restrito a admin/gestor. Marcar N/A NÃO altera o status nem toca nos
     cartões de missão vinculados — o documento só sai da conta.
+
+    Marcar N/A EXIGE motivo (`motivo_na_codigo` da lista fechada MOTIVOS_NA);
+    enquanto era opcional, os 47 N/A do banco tinham zero motivos preenchidos.
     """
     caller = get_jwt_identity()
     data = request.get_json(silent=True) or {}
@@ -302,26 +515,418 @@ def update_aplicabilidade(doc_id):
     novo = bool(data.get("aplicavel"))
     antigo = bool(doc.aplicavel)
     # motivo só existe enquanto o documento está em N/A; religar limpa
-    motivo = (data.get("motivo_na") or "").strip()[:300] if not novo else ""
+    if novo:
+        codigo, motivo = "", ""
+    else:
+        codigo, motivo, erro = _validar_motivo_na(data)
+        if erro:
+            return jsonify({"erro": erro, "motivos": MOTIVOS_NA}), 400
 
-    if novo == antigo and motivo == (doc.motivo_na or ""):
+    if (novo == antigo and motivo == (doc.motivo_na or "")
+            and codigo == (doc.motivo_na_codigo or "")):
         return jsonify({"mensagem": "Nada a alterar", "documento": doc.to_dict()}), 200
 
     doc.aplicavel = novo
+    doc.motivo_na_codigo = codigo
     doc.motivo_na = motivo
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    _registrar_historico(doc, caller, evento="escopo", aplicavel=novo,
+                         status_antigo=doc.status, status_novo=doc.status,
+                         motivo=doc.motivo_na_label)
     db.session.commit()
 
     log_action(caller, "UPDATE", entidade=doc.documento, campo="aplicavel",
                antigo="Aplica" if antigo else "N/A",
-               novo=("Aplica" if novo else f"N/A{(' — ' + motivo) if motivo else ''}"),
+               novo=("Aplica" if novo else f"N/A — {doc.motivo_na_label}"),
                documento_id=doc.id, ip=get_client_ip())
     _emit(EventType.DOCUMENT_UPDATED,
           {"documento_id": doc.id, "documento": doc.to_dict(),
            "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
     return jsonify({"mensagem": "Escopo atualizado", "documento": doc.to_dict()}), 200
+
+# ── MÉTRICAS DE FLUXO ────────────────────────────────────────────────────────
+# `documento_historico` existe desde a migration 008 com o propósito declarado
+# de medir tempo de ciclo, aging e throughput — e até aqui era escrita a cada
+# troca de status e lida apenas para listar a trilha de UM documento na ficha.
+# O módulo de Missões já tinha a implementação completa (_metricas_missao); esta
+# é a mesma leitura aplicada ao maior conjunto de dados do sistema.
+
+def _percentil(valores, p):
+    """Percentil por interpolação linear (p em 0..1). O p85 do cycle time é a
+    promessa realista de prazo; a média sozinha esconde a cauda."""
+    if not valores:
+        return None
+    vs = sorted(valores)
+    k = (len(vs) - 1) * p
+    baixo = int(k)
+    alto = min(baixo + 1, len(vs) - 1)
+    return round(vs[baixo] + (vs[alto] - vs[baixo]) * (k - baixo), 1)
+
+
+def _tempo_por_status(docs):
+    """Tempo médio de permanência em cada status, em dias.
+
+    Intervalos fechados vêm da trilha (um evento de status até o seguinte do
+    mesmo documento); o trecho ainda aberto entra pelo `entrou_status_em` do
+    documento parado. É a leitura que aponta onde o fluxo trava — se
+    "Enviado para Homologação" tem média de 90 dias, o gargalo não é elaborar.
+    """
+    ids = [d.id for d in docs]
+    acc = {}
+    if not ids:
+        return acc
+
+    eventos = (DocumentoHistorico.query
+               .filter(DocumentoHistorico.documento_id.in_(ids),
+                       db.func.coalesce(DocumentoHistorico.evento, "status") == "status")
+               .order_by(DocumentoHistorico.documento_id, DocumentoHistorico.em)
+               .all())
+    por_doc = {}
+    for ev in eventos:
+        por_doc.setdefault(ev.documento_id, []).append(ev)
+
+    for evs in por_doc.values():
+        for atual, seguinte in zip(evs, evs[1:]):
+            status = (atual.status_novo or "").strip()
+            if not status or not atual.em or not seguinte.em:
+                continue
+            alvo = acc.setdefault(status, {"dias": 0.0, "n": 0})
+            alvo["dias"] += (seguinte.em - atual.em).total_seconds() / 86400.0
+            alvo["n"] += 1
+
+    agora = datetime.now()
+    for d in docs:
+        if d.concluido:
+            continue          # trecho aberto só existe em documento em curso
+        base = d.entrou_status_em or d.criado_em
+        status = (d.status or "").strip()
+        if not base or not status:
+            continue
+        alvo = acc.setdefault(status, {"dias": 0.0, "n": 0})
+        alvo["dias"] += (agora - base).total_seconds() / 86400.0
+        alvo["n"] += 1
+
+    return {s: {"media": round(v["dias"] / v["n"], 1) if v["n"] else 0.0,
+                "amostras": v["n"]}
+            for s, v in acc.items()}
+
+
+@documentos_bp.route("/api/documentos/metricas", methods=["GET"])
+@jwt_required()
+def metricas_documentos():
+    """Métricas de fluxo dos documentos — o mesmo conjunto que Missões já expõe.
+
+    ?dias=N     janela do throughput e do cycle time (padrão 30, máx 365)
+    ?setor=     restringe a um setor
+    ?equipamento_id=  restringe a um equipamento
+
+    Escopo: documentos ativos e APLICÁVEIS. Os N/A saem da conta de fluxo (não
+    são backlog nem pendência, é a mesma regra dos KPIs) e aparecem agregados
+    em `motivos_na` — o motivo era coletado numa lista fechada e analisável
+    desde o início e nunca havia sido somado em lugar nenhum.
+    """
+    dias = max(1, min(request.args.get("dias", default=30, type=int) or 30, 365))
+    setor = request.args.get("setor", "")
+    equipamento_id = request.args.get("equipamento_id", type=int)
+
+    base = Documento.query.filter(Documento.ativo == True)
+    if setor:
+        base = base.filter(Documento.setor == setor)
+    if equipamento_id:
+        base = base.filter(Documento.equipamento_id == equipamento_id)
+
+    docs = base.filter(Documento.aplicavel == True).all()
+    nao_aplicaveis = base.filter(Documento.aplicavel == False).all()
+
+    corte = datetime.now() - timedelta(days=dias)
+    abertos = [d for d in docs if not d.concluido]
+    concluidos = [d for d in docs if d.concluido]
+    # WIP = o que está efetivamente em curso (nem parado no início, nem pronto).
+    wip = sum(1 for d in abertos if d.status_global == "Em progresso")
+
+    tempos = _tempo_por_status(docs)
+    por_status = {}
+    for d in docs:
+        status = (d.status or "Elaborar").strip()
+        reg = por_status.setdefault(status, {"status": status, "total": 0, "abertos": 0})
+        reg["total"] += 1
+        if not d.concluido:
+            reg["abertos"] += 1
+    for status, reg in por_status.items():
+        reg["dias_medios"] = tempos.get(status, {}).get("media", 0.0)
+        reg["amostras"] = tempos.get(status, {}).get("amostras", 0)
+
+    carga = {}
+    for d in abertos:
+        nomes = d.responsaveis_nomes or ["(sem responsável)"]
+        for n in nomes:
+            reg = carga.setdefault(n, {"nome": n, "abertos": 0, "atrasados": 0,
+                                       "peso": 0.0, "parados": 0})
+            reg["abertos"] += 1
+            reg["peso"] += (d.peso if d.peso is not None else 1.0)
+            if d.atrasado:
+                reg["atrasados"] += 1
+            if d.dias_no_status >= 30:
+                reg["parados"] += 1
+    for reg in carga.values():
+        reg["peso"] = round(reg["peso"], 1)
+
+    # Concluído antes de existir instrumentação não tem data de conclusão (ver
+    # _data_conclusao_real em servidor.py). Eles contam no total e no avanço,
+    # mas ficam FORA de throughput e cycle time — e o número deles vai na
+    # resposta para a tela poder dizer que a série ainda não cobre tudo, em vez
+    # de exibir um p85 calculado sobre meia dúzia de casos como se fosse geral.
+    sem_data = sum(1 for d in concluidos if not d.concluido_em)
+    janela = [d for d in concluidos if d.concluido_em and d.concluido_em >= corte]
+    semanas = {}
+    for d in janela:
+        iso = d.concluido_em.date().isocalendar()
+        rotulo = f"{iso[0]}-S{iso[1]:02d}"
+        semanas[rotulo] = semanas.get(rotulo, 0) + 1
+    ciclos = [d.dias_ciclo for d in janela if d.dias_ciclo is not None]
+
+    peso_total = sum((d.peso if d.peso is not None else 1.0) for d in docs)
+    peso_feito = sum((d.peso if d.peso is not None else 1.0) for d in concluidos)
+
+    motivos = {}
+    for d in nao_aplicaveis:
+        codigo = (d.motivo_na_codigo or "").strip() or "(sem motivo)"
+        reg = motivos.setdefault(codigo, {"codigo": codigo,
+                                          "label": MOTIVOS_NA.get(codigo, codigo),
+                                          "n": 0})
+        reg["n"] += 1
+
+    aging = sorted(abertos, key=lambda d: d.dias_no_status, reverse=True)[:8]
+
+    return jsonify({
+        "janela_dias": dias,
+        "setor": setor,
+        "totais": {
+            "total": len(docs),
+            "abertos": len(abertos),
+            "concluidos": len(concluidos),
+            "atrasados": sum(1 for d in abertos if d.atrasado),
+            "sem_responsavel": sum(1 for d in abertos if not d.responsaveis_nomes),
+            "sem_prazo": sum(1 for d in abertos if not d.prazo),
+            "wip": wip,
+            "nao_aplicaveis": len(nao_aplicaveis),
+        },
+        "avanco": {
+            "por_documento": round(100 * len(concluidos) / len(docs)) if docs else 0,
+            # Ponderado: um manual de 300 páginas não vale o mesmo que um checklist.
+            "ponderado": round(100 * peso_feito / peso_total) if peso_total else 0,
+            "peso_total": round(peso_total, 1),
+            "peso_concluido": round(peso_feito, 1),
+        },
+        "por_status": sorted(por_status.values(), key=lambda r: (-r["total"], r["status"])),
+        "por_setor": {s: sum(1 for d in docs if d.setor == s)
+                      for s in sorted({d.setor for d in docs})},
+        "por_responsavel": sorted(carga.values(), key=lambda r: (-r["abertos"], r["nome"])),
+        "throughput": {
+            "concluidos": len(janela),
+            "sem_data": sem_data,
+            "por_semana": [{"semana": k, "n": semanas[k]} for k in sorted(semanas)],
+        },
+        "cycle_time": {
+            "amostra": len(ciclos),
+            "media": round(sum(ciclos) / len(ciclos), 1) if ciclos else None,
+            "p50": _percentil(ciclos, 0.50),
+            "p85": _percentil(ciclos, 0.85),
+        },
+        # equipamento_id acompanha o nome porque a ficha do dashboard é aberta
+        # pelo equipamento (não existe modal de um documento isolado).
+        "aging": [{"documento_id": d.id, "documento": d.documento,
+                   "equipamento": d.equipamento, "equipamento_id": d.equipamento_id,
+                   "status": d.status or "",
+                   "setor": d.setor, "dias": d.dias_no_status,
+                   "responsaveis": ", ".join(d.responsaveis_nomes)} for d in aging],
+        "motivos_na": sorted(motivos.values(), key=lambda m: (-m["n"], m["codigo"])),
+    }), 200
+
+
+@documentos_bp.route("/api/documentos/alertas", methods=["GET"])
+@jwt_required()
+def alertas_documentos():
+    """Fatos acionáveis derivados do que já está no banco.
+
+    Mesmo formato dos alertas de projetos e de missões
+    ({tipo, severidade, titulo, detalhe}) para que o front consuma os três com
+    o mesmo componente.
+
+    ?dias_parado=N (padrão 30 — documento é mais lento que cartão de kanban)
+    ?setor=  restringe a um setor
+    """
+    dias_parado = max(1, request.args.get("dias_parado", default=30, type=int) or 30)
+    setor = request.args.get("setor", "")
+
+    q = Documento.query.filter(Documento.ativo == True, Documento.aplicavel == True)
+    if setor:
+        q = q.filter(Documento.setor == setor)
+    docs = q.all()
+
+    itens = []
+
+    def add(doc, tipo, sev, titulo, detalhe):
+        itens.append({
+            "tipo": tipo, "severidade": sev, "titulo": titulo, "detalhe": detalhe,
+            "documento_id": doc.id, "documento": (doc.documento or "").strip(),
+            "equipamento": doc.equipamento or "",
+            "equipamento_id": doc.equipamento_id, "setor": doc.setor or "",
+            "status": doc.status or "",
+        })
+
+    hoje = datetime.now().date()
+    for d in docs:
+        if d.concluido:
+            continue
+        if d.atrasado:
+            add(d, "documento_vencido", "critico", "Prazo vencido",
+                f"previsto para {d.prazo.strftime('%d/%m/%Y')} · "
+                f"{(hoje - d.prazo).days} dia(s) em atraso")
+        if not d.responsaveis_nomes:
+            add(d, "documento_sem_responsavel", "atencao", "Sem responsável",
+                "ninguém atribuído — o documento não tem a quem cobrar")
+        if d.dias_no_status >= dias_parado:
+            add(d, "documento_parado", "atencao", "Sem movimentação",
+                f"parado há {d.dias_no_status} dia(s) em \"{d.status}\"")
+        if not d.prazo and d.status_global == "Em progresso":
+            add(d, "documento_sem_prazo", "info", "Em andamento sem prazo",
+                "trabalho em curso sem data alvo — nunca vai constar como atrasado")
+        if not d.armazenamento_efetivo:
+            add(d, "documento_sem_pasta", "info", "Sem pasta definida",
+                "nem o documento nem o equipamento têm caminho de armazenamento")
+
+    ordem = {"critico": 0, "atencao": 1, "info": 2}
+    itens.sort(key=lambda a: (ordem.get(a["severidade"], 9), a["equipamento"],
+                              a["documento"]))
+    return jsonify({
+        "alertas": itens,
+        "total": len(itens),
+        "criticos": sum(1 for i in itens if i["severidade"] == "critico"),
+    }), 200
+
+
+@documentos_bp.route("/api/documentos/<int:doc_id>/historico", methods=["GET"])
+@jwt_required()
+def historico_documento(doc_id):
+    """Trilha do documento (mais recente primeiro) + tempo no status atual.
+
+    `dias_no_status` é o aging: sem ele não dá para distinguir backlog novo de
+    documento parado há dois anos — os dois aparecem como "Elaborar".
+    """
+    doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
+    if not doc:
+        return jsonify({"erro": "Não encontrado"}), 404
+    linhas = (DocumentoHistorico.query
+              .filter(DocumentoHistorico.documento_id == doc_id)
+              .order_by(DocumentoHistorico.em.desc(), DocumentoHistorico.id.desc())
+              .limit(100).all())
+    ultimo_status = next((h for h in linhas if (h.evento or "status") == "status"), None)
+    desde = ultimo_status.em if ultimo_status else (doc.updated_em or doc.criado_em)
+    dias = (datetime.now() - desde).days if desde else None
+    return jsonify({
+        "documento_id": doc_id,
+        "status": doc.status or "",
+        "desde": desde.strftime("%d/%m/%Y %H:%M") if desde else "",
+        "dias_no_status": dias,
+        "historico": [h.to_dict() for h in linhas],
+    }), 200
+
+
+@documentos_bp.route("/api/documentos/responsaveis", methods=["GET"])
+@jwt_required()
+def listar_responsaveis_doc():
+    """Usuários atribuíveis como responsável por um documento.
+
+    `Documento.responsavel` é texto livre e estava preenchido em 2 de 522 linhas;
+    o picker devolve gente real para o campo parar de ser digitação livre.
+    """
+    users = (User.query.filter(User.ativo == True)
+             .order_by(User.nome).all())
+    return jsonify([{"id": u.id, "nome": u.nome, "email": u.email, "role": u.role}
+                    for u in users]), 200
+
+
+@documentos_bp.route("/api/documentos/export", methods=["GET"])
+@jwt_required()
+def export_documentos():
+    """CSV bruto dos documentos ativos — análise fora do sistema (Excel/BI).
+
+    Aceita os mesmos filtros da listagem (`setor`, `q`) para exportar o recorte
+    que está na tela. Sem isto, o único export do módulo era o PDF de KPIs.
+    """
+    q = norm(request.args.get("q", ""))
+    setor = request.args.get("setor", "")
+    query = Documento.query.filter(Documento.ativo == True)
+    if setor:
+        query = query.filter(Documento.setor == setor)
+    rows = query.order_by(Documento.equipamento, Documento.tipo_doc).all()
+    if q:
+        rows = [d for d in rows
+                if q in norm(" ".join(str(x or "") for x in
+                                      (d.equipamento, d.documento, d.codigo_doc,
+                                       d.sku, d.responsavel, d.tipo_doc, d.fabricante)))]
+
+    cols = [
+        ("equipamento", "Equipamento"), ("sku", "SKU"), ("fabricante", "Fabricante"),
+        ("familia", "Família"), ("anvisa", "ANVISA"),
+        ("setor", "Setor"), ("tipo_doc", "Tipo"), ("tipo_doc_label", "Tipo (rótulo)"),
+        ("codigo_doc", "Código"), ("documento", "Documento"),
+        ("status", "Status"), ("status_global", "Status global"),
+        ("responsavel", "Responsável"),
+        ("aplicavel", "Aplicável"), ("motivo_na_label", "Motivo N/A"),
+        ("prazo", "Prazo"), ("dias_para_prazo", "Dias p/ prazo"), ("atrasado", "Atrasado"),
+        ("data_treinamento", "Data treinamento"), ("data_homologacao", "Data homologação"),
+        ("armazenamento_efetivo", "Armazenamento"),
+        ("criado_em", "Criado em"), ("updated_em", "Atualizado em"),
+    ]
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow([rotulo for _, rotulo in cols])
+    for d in rows:
+        j = d.to_dict()
+        w.writerow([("Sim" if j.get(c) is True else "Não" if j.get(c) is False
+                     else ("" if j.get(c) is None else j.get(c))) for c, _ in cols])
+    out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    return send_file(out, mimetype="text/csv", as_attachment=True,
+                     download_name="documentos.csv")
+
+
+@documentos_bp.route("/api/documentos/diagnostico", methods=["GET"])
+@require_role("admin", "gestor")
+def diagnostico_documentos():
+    """Consistência entre o cadastro e o filesystem.
+
+    Responde o que ninguém verificava: quais documentos não têm caminho e quais
+    apontam para uma pasta que não existe mais. Usa o agente_scanner (que já
+    implementava exatamente isto e não era chamado por rota nenhuma) sobre o
+    caminho EFETIVO — o herdado do equipamento, não a cópia da linha.
+    """
+    from agente_scanner import scan_documents
+
+    docs = Documento.query.filter(Documento.ativo == True,
+                                  Documento.aplicavel == True).all()
+    payload = []
+    por_id = {}
+    for d in docs:
+        payload.append({"id": d.id, "documento": d.documento or "",
+                        "armazenamento": d.armazenamento_efetivo})
+        por_id[d.id] = d
+    rel = scan_documents(payload)
+
+    # Enriquece cada apontamento com o contexto que o gestor precisa para agir
+    for issue in rel.get("issues", []):
+        d = por_id.get(issue.get("documento_id"))
+        if d is not None:
+            issue.update(equipamento=d.equipamento or "", tipo_doc=d.tipo_doc or "",
+                         tipo_doc_label=d.tipo_doc_label, setor=d.setor or "",
+                         caminho=d.armazenamento_efetivo)
+    rel.pop("directory_structure", None)   # árvore local não interessa aqui
+    rel["stats"]["total_verificados"] = len(payload)
+    return jsonify(rel), 200
+
 
 @documentos_bp.route("/api/documentos/abrir-pasta", methods=["POST"])
 @jwt_required()
@@ -546,6 +1151,9 @@ def update_status(doc_id):
     doc.status = novo
     doc.updated_em = datetime.now()
     doc.version = (doc.version or 0) + 1
+    if novo != antigo:
+        _marcar_troca_status(doc, caller, antigo)
+        _registrar_historico(doc, caller, status_antigo=antigo, status_novo=novo)
     # documento é a fonte da verdade: move os cartões vinculados no kanban
     # (mesma transação; eventos emitidos após o commit)
     eventos_sync = sincronizar_cartoes_documento(doc, caller) if novo != antigo else []
