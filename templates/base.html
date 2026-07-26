@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}DocTrack{% endblock %}</title>
+{%- block head_meta %}{% endblock %}
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+{%- block head_extra %}{% endblock %}
+</head>
+<body>
+{%- block prebody %}{% endblock %}
+<div id="app">
+  <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menu" aria-controls="sidebar-nav" aria-expanded="false">☰</button>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar-nav" aria-label="{% block nav_aria %}Navegação principal{% endblock %}">
+    <div class="sidebar-brand">
+      <div class="brand-row">
+        <div class="brand-icon">{% block brand_icon %}<svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>{% endblock %}</div>
+        <div class="brand-name">DocTrack</div>
+      </div>
+      <div class="brand-version">{% block brand_version %}P&D EQUIPAMENTOS{% endblock %}</div>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar" id="nav-avatar">A</div>
+      <div><div class="user-name" id="nav-name">{% block nav_user_name %}Admin{% endblock %}</div><div class="user-role" id="nav-role">{% block nav_user_role %}ADMIN{% endblock %}</div></div>
+    </div>
+{%- block nav %}{% endblock %}
+    <div class="sidebar-footer">
+{%- block sidebar_footer %}
+      <div class="sync-row"><div class="sync-dot"></div><span class="sync-text" id="sync-label">Conectado</span></div>
+      <a class="sidebar-refresh" href="#" onclick="location.href='/hub/'+(sessionStorage.getItem('dt_area')||'pde');return false;" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Voltar aos módulos
+      </a>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="{% block refresh_fn %}loadAll(){% endblock %}">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Atualizar dados
+      </button>
+      <button class="sidebar-refresh" style="margin-top:8px" onclick="doLogout()">Sair</button>
+{%- endblock %}
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="breadcrumb">{% block breadcrumb %}<span>DocTrack</span><span style="color:var(--t4)">/</span><span class="current" id="breadcrumb-current">Dashboard</span>{% endblock %}</div>
+      <div class="topbar-actions">
+{%- block topbar_actions %}
+        <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
+        <div class="user-avatar" style="width:32px;height:32px;font-size:12px;cursor:pointer" id="top-avatar" onclick="location.href='/hub'" title="Voltar aos módulos">A</div>
+{%- endblock %}
+      </div>
+    </div>
+
+    <main class="content" id="main-content" tabindex="-1">
+{%- block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+{%- block postmain %}{% endblock %}
+{% block scripts %}
+<script src="/static/common.js?v={{ asset_v }}"></script>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
+{%- endblock %}
+</body>
+</html>

@@ -1,6 +1,11 @@
 # Guia de Implantação — Windows Server (DocTrack)
 
-Este manual detalha o passo a passo para implantar a plataforma DocTrack em um ambiente Windows Server corporativo. A aplicação rodará em segundo plano (background) gerenciada pelo **PM2** e o banco de dados será mantido localmente em SQLite com backups rotativos automatizados.
+Este manual detalha o passo a passo para implantar a plataforma DocTrack em um ambiente Windows Server corporativo. A aplicação rodará em segundo plano (background) gerenciada pelo **PM2**.
+
+> **Banco:** produção usa **PostgreSQL** (`localhost:5432/doctrack`), com `pg_dump`
+> diário — veja o Passo 5. O SQLite (`doctrack.db`) ficou só para desenvolvimento
+> local. Até jul/2026 esta introdução dizia que o banco era "mantido localmente em
+> SQLite", contradizendo o próprio Passo 5 deste arquivo.
 
 ---
 
@@ -43,7 +48,9 @@ Crie uma pasta no servidor dedicada para a aplicação (ex: `C:\inetpub\wwwroot\
 - Criará um ambiente virtual Python (`venv`) isolado.
 - Instalará todas as bibliotecas necessárias (Flask, Pandas, SocketIO, etc.).
 - Gerará um arquivo `.env` seguro com chave única para o token de autenticação (`JWT_SECRET`).
-- Criará o banco de dados local `doctrack.db` inicializado e semeado.
+- Criará o banco de dados inicializado e semeado (SQLite `doctrack.db` por padrão;
+  para apontar ao PostgreSQL de produção, defina `DATABASE_URL` no `.env` antes de
+  rodar — veja o Passo 5).
 - Iniciará o painel em segundo plano usando o gerenciador **PM2**.
 
 ---

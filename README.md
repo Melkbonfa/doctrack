@@ -69,8 +69,9 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 
 Produção roda em servidor Windows próprio (`C:\apps\doctrack`):
 merge na `main` → `git pull` no servidor → restart do serviço.
-Guias completos em [docs/GUIA_DEPLOY_WINDOWS.md](docs/GUIA_DEPLOY_WINDOWS.md)
-e [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+A pilha de produção é **waitress + NSSM + PostgreSQL**. Comece por
+[docs/README.md](docs/README.md), que diz qual dos guias de implantação vale hoje
+e o que os outros três são.
 
 Scripts úteis (rodar a partir da raiz do projeto):
 
@@ -78,8 +79,11 @@ Scripts úteis (rodar a partir da raiz do projeto):
 |---|---|
 | Deploy/atualização no servidor | `.\scripts\deploy_windows.ps1` |
 | Backup do banco (PostgreSQL) | `.\scripts\gerar_backup.ps1` |
-| Backup rotativo (SQLite, agendável) | `.\scripts\backup_doctrack.ps1` |
 | Build executável (PyInstaller) | `.\scripts\build_exe.ps1` |
+
+> `scripts\backup_doctrack.ps1` foi removido junto com a migração para o PostgreSQL.
+> Esta tabela ainda o listava; seguir a linha antiga gerava um backup vazio, porque o
+> script copiava o `doctrack.db` do SQLite. Use `gerar_backup.ps1`.
 
 ## Versionamento
 

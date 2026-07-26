@@ -1,33 +1,13 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Equipamentos — DocTrack</title>
-<link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+{% extends "base.html" %}
+
+{% block title %}Equipamentos — DocTrack{% endblock %}
+
+{% block head_extra %}
 <link rel="stylesheet" href="/static/equipamentos.css?v={{ asset_v }}">
 <script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
-</head>
-<body>
-<div id="app">
-  <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
-  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menu" aria-controls="sidebar-nav" aria-expanded="false">☰</button>
-  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+{%- endblock %}
 
-  <!-- SIDEBAR -->
-  <nav class="sidebar" id="sidebar-nav" aria-label="Navegação principal">
-    <div class="sidebar-brand">
-      <div class="brand-row">
-        <div class="brand-icon"><svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg></div>
-        <div class="brand-name">DocTrack</div>
-      </div>
-      <div class="brand-version">P&D EQUIPAMENTOS</div>
-    </div>
-    <div class="sidebar-user">
-      <div class="user-avatar" id="nav-avatar">A</div>
-      <div><div class="user-name" id="nav-name">Admin</div><div class="user-role" id="nav-role">ADMIN</div></div>
-    </div>
-
+{% block nav %}
     <span class="nav-section-label">Visão</span>
     <button type="button" class="nav-item active" data-page="dashboard">
       <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
@@ -63,7 +43,9 @@
       Tipos de consumível
     </button>
 
-    <div class="sidebar-footer">
+{%- endblock %}
+
+{% block sidebar_footer %}
       <div class="sync-row"><div class="sync-dot"></div><span class="sync-text" id="sync-label">Conectado</span></div>
       <a class="sidebar-refresh" href="#" onclick="location.href='/hub/'+(sessionStorage.getItem('dt_area')||'pde');return false;" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px">
         <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -74,20 +56,16 @@
         Atualizar dados
       </button>
       <button class="sidebar-refresh" style="margin-top:8px" onclick="doLogout()">Sair</button>
-    </div>
-  </nav>
+{%- endblock %}
 
-  <!-- MAIN -->
-  <div class="main">
-    <div class="topbar">
-      <div class="breadcrumb"><span>DocTrack</span><span style="color:var(--t4)">/</span><span class="current" id="breadcrumb-current">Dashboard</span></div>
-      <div class="topbar-actions">
+{% block breadcrumb %}<span>DocTrack</span><span style="color:var(--t4)">/</span><span class="current" id="breadcrumb-current">Dashboard</span>{% endblock %}
+
+{% block topbar_actions %}
         <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
         <div class="user-avatar" style="width:32px;height:32px;font-size:12px;cursor:pointer" id="top-avatar" onclick="location.href='/hub'" title="Voltar aos módulos">A</div>
-      </div>
-    </div>
+{%- endblock %}
 
-    <main class="content" id="main-content" tabindex="-1">
+{% block content %}
 
       <!-- DASHBOARD -->
       <div class="page active" id="page-dashboard">
@@ -265,9 +243,9 @@
         </div>
       </div>
 
-    </main>
-  </div>
-</div>
+{%- endblock %}
+
+{% block postmain %}
 
 <!-- MODAL: ficha do equipamento (somente leitura) -->
 <div class="modal-overlay" id="modal-eqview" role="dialog" aria-modal="true" aria-label="Ficha técnica do equipamento" aria-hidden="true">
@@ -432,7 +410,9 @@
     </div>
   </div>
 </div>
+{%- endblock %}
 
+{% block scripts %}
 <div id="toast" class="toast" style="display:none"></div>
 <!-- Tempo real: a dimensão documental é 1/3 do ICE. Sem isto, homologar um
      documento no módulo Documentos deixava o índice daqui velho até dar F5.
@@ -444,5 +424,4 @@
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 <script src="/static/equipamentos.js?v={{ asset_v }}"></script>
 <script src="/static/consumiveis.js?v={{ asset_v }}"></script>
-</body>
-</html>
+{%- endblock %}

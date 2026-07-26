@@ -44,3 +44,6 @@ Thumbs.db
 .agent/
 .claude/
 .superpowers/
+
+# Grafo de conhecimento gerado pelo graphify (~9,6 MB, regenerável)
+graphify-out/
