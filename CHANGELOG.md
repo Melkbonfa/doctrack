@@ -14,6 +14,23 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Limpeza geral do projeto
+- **Removido** o endpoint `POST /api/report/pdf` e toda a sua cadeia: a função
+  órfã `exportKPIs()` (única chamadora, que nenhum botão invocava), a pasta
+  `files/` (gerador WeasyPrint) e a dependência `weasyprint` do
+  `requirements.txt`. O PDF do dashboard é montado no navegador com jsPDF desde
+  a v4 — esse caminho estava morto e ainda pesava no deploy (GTK3, ~200 MB).
+- **Removidas** as rotas `GET /socket-client.js` e `GET /app-realtime.js`: os
+  arquivos foram para `static/` e passam a ser servidos pela rota estática do
+  Flask, com cache-busting que antes não tinham. `audit_log_report.html` foi
+  para `templates/`.
+- Material fora do escopo do software (apresentações, relatórios gerados,
+  planilhas de origem já migradas, scripts pontuais já executados) saiu do
+  repositório para `C:\Apps\doctrack-arquivo\`. Repositório: 19 MB → 4,9 MB.
+- `.gitignore`: `logs/` e `*-bak`, que estavam desprotegidos.
+- `docs/Documentacao_Geracao_PDF.md` marcado como histórico — documentava uma
+  geração do PDF (html2pdf.js) que não existe mais.
+
 ### Módulo Equipamentos — Fase 1 (backend)
 - Entidade `Equipamento` estendida: nome_tecnico, descricao (descritivo livre),
   codigo_interno, sku_importacao, status, bloqueado, observacoes e taxonomia

@@ -44,26 +44,26 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── equipamentos_importer.py  # Importador da planilha mestra de equipamentos
 ├── agente_scanner.py         # Agente de varredura (assistente do dash)
 ├── utils.py                  # Utilitários compartilhados
-├── app-realtime.js           # Cliente realtime servido pela raiz
-├── socket-client.js          # Cliente Socket.IO servido pela raiz
-├── audit_log_report.html     # Template do relatório de auditoria (/api/export/audit)
-├── templates/                # Templates Jinja (dashboard, hub, equipamentos…)
-├── static/                   # CSS/JS do frontend
+├── templates/                # Templates Jinja + audit_log_report.html
+├── static/                   # CSS/JS do frontend (inclui socket-client.js e app-realtime.js)
 ├── pdr/                      # Módulo PDR (blueprint com templates/static próprios)
 ├── migrations/               # Migrações de schema numeradas
 ├── tests/                    # Testes pytest
 ├── scripts/                  # Scripts operacionais (deploy, backup, build, importações)
-│   └── legado/               # Scripts pontuais já executados (mantidos por histórico)
 ├── docs/                     # Documentação
-│   ├── planos/               # Planos de implementação (PLANO_*.md)
+│   ├── planos/               # Planos por módulo (PLANO_*.md)
+│   ├── superpowers/          # Planos e specs datados (AAAA-MM-DD-*.md)
 │   ├── mockups/              # Mockups HTML de telas
-│   ├── relatorios/           # Relatórios gerados (custos, avaliação técnica…)
 │   └── referencias/          # Material de referência externo
 ├── data/                     # Planilhas de dados de entrada
-├── files/                    # Planilha de entregáveis + gerador de relatório PDF
+├── logs/                     # Logs do serviço NSSM (fora do git)
 ├── backups/                  # Backups do banco (fora do git)
 └── tools/                    # Instaladores auxiliares (fora do git)
 ```
+
+> Material fora do escopo do software (apresentações, relatórios gerados, planilhas
+> de origem já migradas e scripts pontuais já executados) saiu do repositório na
+> limpeza de jul/2026 e está em `C:\Apps\doctrack-arquivo\`.
 
 ## Deploy
 

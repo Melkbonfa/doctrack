@@ -53,7 +53,8 @@ Sem essa regra, o app funciona normalmente em `localhost` no próprio servidor.
 ## Observações
 
 - O PDF dos relatórios é gerado **no navegador** (jsPDF); o executável **não** inclui
-  WeasyPrint/GTK/matplotlib. O endpoint legado `/api/report/pdf` fica inativo.
+  WeasyPrint/GTK/matplotlib. O endpoint legado `/api/report/pdf` foi removido em
+  jul/2026 — era código morto, sem nenhuma chamadora viva.
 - O `pandas` só é usado para semear o banco a partir do Excel e **não** é embutido no
   `.exe`. O pacote já vai com o `doctrack.db` pronto.
 - Para atualizar a versão no servidor: gere um novo pacote, e no servidor substitua o

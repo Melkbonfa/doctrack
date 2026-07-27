@@ -45,10 +45,9 @@ acessível pela **rede interna** da empresa, usando banco **PostgreSQL**.
 > **Não instale o GTK3 Runtime.** Até jul/2026 este guia pedia o GTK3 como terceiro
 > item, dizendo que sem ele "a exportação de PDF deixa de funcionar". Não é verdade:
 > o PDF é gerado **no navegador** com jsPDF. O caminho que usava GTK
-> (`/api/report/pdf` → WeasyPrint) continua no código, mas quem o chamaria é
-> `exportKPIs()` em `static/app.js`, uma função que nenhum botão invoca — o botão
-> "Exportar relatório" chama `openExportModal()`. Instalar o GTK3 são ~200 MB que
-> não mudam nada.
+> (`/api/report/pdf` → WeasyPrint) foi **removido do código** na limpeza de jul/2026,
+> junto com a função órfã `exportKPIs()` que era sua única chamadora — nenhum botão
+> a invocava. Instalar o GTK3 são ~200 MB que não mudam nada.
 
 ---
 

@@ -1,6 +1,11 @@
 """
 importar_entregaveis.py — Importação única da aba "Controle Projetos 2026"
-da planilha files/Entregáveis - Engenharia (rev fev).xlsm para o doctrack.db.
+da planilha "Entregáveis - Engenharia (rev fev).xlsm" para o doctrack.db.
+
+A importação já foi executada e o módulo /entregaveis substituiu a planilha. Na
+limpeza de jul/2026 o .xlsm (1,7 MB) saiu do repositório e foi para o arquivo
+morto em C:\\Apps\\doctrack-arquivo\\files\\. Para reexecutar, aponte XLSM para lá
+ou copie a planilha de volta.
 
 Uso:
   ./venv/Scripts/python.exe importar_entregaveis.py            # importa (aborta se já houver dados)
