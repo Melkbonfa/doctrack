@@ -71,7 +71,7 @@ function donutTooltipExternal(context){
 }
 
 // ── estado ───────────────────────────────────────────────────────────────
-let EQUIP=[], COMPL={}, TAX={categorias:[],linhas:[]}, selCatId=null, EVOL=[], SAUDE=null;
+let EQUIP=[], COMPL={}, TAX={categorias:[]}, selCatId=null, EVOL=[], SAUDE=null;
 
 // ── completude (ICE / IDP) ─────────────────────────────────────────────────
 // O cálculo mora no servidor (equipamentos_core.py) e chega pronto por
@@ -119,8 +119,7 @@ async function loadAll(){
     EQUIP = eqs;
     COMPL = {};
     ((completude&&completude.itens)||[]).forEach(c=>{ COMPL[c.id]=c; });
-    TAX = tax || {categorias:[],linhas:[]};
-    if(!TAX.linhas) TAX.linhas=[];
+    TAX = tax || {categorias:[]};
   }catch(e){ toast(e.message||"Erro ao carregar", true); }
   const u=userObj(); const ini=(u.nome||"A").trim()[0]||"A";
   document.getElementById("nav-name").textContent=u.nome||"Usuário";
@@ -143,9 +142,6 @@ function preencherSelects(){
   const dc=document.getElementById("dash-cat"); if(dc){ const v=dc.value; dc.innerHTML=opts; dc.value=v; }
   const vc=document.getElementById("dev-cat"); if(vc){ const v=vc.value; vc.innerHTML=opts; vc.value=v; }
   const fc=document.getElementById("eq-f-cat"); if(fc){ const v=fc.value; fc.innerHTML='<option value="">Categoria: todas</option>'+TAX.categorias.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join(""); fc.value=v; }
-  const fl=document.getElementById("eq-f-linha"); if(fl){ const v=fl.value;
-    fl.innerHTML='<option value="">Linha: todas</option>'+(TAX.linhas||[]).map(l=>`<option value="${l.id}">${esc(l.nome)}</option>`).join(""); fl.value=v;
-    fl.style.display=(TAX.linhas||[]).length?"":"none"; }
   const st=[...new Set(EQUIP.map(e=>e.status).filter(Boolean))];
   const fs=document.getElementById("eq-f-status"); if(fs){ const v=fs.value; fs.innerHTML='<option value="">Status: todos</option>'+st.map(s=>`<option>${esc(s)}</option>`).join(""); fs.value=v; }
 }
@@ -424,12 +420,12 @@ const ORDENADORES={
 };
 
 function renderLista(){
-  const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"), linha=val("eq-f-linha"),
+  const q=(val("eq-busca")||"").toLowerCase(), cat=val("eq-f-cat"),
         st=val("eq-f-status"), inc=(document.getElementById("eq-f-bloq")||{}).checked;
   let list=EQUIP.filter(e=>(inc||!ehBloqueado(e))
-    &&(!cat||String(e.categoria_id)===String(cat))&&(!linha||String(e.linha_id)===String(linha))
+    &&(!cat||String(e.categoria_id)===String(cat))
     &&(!st||e.status===st)
-    &&(!q||[e.nome,e.sku,e.nome_tecnico,e.fabricante,e.sku_importacao,e.codigo_interno,e.responsavel]
+    &&(!q||[e.nome,e.sku,e.nome_tecnico,e.fabricante,e.sku_importacao,e.responsavel]
         .filter(Boolean).join(" ").toLowerCase().includes(q)));
   const S=list.map(e=>({e,s:scores(e)}));
   S.sort(ORDENADORES[val("eq-ordem")||"nome"]||ORDENADORES.nome);
@@ -491,7 +487,6 @@ function fld(label,id,v,ph){ return `<div class="form-group"><label class="form-
 function painelFicha(k,e){
   if(k==="geral"){
     const catOpts='<option value="">—</option>'+TAX.categorias.map(c=>`<option value="${c.id}" ${String(e.categoria_id)===String(c.id)?'selected':''}>${esc(c.nome)}</option>`).join("");
-    const linhaOpts='<option value="">—</option>'+(TAX.linhas||[]).map(l=>`<option value="${l.id}" ${String(e.linha_id)===String(l.id)?'selected':''}>${esc(l.nome)}</option>`).join("");
     const stOpts=["Ativo","Obsoleto","Descontinuado"].map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join("");
     return `<div class="g2">${fld("SKU de Venda","f-sku",e.sku)}${fld("SKU de Importação","f-sku_importacao",e.sku_importacao)}</div>
       <div class="g2">${fld("Nome comercial","f-nome",e.nome)}${fld("Nome técnico","f-nome_tecnico",e.nome_tecnico)}</div>
@@ -499,10 +494,7 @@ function painelFicha(k,e){
         <div class="form-group"><label class="form-label">Categoria</label><select class="form-input" id="f-categoria_id" onchange="onCatChange()">${catOpts}</select></div>
         <div class="form-group"><label class="form-label">Família</label><select class="form-input" id="f-familia_id"></select></div>
       </div>
-      <div class="g2">
-        <div class="form-group"><label class="form-label">Linha de produto</label><select class="form-input" id="f-linha_id">${linhaOpts}</select></div>
-        ${fld("Responsável pelo cadastro","f-responsavel",e.responsavel,"quem cobra as pendências")}
-      </div>
+      ${fld("Responsável pelo cadastro","f-responsavel",e.responsavel,"quem cobra as pendências")}
       <div class="g2">
         <div class="form-group"><label class="form-label">Status</label><select class="form-input" id="f-status">${stOpts}</select></div>
         <div class="form-group"><label class="form-label">Bloqueado</label><label class="muted" style="display:flex;align-items:center;gap:8px;padding-top:9px"><input type="checkbox" id="f-bloqueado" ${e.bloqueado?'checked':''}> equipamento bloqueado</label></div>
@@ -511,9 +503,7 @@ function painelFicha(k,e){
       <div class="form-group"><label class="form-label">Observações (internas)</label><textarea class="form-input" id="f-observacoes" rows="2">${esc(e.observacoes||"")}</textarea></div>`;
   }
   if(k==="tecnico") return `<div class="g2">${fld("Fabricante","f-fabricante",e.fabricante)}${fld("Código do fabricante","f-codigo_fabricante",e.codigo_fabricante)}</div>
-      <div class="g2">${fld("Nome original","f-nome_original",e.nome_original)}${fld("Código interno","f-codigo_interno",e.codigo_interno)}</div>
-      <div class="g2">${fld("Modelo","f-modelo",e.modelo)}${fld("Tecnologia","f-tecnologia",e.tecnologia,"princípio / plataforma")}</div>
-      <div class="form-group"><label class="form-label">Aplicação</label><input class="form-input" id="f-aplicacao" value="${esc(e.aplicacao||"")}" placeholder="para que serve, em uma linha"></div>
+      ${fld("Nome original","f-nome_original",e.nome_original)}
       <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="f-armazenamento_base" value="${esc(e.armazenamento_base||"")}"></div>`;
   if(k==="reg"){
     const clOpts=["","RUO","IVD"].map(v=>`<option value="${v}" ${e.classificacao_reg===v?'selected':''}>${v||"— não definido —"}</option>`).join("");
@@ -550,11 +540,11 @@ function painelFicha(k,e){
 
 // ── Histórico da ficha (trilha de-para + evolução do ICE) ───────────────────
 const HIST_LABEL={nome:"Nome comercial",nome_tecnico:"Nome técnico",nome_original:"Nome original",
-  descricao:"Descrição",codigo_interno:"Código interno",sku:"SKU de Venda",sku_importacao:"SKU de Importação",
+  descricao:"Descrição",sku:"SKU de Venda",sku_importacao:"SKU de Importação",
   classificacao_reg:"Classificação regulatória",anvisa:"Registro ANVISA",anvisa_registro:"Data de registro",
   anvisa_validade:"Validade ANVISA",fabricante:"Fabricante",codigo_fabricante:"Código do fabricante",
   status:"Status",observacoes:"Observações",armazenamento_base:"Armazenamento base",responsavel:"Responsável",
-  bloqueado:"Bloqueado",categoria_id:"Categoria",familia_id:"Família",linha_id:"Linha de produto",
+  bloqueado:"Bloqueado",categoria_id:"Categoria",familia_id:"Família",
   rev_cadastro:"Revisão de cadastro",rev_estrutura:"Revisão de estrutura",rev_descritivo:"Revisão de descritivo",
   ativo:"Ativo"};
 const HIST_EVENTO={create:"criação",update:"alteração",delete:"exclusão",import:"importação"};
@@ -724,8 +714,7 @@ async function salvarFicha(forcarSku){
   const payload={ nome,
     sku:val("f-sku"), sku_importacao:val("f-sku_importacao"),
     nome_tecnico:val("f-nome_tecnico"), nome_original:val("f-nome_original"),
-    codigo_interno:val("f-codigo_interno"), responsavel:val("f-responsavel"),
-    modelo:val("f-modelo"), tecnologia:val("f-tecnologia"), aplicacao:val("f-aplicacao"),
+    responsavel:val("f-responsavel"),
     classe_risco:val("f-classe_risco"), situacao_regulatoria:val("f-situacao_regulatoria"),
     descricao:val("f-descricao"), observacoes:val("f-observacoes"),
     status:val("f-status"), bloqueado:document.getElementById("f-bloqueado").checked,
@@ -733,8 +722,7 @@ async function salvarFicha(forcarSku){
     armazenamento_base:val("f-armazenamento_base"), classificacao_reg:val("f-classificacao_reg"),
     anvisa:val("f-anvisa"), anvisa_registro:val("f-anvisa_registro"), anvisa_validade:val("f-anvisa_validade"),
     rev_cadastro:val("f-rev_cadastro"), rev_estrutura:val("f-rev_estrutura"), rev_descritivo:val("f-rev_descritivo"),
-    categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null,
-    linha_id:val("f-linha_id")||null };
+    categoria_id:val("f-categoria_id")||null, familia_id:val("f-familia_id")||null };
   if(forcarSku) payload.ignorar_sku_duplicado=true;
   try{
     if(fichaId) await api("/api/equipamentos/"+fichaId,{method:"PATCH",body:JSON.stringify(payload)});
@@ -828,17 +816,12 @@ function renderView(e,s,f){
         vfield("Nome original",e.nome_original,true),
         vfield("Categoria",e.categoria),
         vfield("Família",e.familia),
-        vfield("Linha de produto",e.linha),
         vfield("Responsável",e.responsavel),
         vfield("Descrição",e.descricao,true),
       ]))}
     ${vsection("Técnico", vfields([
         vfield("Fabricante",e.fabricante),
         vfield("Código do fabricante",e.codigo_fabricante),
-        vfield("Código interno",e.codigo_interno),
-        vfield("Modelo",e.modelo),
-        vfield("Tecnologia",e.tecnologia),
-        vfield("Aplicação",e.aplicacao,true),
         vfield("Armazenamento base",e.armazenamento_base,true),
       ]))}
     ${vsection("Regulatório", vfields([
@@ -872,7 +855,6 @@ function copiarFicha(){
   add("Categoria",e.categoria); add("Família",e.familia);
   add("Fabricante",e.fabricante); add("Código do fabricante",e.codigo_fabricante);
   add("Armazenamento base",e.armazenamento_base);
-  add("Modelo",e.modelo); add("Tecnologia",e.tecnologia); add("Aplicação",e.aplicacao);
   add("Classificação",e.classificacao_reg); add("Classe de risco",e.classe_risco);
   add("Situação do registro",e.situacao_regulatoria); add("Registro ANVISA",e.anvisa);
   add("Data de registro",e.anvisa_registro); add("Validade",e.anvisa_validade);
@@ -893,7 +875,6 @@ function renderCategorias(){
     <input class="eq-tname" value="${esc(c.nome)}" onclick="event.stopPropagation()" onchange="renCategoria(${c.id},this.value)">
     <span class="eq-tct">${c.uso||0}</span>${podeEditar?`<button class="eq-tdel" onclick="event.stopPropagation();delCategoria(${c.id})">🗑</button>`:""}</div>`).join("")||'<p class="muted" style="font-size:12px">Nenhuma categoria.</p>';
   renderCatDetail();
-  renderLinhas();
 }
 function selCat(id){ selCatId=id; renderCategorias(); }
 function renderCatDetail(){
@@ -913,28 +894,7 @@ async function delCategoria(id){ const c=TAX.categorias.find(x=>x.id===id); if(c
 async function addFamilia(cid){ const nome=val("fam-new").trim(); if(!nome) return;
   try{ await api("/api/familias-equipamento",{method:"POST",body:JSON.stringify({nome,categoria_id:cid})}); await reloadTax(); }catch(e){ toast(e.message,true); } }
 async function delFamilia(id){ try{ await api("/api/familias-equipamento/"+id,{method:"DELETE"}); await reloadTax(); }catch(e){ toast(e.message,true); } }
-async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); if(!TAX.linhas) TAX.linhas=[]; preencherSelects(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
-
-// ── LINHAS DE PRODUTO ───────────────────────────────────────────────────────
-// A tabela linhas_produto existia com FK, relationship e migração, e nenhuma
-// rota a lia ou escrevia — campo morto que o plano previa como filtro.
-function renderLinhas(){
-  const el=document.getElementById("linha-list"); if(!el) return;
-  const linhas=TAX.linhas||[];
-  el.innerHTML=linhas.map(l=>`<span class="eq-fchip">${esc(l.nome)} <span class="muted">(${l.uso||0})</span>${podeEditar?`<button onclick="delLinha(${l.id})" aria-label="Excluir linha ${esc(l.nome)}">×</button>`:""}</span>`).join("")
-    ||'<span class="muted" style="font-size:12px">Nenhuma linha cadastrada.</span>';
-  const add=document.getElementById("linha-add");
-  if(add) add.innerHTML=podeEditar
-    ? `<input class="form-input" id="linha-new" placeholder="Nova linha…"><button class="btn btn-ghost btn-sm" onclick="addLinha()">+ linha</button>`
-    : "";
-}
-async function addLinha(){ const nome=val("linha-new").trim(); if(!nome) return;
-  try{ await api("/api/linhas-produto",{method:"POST",body:JSON.stringify({nome})}); await reloadTax(); }
-  catch(e){ toast(e.message,true); } }
-async function delLinha(id){ const l=(TAX.linhas||[]).find(x=>x.id===id);
-  if(l&&l.uso&&!confirm(`"${l.nome}" está em uso por ${l.uso} equipamento(s). Excluir e desvincular?`)) return;
-  try{ await api("/api/linhas-produto/"+id,{method:"DELETE"}); await reloadTax(); }
-  catch(e){ toast(e.message,true); } }
+async function reloadTax(){ try{ TAX=await api("/api/equip-taxonomia"); preencherSelects(); renderCategorias(); renderLista(); renderDashboard(); }catch(e){} }
 
 // ══ SAÚDE DO CADASTRO ══════════════════════════════════════════════════════
 // Duplicidade de SKU, texto corrompido e órfãos só apareciam rodando script
@@ -1026,7 +986,6 @@ async function exportarCSV(){
   const p=new URLSearchParams();
   const q=val("eq-busca").trim(); if(q) p.set("q",q);
   const cat=val("eq-f-cat"); if(cat) p.set("categoria_id",cat);
-  const linha=val("eq-f-linha"); if(linha) p.set("linha_id",linha);
   const st=val("eq-f-status"); if(st) p.set("status",st);
   if(!(document.getElementById("eq-f-bloq")||{}).checked) p.set("incluir_bloqueados","0");
   const ordem=val("eq-ordem"); if(ordem) p.set("ordem",ordem);

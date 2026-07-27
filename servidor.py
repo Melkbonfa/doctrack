@@ -92,7 +92,7 @@ app.config["BCRYPT_LOG_ROUNDS"]              = int(os.environ.get("BCRYPT_LOG_RO
 from models import (
     db, bcrypt, User, Documento, DocumentoHistorico, Equipamento, AuditLog, RevokedToken,
     EquipamentoHistorico, EquipamentoSnapshot, ParetoHistorico, ImportacaoLog,
-    CategoriaEquipamento, FamiliaEquipamento, LinhaProduto, EquipamentoItem, ITEM_TIPOS,
+    CategoriaEquipamento, FamiliaEquipamento, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
     SETORES, SETOR_PROCESSO, SETORES_TODOS, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS,
@@ -451,8 +451,8 @@ def api_data():
 
 # ── API — EQUIPAMENTOS (entidade central) ────────────────────────────────────
 _EQUIP_BUSCA = ("nome", "nome_original", "nome_tecnico", "sku", "sku_importacao",
-                "codigo_interno", "codigo_fabricante", "anvisa", "fabricante",
-                "familia", "categoria", "linha", "responsavel")
+                "codigo_fabricante", "anvisa", "fabricante",
+                "familia", "categoria", "responsavel")
 
 
 def _query_equipamentos():
@@ -460,8 +460,7 @@ def _query_equipamentos():
     critérios diferentes (o export ignorava os filtros da tela)."""
     query = Equipamento.query.filter(Equipamento.ativo == True)
     for campo, col in (("categoria_id", Equipamento.categoria_id),
-                       ("familia_id", Equipamento.familia_id),
-                       ("linha_id", Equipamento.linha_id)):
+                       ("familia_id", Equipamento.familia_id)):
         val = request.args.get(campo)
         if val:
             try:
@@ -602,13 +601,12 @@ def create_equipamento():
     return jsonify({"mensagem": "Equipamento criado", "equipamento": equip.to_dict()}), 201
 
 _EQUIP_STR = ["nome", "nome_original", "nome_tecnico", "descricao",
-              "codigo_interno", "sku", "sku_importacao", "classificacao_reg",
+              "sku", "sku_importacao", "classificacao_reg",
               "anvisa", "anvisa_registro", "anvisa_validade",
               "classe_risco", "situacao_regulatoria",
-              "modelo", "tecnologia", "aplicacao",
               "fabricante", "codigo_fabricante", "status", "observacoes",
               "armazenamento_base", "responsavel"]
-_EQUIP_INT = ["categoria_id", "familia_id", "linha_id"]
+_EQUIP_INT = ["categoria_id", "familia_id"]
 # Itens de revisão manuais do IDP (editáveis por PATCH, validados contra ESTADOS_REVISAO).
 # pareto_classe/qtd_saidas NÃO entram aqui — só o importador Pareto os grava.
 _EQUIP_REV = ["rev_cadastro", "rev_estrutura", "rev_descritivo"]
@@ -793,11 +791,11 @@ def export_equipamentos():
     if chave:
         equips = sorted(equips, key=chave)
 
-    cols = ["sku", "sku_importacao", "codigo_interno", "nome", "nome_tecnico",
-            "categoria", "familia", "linha", "status", "bloqueado", "responsavel",
+    cols = ["sku", "sku_importacao", "nome", "nome_tecnico",
+            "categoria", "familia", "status", "bloqueado", "responsavel",
             "classificacao_reg", "anvisa", "anvisa_registro", "anvisa_validade",
             "classe_risco", "situacao_regulatoria",
-            "fabricante", "codigo_fabricante", "modelo", "tecnologia", "aplicacao",
+            "fabricante", "codigo_fabricante",
             "descricao", "observacoes", "criado_em", "updated_em"]
     extras = ["ice", "ice_cadastro", "ice_regulatorio", "ice_documental", "idp",
               "docs_finais", "docs_alvo", "docs_atrasados", "registro_situacao",
@@ -1062,12 +1060,14 @@ def import_pareto():
                    ip=get_client_ip())
     return jsonify(rel), 200
 
-# ── API — TAXONOMIA (Categorias · Famílias · Linhas) ─────────────────────────
+# ── API — TAXONOMIA (Categorias · Famílias) ──────────────────────────────────
+# A linha de produto saiu daqui: era um agrupamento transversal que na prática
+# repetia a família, e manter os dois obrigava a classificar o equipamento duas
+# vezes pela mesma coisa.
 @app.route("/api/equip-taxonomia", methods=["GET"])
 @jwt_required()
 def api_taxonomia():
     cats = CategoriaEquipamento.query.filter_by(ativo=True).order_by(CategoriaEquipamento.nome).all()
-    linhas = LinhaProduto.query.filter_by(ativo=True).order_by(LinhaProduto.ordem, LinhaProduto.nome).all()
     def uso(model, attr, _id):
         return Equipamento.query.filter(Equipamento.ativo == True, getattr(Equipamento, attr) == _id).count()
     return jsonify({
@@ -1075,42 +1075,8 @@ def api_taxonomia():
                         "uso": uso(None, "categoria_id", c.id),
                         "familias": [{**f.to_dict(), "uso": uso(None, "familia_id", f.id)} for f in c.familias if f.ativo]}
                        for c in cats],
-        # A tabela linhas_produto existia com FK, relationship e migração e
-        # nenhum endpoint a lia ou escrevia: era um campo morto que o plano
-        # previa como filtro. Agora entra na taxonomia como as categorias.
-        "linhas": [{**l.to_dict(), "uso": uso(None, "linha_id", l.id)} for l in linhas],
     }), 200
 
-
-@app.route("/api/linhas-produto", methods=["POST"])
-@require_role("admin", "gestor", "tecnico")
-def add_linha():
-    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
-    if not nome:
-        return jsonify({"erro": "Informe o nome"}), 400
-    if LinhaProduto.query.filter(LinhaProduto.ativo == True,
-                                 LinhaProduto.nome.ilike(nome)).first():
-        return jsonify({"erro": f'A linha "{nome}" já existe'}), 409
-    linha = LinhaProduto(nome=nome)
-    db.session.add(linha); db.session.commit()
-    return jsonify(linha.to_dict()), 201
-
-
-@app.route("/api/linhas-produto/<int:lid>", methods=["PATCH", "DELETE"])
-@require_role("admin", "gestor", "tecnico")
-def edit_linha(lid):
-    linha = LinhaProduto.query.get(lid)
-    if not linha:
-        return jsonify({"erro": "Não encontrada"}), 404
-    if request.method == "DELETE":
-        Equipamento.query.filter(Equipamento.linha_id == lid).update(
-            {Equipamento.linha_id: None}, synchronize_session=False)
-        db.session.delete(linha); db.session.commit()
-        return jsonify({"mensagem": "Linha excluída"}), 200
-    nome = ((request.get_json(silent=True) or {}).get("nome") or "").strip()
-    if nome:
-        linha.nome = nome; db.session.commit()
-    return jsonify(linha.to_dict()), 200
 
 def _tax_uso(attr, _id):
     return Equipamento.query.filter(getattr(Equipamento, attr) == _id).count()
@@ -1996,14 +1962,12 @@ def _sync_schema():
         "equipamentos": [
             ("nome_tecnico",      "VARCHAR(400) DEFAULT ''"),
             ("descricao",         "TEXT DEFAULT ''"),
-            ("codigo_interno",    "VARCHAR(50) DEFAULT ''"),
             ("sku_importacao",    "VARCHAR(50) DEFAULT ''"),
             ("status",            "VARCHAR(40) DEFAULT 'Ativo'"),
             ("bloqueado",         f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
             ("observacoes",       "TEXT DEFAULT ''"),
             ("categoria_id",      "INTEGER"),
             ("familia_id",        "INTEGER"),
-            ("linha_id",          "INTEGER"),
             ("classificacao_reg", "VARCHAR(20) DEFAULT ''"),
             ("codigo_fabricante", "VARCHAR(80) DEFAULT ''"),
             ("rev_cadastro",      "VARCHAR(20) DEFAULT 'Pendente'"),
@@ -2014,9 +1978,6 @@ def _sync_schema():
             ("responsavel",       "VARCHAR(120) DEFAULT ''"),
             ("classe_risco",         "VARCHAR(10) DEFAULT ''"),
             ("situacao_regulatoria", "VARCHAR(30) DEFAULT ''"),
-            ("modelo",            "VARCHAR(120) DEFAULT ''"),
-            ("tecnologia",        "VARCHAR(200) DEFAULT ''"),
-            ("aplicacao",         "VARCHAR(300) DEFAULT ''"),
         ],
         # Missões: o módulo gravava estado, não processo. Os marcos temporais
         # nascem nulos (ADD COLUMN não aceita default não-constante) e são
