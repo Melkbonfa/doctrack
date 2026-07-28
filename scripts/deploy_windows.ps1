@@ -91,7 +91,15 @@ DATABASE_URL=postgresql://doctrack_app:$senhaBanco@localhost:5432/doctrack
 CORS_ORIGINS=*
 DOCTRACK_FILE_ROOTS=$fileRoots
 "@
-    Set-Content -Path $envFile -Value $conteudo -Encoding UTF8
+    # UTF-8 SEM BOM, nao 'Set-Content -Encoding UTF8': no PowerShell 5.1 esse
+    # parametro grava o BOM (EF BB BF) no inicio do arquivo, e o python-dotenv
+    # o le como parte da primeira chave -- a variavel nasce chamada
+    # "<BOM>JWT_SECRET" e JWT_SECRET chega vazio. O servico nao percebe (o NSSM
+    # injeta as variaveis por conta propria), mas o PASSO 4 abaixo e qualquer
+    # 'python servidor.py' morrem em "JWT_SECRET environment variable is
+    # required" -- com a mensagem de erro apontando para a senha do banco.
+    [System.IO.File]::WriteAllText(
+        $envFile, $conteudo, (New-Object System.Text.UTF8Encoding $false))
     OK ".env criado (JWT_SECRET gerado automaticamente)."
 }
 

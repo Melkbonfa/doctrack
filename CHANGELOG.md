@@ -61,6 +61,16 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 - Migração automática no startup cria a tabela `equipamentos`, vincula
   documentos e completa os tipos faltantes (idempotente, reversível por soft delete).
 
+### Removido
+- **Linha de produto** do equipamento (ficha, filtro da lista, aba de taxonomia,
+  export, busca e rotas `/api/linhas-produto`): agrupamento transversal que na
+  prática repetia a **Família**.
+- **Código interno**, **Modelo**, **Tecnologia** e **Aplicação** da aba Técnico
+  do equipamento (ficha, visualização, export e busca).
+- Remoção só de modelo/API/UI: as colunas (`linha_id`, `codigo_interno`,
+  `modelo`, `tecnologia`, `aplicacao`) e a tabela `linhas_produto` continuam no
+  banco, sem uso, para não exigir migração destrutiva.
+
 ---
 
 ## [4.0.0] — baseline (produção atual)

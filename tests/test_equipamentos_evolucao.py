@@ -2,7 +2,7 @@
 
 Cobre o que mudou de comportamento: ICE calculado no servidor (com validade
 ANVISA vencida deixando de contar), trilha de-para, série temporal, integridade
-de SKU, export com filtros e a linha de produto que era campo morto.
+de SKU e export com filtros.
 """
 from datetime import date, timedelta
 
@@ -163,31 +163,6 @@ def test_saude_aponta_registro_vencido(client, admin_token, auth_headers):
 
 
 # ── campos que existiam e não eram graváveis ─────────────────────────────────
-def test_codigo_interno_agora_e_gravavel(client, admin_token, auth_headers):
-    """Estava no to_dict e fora de _EQUIP_STR: a coluna nunca podia ser escrita."""
-    h = auth_headers(admin_token)
-    eq = _criar(client, h, nome="ComCodigo", codigo_interno="INT-77")
-    assert eq["codigo_interno"] == "INT-77"
-
-
-def test_linha_de_produto_deixa_de_ser_campo_morto(client, admin_token, auth_headers):
-    h = auth_headers(admin_token)
-    linha = client.post("/api/linhas-produto", json={"nome": "Diagnóstico"}, headers=h)
-    assert linha.status_code == 201
-    lid = linha.get_json()["id"]
-
-    eq = _criar(client, h, nome="ComLinha", linha_id=lid)
-    assert eq["linha_id"] == lid and eq["linha"] == "Diagnóstico"
-
-    tax = client.get("/api/equip-taxonomia", headers=h).get_json()
-    assert tax["linhas"][0]["uso"] == 1
-
-    # Excluir a linha desvincula em vez de deixar FK apontando para o nada.
-    assert client.delete(f"/api/linhas-produto/{lid}", headers=h).status_code == 200
-    detalhe = client.get(f"/api/equipamentos/{eq['id']}", headers=h).get_json()
-    assert detalhe["linha_id"] is None
-
-
 def test_responsavel_do_equipamento(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
     eq = _criar(client, h, nome="ComDono", responsavel="Ana Souza")
@@ -273,17 +248,15 @@ def test_campos_do_plano_sao_coletados_mas_ficam_fora_do_ice(client, admin_token
     toda a frota de uma vez (decisão comentada em models.Equipamento)."""
     h = auth_headers(admin_token)
     eq = _criar(client, h, nome="ComPlano", classe_risco="II",
-                situacao_regulatoria="Vigente", modelo="X-200",
-                tecnologia="PCR em tempo real", aplicacao="Diagnóstico molecular",
+                situacao_regulatoria="Vigente",
                 classificacao_reg="IVD", anvisa="1", anvisa_registro="2021-01-01",
                 anvisa_validade=_dias(500))
     assert eq["classe_risco"] == "II"
     assert eq["situacao_regulatoria"] == "Vigente"
-    assert eq["modelo"] == "X-200" and eq["tecnologia"] == "PCR em tempo real"
     assert _completude(client, h, eq["id"])["reg"] == 100
 
     csv = client.get("/api/equipamentos/export", headers=h).get_data(as_text=True)
-    assert "classe_risco" in csv.splitlines()[0] and "X-200" in csv
+    assert "classe_risco" in csv.splitlines()[0] and "ComPlano" in csv
 
 
 # ── rastreabilidade das importações ──────────────────────────────────────────
@@ -314,9 +287,11 @@ def test_export_ordena_como_a_tela(client, admin_token, auth_headers):
     alto = _criar(client, h, nome="AAAAltoIce", sku="1.000901", sku_importacao="2.000901",
                   nome_tecnico="Tec", fabricante="ACME", classificacao_reg="RUO")
     csv = client.get("/api/equipamentos/export?ordem=ice-desc", headers=h).get_data(as_text=True)
+    # Índice pelo cabeçalho: a posição de "nome" muda quando colunas saem do export.
+    i_nome = csv.splitlines()[0].split(";").index("nome")
     linhas = [l for l in csv.splitlines()[1:] if l.strip()]
     assert linhas[0].startswith("1.000901")            # maior ICE primeiro
-    assert any(l.split(";")[3] == "ZZZBaixoIce" for l in linhas)
+    assert any(l.split(";")[i_nome] == "ZZZBaixoIce" for l in linhas)
     assert alto["id"] != baixo["id"]
 
 
