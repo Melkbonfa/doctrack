@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Audit Log Report</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css">
+<!-- Sem CDN: a CSP do app é script-src/style-src 'self' e a rede fabril pode não
+     ter saída externa. jsPDF vem de /static/vendor, igual às outras telas. -->
+<script src="/static/vendor/jspdf.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -66,8 +68,7 @@
   .log-entry { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 0.875rem 1.25rem; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; transition: border-color 0.15s; }
   .log-entry:hover { border-color: var(--border2); }
 
-  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; letter-spacing: 0.03em; border: 0.5px solid; }
-  .badge i { font-size: 12px; }
+  .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; letter-spacing: 0.03em; border: 0.5px solid; }
 
   .badge-LOGIN    { background: var(--login-bg);  color: var(--login-txt);  border-color: var(--login-border);  }
   .badge-UPDATE   { background: var(--update-bg); color: var(--update-txt); border-color: var(--update-border); }
@@ -99,7 +100,7 @@
   .section-title { font-size: 16px; font-weight: 600; margin-bottom: 1rem; }
 
   .export-btns { margin-left: auto; display: flex; gap: 8px; }
-  .export-btn { font-size: 13px; padding: 6px 14px; border: 0.5px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .export-btn { font-size: 13px; padding: 6px 14px; border: 0.5px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface2); color: var(--text); cursor: pointer; display: flex; align-items: center; }
   .export-btn:hover { background: var(--border); }
   .export-btn.pdf { border-color: #e24b4a; color: #a32d2d; }
   .export-btn.pdf:hover { background: #fcebeb; }
@@ -109,7 +110,7 @@
 <body>
 <div class="wrapper">
   <div class="header">
-    <h1><i class="ti ti-shield-check" style="font-size:22px; vertical-align:-3px; margin-right:8px" aria-hidden="true"></i>Audit Log</h1>
+    <h1>Audit Log</h1>
     <p>Registro completo de atividades do sistema — exportado em 26/05/2026</p>
   </div>
 
@@ -130,10 +131,10 @@
     <input type="date" id="filterDateStart" aria-label="Data inicial">
     <label>Até</label>
     <input type="date" id="filterDateEnd" aria-label="Data final">
-    <button class="export-btn" type="button" onclick="clearDates()" title="Limpar datas"><i class="ti ti-x" aria-hidden="true"></i>Datas</button>
+    <button class="export-btn" type="button" onclick="clearDates()" title="Limpar datas">Limpar datas</button>
     <div class="export-btns">
-      <button class="export-btn" onclick="exportCSV()"><i class="ti ti-file-type-csv" aria-hidden="true"></i>CSV</button>
-      <button class="export-btn pdf" onclick="exportPDF()"><i class="ti ti-file-type-pdf" aria-hidden="true"></i>PDF</button>
+      <button class="export-btn" onclick="exportCSV()">CSV</button>
+      <button class="export-btn pdf" onclick="exportPDF()">PDF</button>
     </div>
   </div>
 
@@ -152,16 +153,6 @@ function getBadgeClass(acao) {
   if (acao.includes('STATUS')) return 'badge-STATUS';
   if (acao.includes('DOCUMENT')) return 'badge-DOCUMENT';
   return 'badge-UPDATE';
-}
-
-function getBadgeIcon(acao) {
-  if (acao === 'LOGIN') return 'ti-login';
-  if (acao === 'UPDATE') return 'ti-edit';
-  if (acao === 'CREATE') return 'ti-plus';
-  if (acao === 'DELETE') return 'ti-trash';
-  if (acao.includes('STATUS')) return 'ti-arrows-exchange';
-  if (acao.includes('DOCUMENT')) return 'ti-file-text';
-  return 'ti-activity';
 }
 
 function getBadgeLabel(acao) {
@@ -227,7 +218,7 @@ function buildFilters(data) {
 function renderList(data) {
   const list = document.getElementById('logList');
   document.getElementById('countBar').textContent = `Exibindo ${data.length} de ${RAW.length} eventos`;
-  if (!data.length) { list.innerHTML = '<div class="no-results"><i class="ti ti-search-off" style="font-size:24px; display:block; margin-bottom:8px"></i>Nenhum evento encontrado</div>'; return; }
+  if (!data.length) { list.innerHTML = '<div class="no-results">Nenhum evento encontrado</div>'; return; }
   list.innerHTML = data.map(r => {
     const hasChange = r.ValorAntigo || r.ValorNovo;
     const campo = r.Campo ? `<small>${r.Campo}</small>` : '';
@@ -239,7 +230,7 @@ function renderList(data) {
     const entidade = r.Entidade && r.Entidade !== 'documento' ? `<div class="log-entity">${r.Entidade}${campo}</div>${changeHtml}` : '';
     return `<div class="log-entry">
       <div class="log-meta">
-        <span class="badge ${getBadgeClass(r.Acao)}"><i class="ti ${getBadgeIcon(r.Acao)}" aria-hidden="true"></i>${getBadgeLabel(r.Acao)}</span>
+        <span class="badge ${getBadgeClass(r.Acao)}">${getBadgeLabel(r.Acao)}</span>
         <div class="user-chip"><span class="user-avatar">${getInitials(r.Usuario)}</span>${r.Usuario}</div>
       </div>
       <div>${entidade || '<span style="font-size:13px;color:var(--text3)">—</span>'}</div>
@@ -299,7 +290,7 @@ function clearDates() {
 
 function exportPDF() {
   const filtered = getFiltered();
-  if (!window.jspdf) { alert('Aguarde o carregamento do jsPDF e tente novamente.'); return; }
+  if (!window.jspdf) { alert('Biblioteca de PDF não carregou (/static/vendor/jspdf.umd.min.js). Recarregue a página.'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
@@ -318,7 +309,9 @@ function exportPDF() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(136, 135, 128);
-  doc.text(`Exportado em 26/05/2026 · ${filtered.length} eventos`, margin, y + 13);
+  // Data calculada na hora: a substituição server-side só alcança o cabeçalho
+  // HTML ("exportado em ..."), então uma data fixa aqui congelaria para sempre.
+  doc.text(`Exportado em ${new Date().toLocaleDateString('pt-BR')} · ${filtered.length} eventos`, margin, y + 13);
   y += 22;
 
   const statY = y;
@@ -465,6 +458,5 @@ document.getElementById('searchInput').addEventListener('input', applyFilters);
 document.getElementById('filterDateStart').addEventListener('change', applyFilters);
 document.getElementById('filterDateEnd').addEventListener('change', applyFilters);
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </body>
 </html>

@@ -14,6 +14,23 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Audit Log — exportação em PDF
+- **Corrigido** o botão **PDF** do relatório de auditoria, que não gerava nada.
+  `templates/audit_log_report.html` era o último arquivo do projeto ainda
+  carregando biblioteca de CDN (`cdnjs.cloudflare.com/.../jspdf.umd.min.js`), e a
+  CSP do app é `script-src 'self'` — justamente porque ele roda em rede fabril
+  que pode não ter saída externa. O navegador bloqueava o script, `window.jspdf`
+  ficava `undefined` e `exportPDF()` parava na linha de guarda. Passa a usar
+  `/static/vendor/jspdf.umd.min.js`, a **mesma versão 2.5.1** que já é servida em
+  `dashboard.html` e `entregaveis.html`.
+- **Corrigido** a data do PDF gerado, fixa em `26/05/2026`. A substituição
+  server-side casa `exportado em` minúsculo e não alcançava o `Exportado em` do
+  bloco JavaScript; agora a data é calculada em runtime.
+- **Removido** o CSS de ícones Tabler (também CDN, também bloqueado pela CSP: os
+  ícones nunca chegaram a aparecer) e o markup que dependia dele. O botão de
+  limpar datas, que era um "×" invisível seguido de "Datas", passa a dizer
+  "Limpar datas".
+
 ### Integridade das entregas acima (varredura)
 - **Corrigido** `PATCH /api/documentos/<id>` com `pasta_id` não numérico: o
   `int()` cru levantava `ValueError` não tratado e devolvia 500. Agora responde
