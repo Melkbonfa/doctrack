@@ -578,8 +578,8 @@ async function _recarregarFichaPastas(equipId){
     const eq = await api("/api/equipamentos/"+equipId);
     const bloco = document.getElementById("eq-pastas-wrap");
     if(bloco) bloco.outerHTML = renderPastasFicha(eq);
-    const idx = (equipamentos||[]).findIndex(x=>x.id===equipId);
-    if(idx>=0) equipamentos[idx] = eq;
+    const idx = EQUIP.findIndex(x=>x.id===equipId);
+    if(idx>=0) EQUIP[idx] = eq;
   }catch(err){ toast(err.message,true); }
 }
 
