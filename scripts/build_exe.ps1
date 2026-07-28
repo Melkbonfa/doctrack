@@ -45,8 +45,11 @@ if (-not (Test-Path $envFile)) {
         "JWT_SECRET=$secret",
         "CORS_ORIGINS=*",
         "FLASK_DEBUG=False",
-        "# Pasta(s) de documentos do modulo de Documentos (separe varias com ';')",
-        "DOCTRACK_FILE_ROOTS=P:\Engenharia"
+        "# Pasta(s) de documentos do modulo de Documentos (separe varias com ';').",
+        "# Use a forma UNC: rodando como servico o Windows nao expoe drive mapeado.",
+        "DOCTRACK_FILE_ROOTS=\\loccus-srv03\Projetos`$\Engenharia",
+        "# Apelidos LETRA:=UNC, para aceitar o caminho colado do Explorer (P:\...).",
+        "DOCTRACK_PATH_ALIASES=P:=\\loccus-srv03\Projetos`$"
     )
     Set-Content -Path $envFile -Value $lines -Encoding ascii
     Write-Host "  .env criado com JWT_SECRET aleatorio." -ForegroundColor Green

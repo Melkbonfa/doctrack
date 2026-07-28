@@ -100,6 +100,11 @@ def test_historico_registra_escopo(client, admin_token, auth_headers):
 
 
 # ── Armazenamento herdado ────────────────────────────────────────────────────
+# A unidade P: é apelido de \\test-srv\Projetos$ na suíte (ver conftest): o
+# caminho colado com letra é gravado na forma canônica UNC.
+_UNC = r"\\test-srv\Projetos$"
+
+
 def test_armazenamento_herda_do_equipamento(client, admin_token, auth_headers):
     """Salvar o caminho num documento sobe para o equipamento e vale para os 12.
 
@@ -115,12 +120,12 @@ def test_armazenamento_herda_do_equipamento(client, admin_token, auth_headers):
     assert res.status_code == 200
     d = res.get_json()["documento"]
     assert d["armazenamento"] == ""                                   # sem override
-    assert d["armazenamento_efetivo"] == r"P:\Engenharia\MAQ-ARM"
+    assert d["armazenamento_efetivo"] == _UNC + r"\Engenharia\MAQ-ARM"
 
     # o irmão de outro tipo enxerga o mesmo caminho, sem ter sido editado
     manual = _doc_de_tipo(client, h, "MAQ-ARM", "Manual_Servico")
-    assert manual["armazenamento_efetivo"] == r"P:\Engenharia\MAQ-ARM"
-    assert manual["armazenamento_base"] == r"P:\Engenharia\MAQ-ARM"
+    assert manual["armazenamento_efetivo"] == _UNC + r"\Engenharia\MAQ-ARM"
+    assert manual["armazenamento_base"] == _UNC + r"\Engenharia\MAQ-ARM"
 
 
 def test_armazenamento_divergente_vira_override(client, admin_token, auth_headers):
@@ -134,10 +139,28 @@ def test_armazenamento_divergente_vira_override(client, admin_token, auth_header
     res = client.patch(f"/api/documentos/{chk['id']}",
                        json={"armazenamento": r"P:\Engenharia\MAQ-ARM2\Checklists"}, headers=h)
     d = res.get_json()["documento"]
-    assert d["armazenamento"] == r"P:\Engenharia\MAQ-ARM2\Checklists"   # override real
-    assert d["armazenamento_efetivo"] == r"P:\Engenharia\MAQ-ARM2\Checklists"
+    assert d["armazenamento"] == _UNC + r"\Engenharia\MAQ-ARM2\Checklists"  # override real
+    assert d["armazenamento_efetivo"] == _UNC + r"\Engenharia\MAQ-ARM2\Checklists"
     # o equipamento continua com o caminho base
-    assert d["armazenamento_base"] == r"P:\Engenharia\MAQ-ARM2"
+    assert d["armazenamento_base"] == _UNC + r"\Engenharia\MAQ-ARM2"
+
+
+def test_caminho_com_letra_nao_vira_override_falso(client, admin_token, auth_headers):
+    """O bug do dia a dia: o base gravado em UNC e o mesmo caminho colado do
+    Explorer como `P:\\...`. Sem canonizar, a comparação por string dizia que
+    eram pastas diferentes e criava um override que ninguém pediu."""
+    h = auth_headers(admin_token)
+    client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-ARM3"}, headers=h)
+    it = _doc_de_tipo(client, h, "MAQ-ARM3", "IT")
+    client.patch(f"/api/documentos/{it['id']}",
+                 json={"armazenamento": _UNC + r"\Engenharia\MAQ-ARM3"}, headers=h)
+
+    chk = _doc_de_tipo(client, h, "MAQ-ARM3", "Checklist_Produto")
+    res = client.patch(f"/api/documentos/{chk['id']}",
+                       json={"armazenamento": r"P:\Engenharia\MAQ-ARM3"}, headers=h)
+    d = res.get_json()["documento"]
+    assert d["armazenamento"] == ""            # mesma pasta do equipamento: herda
+    assert d["armazenamento_efetivo"] == _UNC + r"\Engenharia\MAQ-ARM3"
 
 
 # ── Prazo e atraso ───────────────────────────────────────────────────────────

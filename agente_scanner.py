@@ -7,6 +7,8 @@ import os
 import json
 from datetime import datetime
 
+import caminhos
+
 BASE_DOCS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "documentos")
 
 DIRECTORY_STRUCTURE = {
@@ -60,10 +62,13 @@ def validate_file_location(doc):
         })
         return issues
 
-    if not os.path.exists(armazenamento):
+    # caminhos.existe tenta a UNC e a unidade mapeada: com os.path.exists cru,
+    # todo caminho gravado numa forma que ESTE processo não enxerga virava um
+    # falso "arquivo não encontrado" no diagnóstico.
+    if not caminhos.existe(armazenamento):
         issues.append({
             "tipo": "ARQUIVO_NAO_ENCONTRADO",
-            "mensagem": f"Arquivo não encontrado no caminho: {armazenamento}",
+            "mensagem": f"Arquivo não encontrado no caminho: {caminhos.para_exibicao(armazenamento)}",
             "documento_id": documento_id,
             "severidade": "error",
         })
@@ -121,7 +126,7 @@ def scan_documents(documents):
             elif issue["tipo"] == "DIRETORIO_INCORRETO":
                 stats["diretorio_incorreto"] += 1
 
-        if armazenamento and os.path.exists(armazenamento):
+        if armazenamento and caminhos.existe(armazenamento):
             stats["arquivos_encontrados"] += 1
 
         all_issues.extend(issues)

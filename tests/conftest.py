@@ -36,6 +36,10 @@ _SENTINELA_DB = os.path.join(tempfile.gettempdir(), "doctrack_pytest_sentinela.d
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_SENTINELA_DB}")
 # O agendador interno não tem o que fazer numa suíte de testes.
 os.environ.setdefault("DOCTRACK_AGENDADOR", "0")
+# Apelidos de unidade fixos: sem isto o módulo `caminhos` autodetecta o que a
+# máquina tem montado, e um teste que grava "P:\..." passaria ou falharia
+# conforme a estação ter ou não o P: mapeado.
+os.environ.setdefault("DOCTRACK_PATH_ALIASES", r"P:=\\test-srv\Projetos$")
 
 # Adicionar raiz e scripts/ ao path (importar_entregaveis mora em scripts/)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

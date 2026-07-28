@@ -33,7 +33,7 @@ from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import (
-    db, Documento, DocumentoHistorico, Equipamento, AuditLog, User,
+    db, Documento, DocumentoHistorico, Equipamento, EquipamentoPasta, AuditLog, User,
     SETORES, SETORES_TODOS, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS,
     SETOR_DO_TIPO, TIPOS_DOC_LABELS, MOTIVOS_NA, MOTIVO_NA_LIVRE,
@@ -41,22 +41,17 @@ from models import (
 from auth import require_role, log_action, get_client_ip
 from event_bus import EventType
 from utils import norm
+import caminhos
 # Sync Documento → Cartão (import acíclico: missoes.py só importa models/auth)
 from missoes import sincronizar_cartoes_documento, emitir_eventos_sync
 
 documentos_bp = Blueprint("documentos", __name__)
 
 # Raízes permitidas para visualizar/baixar arquivos dos equipamentos.
-# Configurável via DOCTRACK_FILE_ROOTS (separado por ';'). Inclui tanto a forma
-# UNC (\\loccus-srv03\Projetos$\Engenharia) quanto a letra de unidade mapeada
-# (P:\Engenharia), pois os caminhos podem estar gravados em qualquer um dos
-# formatos e um serviço Windows só enxerga o caminho UNC.
-ARQUIVOS_ROOTS = [
-    r.strip() for r in os.environ.get(
-        "DOCTRACK_FILE_ROOTS",
-        r"\\loccus-srv03\Projetos$\Engenharia;P:\Engenharia",
-    ).split(";") if r.strip()
-]
+# Configurável via DOCTRACK_FILE_ROOTS (separado por ';'). Basta UMA forma por
+# pasta: caminhos.normalizar() traduz a unidade mapeada (P:\Engenharia) para a
+# UNC canônica (\\loccus-srv03\Projetos$\Engenharia) antes de comparar.
+ARQUIVOS_ROOTS = caminhos.RAIZES_ARQUIVOS
 
 _EXT_INLINE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt"}
 
@@ -242,7 +237,7 @@ def create_documento():
             equip_obj = Equipamento(
                 nome=equip, sku=sku,
                 fabricante=fab,
-                armazenamento_base=data.get("armazenamento", ""),
+                armazenamento_base=caminhos.normalizar(data.get("armazenamento")),
             )
             db.session.add(equip_obj)
             db.session.flush()
@@ -251,7 +246,7 @@ def create_documento():
                 equip_obj.sku = sku
             # o caminho é do equipamento: semeia o base se ainda estiver vazio
             if data.get("armazenamento") and not (equip_obj.armazenamento_base or "").strip():
-                equip_obj.armazenamento_base = data["armazenamento"]
+                equip_obj.armazenamento_base = caminhos.normalizar(data["armazenamento"])
             # identidade canônica vem da entidade
             sku = equip_obj.sku or sku
             fab = equip_obj.fabricante or fab
@@ -400,13 +395,43 @@ def update_documento(doc_id):
     # linhas era o que fazia uma aba divergir das outras. Aqui, salvar o caminho
     # herdado não cria override (fica vazio = continua herdando); só um caminho
     # DIFERENTE do base vira exceção deste documento.
+    # Grupo (pasta) do documento. Vem antes do caminho livre porque escolher a
+    # pasta é o caminho normal e ela já resolve o endereço.
+    if "pasta_id" in data:
+        bruto = data.get("pasta_id")
+        if bruto in (None, "", 0, "0"):
+            doc.pasta_id = None
+        else:
+            pasta = EquipamentoPasta.query.filter(
+                EquipamentoPasta.id == int(bruto),
+                EquipamentoPasta.ativo == True).first()
+            # a pasta tem que ser DO equipamento do documento: aceitar a de outro
+            # deixaria um documento apontando para a pasta de outro produto
+            if not pasta or pasta.equipamento_id != doc.equipamento_id:
+                return jsonify({"erro": "Pasta inválida para este equipamento"}), 400
+            if doc.pasta_id != pasta.id:
+                log_action(caller, "UPDATE", entidade=doc.documento, campo="pasta",
+                           antigo=(doc.pasta_rel.nome if doc.pasta_rel else ""),
+                           novo=pasta.nome, documento_id=doc.id, ip=get_client_ip())
+            doc.pasta_id = pasta.id
+            # escolher a pasta desfaz uma exceção anterior — senão o caminho
+            # livre continuaria vencendo e a troca de pasta não teria efeito
+            doc.armazenamento = ""
+            data.pop("armazenamento", None)
+
     if "armazenamento" in data:
-        base = ((doc.equipamento_rel.armazenamento_base or "").strip()
-                if doc.equipamento_rel else "")
-        val = (data.get("armazenamento") or "").strip()
-        if val and val == base:
+        # Canoniza antes de comparar: sem isto o mesmo diretório colado como
+        # `P:\...` não batia com o gravado em UNC e virava uma exceção falsa.
+        # Salvar um caminho que já é o da pasta ou o do equipamento NÃO cria
+        # exceção — continua herdando de quem já o fornecia.
+        base = caminhos.normalizar(doc.equipamento_rel.armazenamento_base
+                                   if doc.equipamento_rel else "")
+        da_pasta = caminhos.normalizar(doc.pasta_rel.caminho if doc.pasta_rel else "")
+        val = caminhos.normalizar(data.get("armazenamento"))
+        data["armazenamento"] = val
+        if val and val in (base, da_pasta):
             data["armazenamento"] = ""
-        elif val and not base and doc.equipamento_rel:
+        elif val and not base and not da_pasta and doc.equipamento_rel:
             # equipamento ainda sem caminho: promove este a base do equipamento
             doc.equipamento_rel.armazenamento_base = val
             log_action(caller, "UPDATE", entidade=f"Equipamento: {doc.equipamento}",
@@ -940,7 +965,9 @@ def abrir_pasta():
     import subprocess
     import socket
 
-    caminho_norm = os.path.normpath(caminho)
+    # Canoniza ANTES de qualquer checagem: é aqui que `P:\...` colado da barra de
+    # endereço do Explorer vira a UNC que a allowlist e o serviço reconhecem.
+    caminho_norm = caminhos.normalizar(caminho)
 
     # 0. Segurança: só caminhos dentro das raízes permitidas (mesma allowlist
     # das rotas de arquivos). Sem isto, qualquer usuário autenticado poderia
@@ -966,26 +993,30 @@ def abrir_pasta():
         except:
             pass
 
-    # 2. Resolve o caminho (busca o arquivo/pasta ou o ancestral mais próximo existente)
+    # 2. Resolve o caminho (busca o arquivo/pasta ou o ancestral mais próximo
+    # existente). `caminhos.resolver` tenta a UNC e a unidade mapeada: a pasta
+    # existe mesmo quando ESTE processo só enxerga uma das duas formas.
     caminho_final = None
     tipo_abertura = "direto"
 
-    if os.path.exists(caminho_norm):
-        caminho_final = caminho_norm
+    achado = caminhos.resolver(caminho_norm)
+    if achado:
+        caminho_final = achado
         tipo_abertura = "direto"
     else:
         parent = os.path.dirname(caminho_norm)
         while parent:
             if not parent.strip():
                 break
-            if os.path.exists(parent) and os.path.isdir(parent):
-                caminho_final = parent
+            achado = caminhos.resolver(parent)
+            if achado and os.path.isdir(achado):
+                caminho_final = achado
                 tipo_abertura = "ancestral"
                 break
             next_parent = os.path.dirname(parent)
             if next_parent == parent:
-                if os.path.exists(parent) and os.path.isdir(parent):
-                    caminho_final = parent
+                if achado and os.path.isdir(achado):
+                    caminho_final = achado
                     tipo_abertura = "raiz"
                 break
             parent = next_parent
@@ -1014,10 +1045,14 @@ def abrir_pasta():
         except Exception as e:
             return jsonify({"erro": f"Erro ao abrir pasta: {str(e)}"}), 500
     else:
-        # Se for acesso remoto, não abre no servidor, mas retorna o caminho resolvido para o cliente copiar
+        # Acesso remoto: não abre no servidor, devolve o caminho para o cliente
+        # colar. Na forma COM LETRA (P:\...) — é o mapeamento da estação dele que
+        # vai abrir a pasta, e colar a UNC do share administrativo costuma pedir
+        # credencial de novo.
         return jsonify({
             "mensagem": "Acesso remoto detectado. Caminho resolvido pronto para cópia.",
-            "caminho_aberto": caminho_final,
+            "caminho_aberto": caminhos.para_exibicao(caminho_final),
+            "caminho_unc": caminhos.normalizar(caminho_final),
             "caminho_original": caminho,
             "local": False,
             "tipo": tipo_abertura
@@ -1025,25 +1060,12 @@ def abrir_pasta():
 
 # ── API — VISUALIZAR ARQUIVOS DO EQUIPAMENTO ──────────────────────────────────
 def _validar_caminho_arquivo(caminho):
-    """Resolve o caminho e garante que está dentro de uma raiz permitida.
-    Retorna o caminho real (absoluto) ou None se inválido/fora das raízes."""
-    if not caminho:
-        return None
-    try:
-        real = os.path.realpath(os.path.abspath(caminho))
-    except Exception:
-        return None
-    nreal = os.path.normcase(real)
-    for root in ARQUIVOS_ROOTS:
-        try:
-            nroot = os.path.normcase(os.path.realpath(os.path.abspath(root)))
-            if os.path.commonpath([nreal, nroot]) == nroot:
-                return real
-        except ValueError:
-            continue  # caminhos em drives diferentes
-        except Exception:
-            continue
-    return None
+    """Caminho na forma canônica se estiver dentro de uma raiz permitida, senão None.
+
+    Lê ARQUIVOS_ROOTS do módulo (e não a constante de `caminhos`) para os testes
+    poderem trocar a allowlist por uma pasta temporária via patch.
+    """
+    return caminhos.validar(caminho, ARQUIVOS_ROOTS)
 
 @documentos_bp.route("/api/documentos/arquivos", methods=["GET"])
 @jwt_required()
@@ -1056,8 +1078,12 @@ def listar_arquivos():
     pasta = _validar_caminho_arquivo(caminho)
     if not pasta:
         return jsonify({"erro": "Caminho fora das pastas permitidas"}), 403
-    if not os.path.isdir(pasta):
+    # `pasta` é a forma canônica (para comparar); `real` é a variante que este
+    # processo consegue de fato abrir — nem sempre a mesma.
+    real = caminhos.resolver(pasta)
+    if not real or not os.path.isdir(real):
         return jsonify({"erro": "Pasta não encontrada ou inacessível"}), 404
+    pasta = real
 
     arquivos = []
     try:
@@ -1084,7 +1110,9 @@ def listar_arquivos():
                     tamanho, mod = 0, ""
                 arquivos.append({
                     "nome": nome,
-                    "caminho": full,
+                    # canônico: o cliente devolve este valor em /arquivo e ele
+                    # precisa validar independentemente da forma que abrimos aqui
+                    "caminho": caminhos.normalizar(full),
                     "rel": os.path.relpath(full, pasta),
                     "ext": ext.lstrip("."),
                     "tamanho": tamanho,
@@ -1101,7 +1129,8 @@ def listar_arquivos():
 
     ordem = {"IT": 0, "Checklist": 1, "Outros": 2}
     arquivos.sort(key=lambda a: (ordem.get(a["categoria"], 3), a["nome"].lower()))
-    return jsonify({"pasta": pasta, "arquivos": arquivos}), 200
+    # devolve a pasta na forma com letra: é ela que o usuário reconhece e cola
+    return jsonify({"pasta": caminhos.para_exibicao(pasta), "arquivos": arquivos}), 200
 
 @documentos_bp.route("/api/documentos/arquivo", methods=["GET"])
 @jwt_required()
@@ -1111,10 +1140,11 @@ def servir_arquivo():
     caminho = (request.args.get("caminho") or "").strip()
     if not caminho:
         return jsonify({"erro": "Caminho não fornecido"}), 400
-    real = _validar_caminho_arquivo(caminho)
-    if not real:
+    alvo = _validar_caminho_arquivo(caminho)
+    if not alvo:
         return jsonify({"erro": "Caminho fora das pastas permitidas"}), 403
-    if not os.path.isfile(real):
+    real = caminhos.resolver(alvo)
+    if not real or not os.path.isfile(real):
         return jsonify({"erro": "Arquivo não encontrado"}), 404
     ext = os.path.splitext(real)[1].lower()
     inline = (ext in _EXT_INLINE) and request.args.get("download") != "1"

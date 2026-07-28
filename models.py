@@ -235,9 +235,15 @@ class Documento(db.Model):
     data_homologacao  = db.Column(db.DateTime, nullable=True)
     obs_homologacao   = db.Column(db.Text, default="")
     prazo             = db.Column(db.Date, nullable=True, index=True)
-    # Caminho da pasta. Vazio = herda o Equipamento.armazenamento_base (o caso
-    # normal: o caminho é do equipamento, não de cada um dos 12 documentos).
-    # Preenchido = override deliberado só deste documento.
+    # Pasta (grupo) a que este documento pertence — ver EquipamentoPasta. É o
+    # nível que faltava: na estrutura real de rede os manuais ficam numa pasta,
+    # IT e checklists em outra, QI/QO/QD em outra. Antes só havia "a pasta do
+    # equipamento", e dizer isso exigia um override em cada documento.
+    pasta_id        = db.Column(db.Integer, db.ForeignKey("equipamento_pastas.id"),
+                                nullable=True, index=True)
+    # Exceção livre deste documento, quando ele não cabe em nenhuma pasta do
+    # equipamento (ex.: Manual ES em \LATAM e Manual PT em \Manual Dash). Vazio
+    # é o caso normal. Vence a pasta e o caminho do equipamento.
     armazenamento   = db.Column(db.String(500), default="")
     criado_em       = db.Column(db.DateTime, default=datetime.now)
     updated_em      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
@@ -269,6 +275,10 @@ class Documento(db.Model):
 
     # Identidade do equipamento (fonte única). joined evita N+1 ao serializar listas.
     equipamento_rel = db.relationship("Equipamento", foreign_keys=[equipamento_id],
+                                      lazy="joined")
+    # joined pelo mesmo motivo: armazenamento_efetivo consulta a pasta, e a lista
+    # de documentos do dashboard serializa centenas de linhas de uma vez.
+    pasta_rel       = db.relationship("EquipamentoPasta", foreign_keys=[pasta_id],
                                       lazy="joined")
     responsaveis_users = db.relationship("User", secondary=documento_responsaveis,
                                          backref=db.backref("documentos_atribuidos",
@@ -303,16 +313,42 @@ class Documento(db.Model):
 
     @property
     def armazenamento_efetivo(self):
-        """Caminho que vale para este documento: o override, ou o do equipamento.
+        """Caminho que vale para este documento, do mais específico ao mais geral:
 
-        O caminho é atributo do EQUIPAMENTO — antes ele era copiado nas 12 linhas
-        de documento, e editá-lo numa aba não refletia nas outras 11.
+            1. exceção do próprio documento  (`armazenamento`)
+            2. pasta do grupo                (`pasta.caminho`)
+            3. caminho do equipamento        (`armazenamento_base`)
+
+        O nível 2 é o que representa a estrutura real da rede — manuais numa
+        pasta, IT e checklists em outra. Com só os níveis 1 e 3, apontar os 4
+        manuais para a pasta deles exigia marcar 4 "exceções", e o que é regra
+        aparecia na tela como anomalia.
         """
         proprio = (self.armazenamento or "").strip()
         if proprio:
             return proprio
+        p = self.pasta_rel
+        if p is not None and (p.caminho or "").strip():
+            return p.caminho.strip()
         eq = self.equipamento_rel
         return (eq.armazenamento_base or "").strip() if eq else ""
+
+    @property
+    def armazenamento_origem(self):
+        """De onde veio o caminho efetivo: 'documento' | 'pasta' | 'equipamento' | ''.
+
+        A interface precisa distinguir os três para não chamar de exceção o que
+        é a regra do grupo.
+        """
+        if (self.armazenamento or "").strip():
+            return "documento"
+        p = self.pasta_rel
+        if p is not None and (p.caminho or "").strip():
+            return "pasta"
+        eq = self.equipamento_rel
+        if eq and (eq.armazenamento_base or "").strip():
+            return "equipamento"
+        return ""
 
     @property
     def motivo_na_label(self):
@@ -396,12 +432,17 @@ class Documento(db.Model):
             "prazo":            self.prazo.strftime("%Y-%m-%d") if self.prazo else "",
             "dias_para_prazo":  self.dias_para_prazo,
             "atrasado":         self.atrasado,
-            # armazenamento = override do documento (vazio = herda);
-            # armazenamento_base = o do equipamento; efetivo = o que vale de fato.
+            # armazenamento = exceção do documento (vazio = herda da pasta/equip.);
+            # pasta_* = o grupo; armazenamento_base = o do equipamento;
+            # efetivo = o que vale de fato; origem = qual dos três venceu.
             "armazenamento":    self.armazenamento or "",
+            "pasta_id":         self.pasta_id,
+            "pasta_nome":       (self.pasta_rel.nome if self.pasta_rel else ""),
+            "pasta_caminho":    (self.pasta_rel.caminho if self.pasta_rel else ""),
             "armazenamento_base": ((self.equipamento_rel.armazenamento_base or "")
                                    if self.equipamento_rel else ""),
             "armazenamento_efetivo": self.armazenamento_efetivo,
+            "armazenamento_origem":  self.armazenamento_origem,
             "status_global":    self.status_global,
             "criado_em":        self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
             "updated_em":       self.updated_em.strftime("%d/%m/%Y %H:%M") if self.updated_em else "",
@@ -565,6 +606,12 @@ class Equipamento(db.Model):
             "bloqueado":          bool(self.bloqueado),
             "observacoes":        self.observacoes or "",
             "armazenamento_base": self.armazenamento_base or "",
+            # As pastas do equipamento (grupos de documentos). A tela de
+            # documentos precisa delas para oferecer o seletor sem uma segunda
+            # ida ao servidor por equipamento aberto.
+            "pastas":             [p.to_dict() for p in
+                                   sorted((x for x in (self.pastas or []) if x.ativo),
+                                          key=lambda x: (x.ordem or 0, x.nome or ""))],
             "responsavel":        self.responsavel or "",
             "rev_cadastro":       self.rev_cadastro or "Pendente",
             "rev_estrutura":      self.rev_estrutura or "Pendente",
@@ -581,6 +628,46 @@ class Equipamento(db.Model):
             "criado_em":          self.criado_em.strftime("%d/%m/%Y %H:%M") if self.criado_em else "",
             "updated_em":         self.updated_em.strftime("%d/%m/%Y %H:%M") if self.updated_em else "",
             "updated_iso":        self.updated_em.isoformat() if self.updated_em else "",
+        }
+
+
+class EquipamentoPasta(db.Model):
+    """Uma pasta de rede do equipamento, com o grupo de documentos que mora nela.
+
+    A estrutura real não é "uma pasta por equipamento" nem "uma pasta por
+    documento": é uma pasta por GRUPO — manuais numa, IT e checklists em outra,
+    QI/QO/QD em outra. Os grupos não são fixos no código porque variam de
+    equipamento para equipamento, assim como o caminho: nos dados aparecem
+    `...\\Documentos\\Manuais`, `...\\Manual\\Manuais` e
+    `...\\Documentos\\Manual de Usuário\\Manual Dash` para o mesmo papel.
+
+    Por isso cada equipamento declara as SUAS pastas (nome livre + caminho
+    completo) e cada documento aponta para uma delas.
+    """
+    __tablename__ = "equipamento_pastas"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                               nullable=False, index=True)
+    nome           = db.Column(db.String(80), nullable=False, default="")
+    # Caminho completo e canônico (ver caminhos.normalizar). Não é sufixo do
+    # armazenamento_base: há equipamento cuja pasta de manuais está fora dele.
+    caminho        = db.Column(db.String(500), default="")
+    ordem          = db.Column(db.Integer, default=0)
+    ativo          = db.Column(db.Boolean, default=True, nullable=False)
+    criado_em      = db.Column(db.DateTime, default=datetime.now)
+
+    equipamento_rel = db.relationship("Equipamento", foreign_keys=[equipamento_id],
+                                      backref=db.backref("pastas", lazy="select"))
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "equipamento_id": self.equipamento_id,
+            "nome":           self.nome or "",
+            "caminho":        self.caminho or "",
+            "ordem":          self.ordem or 0,
+            "ativo":          bool(self.ativo),
         }
 
 

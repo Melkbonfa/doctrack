@@ -997,6 +997,9 @@ async function abrirArquivos(caminho, titulo){
         `<div style="text-align:center;padding:28px;color:var(--t3);font-size:13px">${esc(data.erro||'Não foi possível listar os arquivos')}</div>`;
       return;
     }
+    // o servidor devolve a pasta na forma que o usuário reconhece (P:\...),
+    // que nem sempre é a que ele digitou nem a canônica gravada no banco
+    if(data.pasta) document.getElementById('arquivos-sub').textContent = data.pasta;
     renderArquivosLista(data.arquivos || []);
   }catch(e){
     document.getElementById('arquivos-body').innerHTML =
@@ -1413,6 +1416,9 @@ function openEquipModal(key, opts){
   const fabricante = (g&&g.fabricante) || (equip&&equip.fabricante) || '';
   const equip_id = (g&&g.id) || (equip&&equip.id) || null;
   _equipCtx = { equipamento: (g&&g.equipamento)||'', equip, equip_id, byTipo, docs, sku, fabricante, g,
+                // pastas (grupos) do equipamento: vêm no próprio to_dict dele,
+                // então o seletor do modal não custa uma ida extra ao servidor
+                pastas: (equip && equip.pastas) || [],
                 cartoesPorDoc: undefined };   // undefined=carregando, null=indisponível (403/erro)
   _escopoPendente = null;   // nenhum N/A a meio caminho no modal recém-aberto
 
@@ -1779,14 +1785,30 @@ function renderTipoPanel(tipo){
       <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="et-obstr-${tipo}" value="${esc(d.obs_treinamento)}"></div>
       <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="et-obshm-${tipo}" value="${esc(d.obs_homologacao)}"></div>
     </div>` : '';
-  // O caminho é do EQUIPAMENTO: o campo mostra o efetivo e, quando o documento
-  // não tem override, deixa claro que está herdando (editar não cria 12 cópias).
-  const herdado = !(d.armazenamento||'').trim() && !!(d.armazenamento_base||'').trim();
-  const armHint = herdado
-    ? `<span class="arm-hint" title="Vem do cadastro do equipamento e vale para todos os documentos dele">herdado do equipamento</span>`
-    : ((d.armazenamento||'').trim()
-        ? `<span class="arm-hint override" title="Caminho específico deste documento">exceção deste documento<button type="button" class="btn-link" onclick="limparOverrideArm('${tipo}')">usar o do equipamento</button></span>`
-        : '');
+  // O caminho vem de três lugares, do mais específico ao mais geral: exceção
+  // do documento > pasta do grupo > cadastro do equipamento. O selo diz QUAL
+  // deles venceu — antes chamava de "exceção" o manual apontado para a pasta
+  // de manuais, que é a regra e não a anomalia.
+  const origem = d.armazenamento_origem || '';
+  const armHint =
+    origem === 'pasta'
+      ? `<span class="arm-hint" title="Vem da pasta &quot;${esc(d.pasta_nome||'')}&quot; do equipamento e vale para todos os documentos dela">pasta: ${esc(d.pasta_nome||'')}</span>`
+    : origem === 'equipamento'
+      ? `<span class="arm-hint" title="Vem do cadastro do equipamento e vale para todo documento sem pasta própria">herdado do equipamento</span>`
+    : origem === 'documento'
+      ? `<span class="arm-hint override" title="Endereço só deste documento, diferente do grupo dele">exceção deste documento<button type="button" class="btn-link" onclick="limparOverrideArm('${tipo}')">voltar ao grupo</button></span>`
+    : '';
+
+  // Seletor de pasta: as pastas são do equipamento (ver aba Equipamentos).
+  const pastas = (_equipCtx && _equipCtx.pastas) || [];
+  const seletorPasta = pastas.length
+    ? `<div class="form-group"><label class="form-label">Pasta (grupo)</label>
+         <select class="form-input" id="et-pasta-${tipo}">
+           <option value=""${!d.pasta_id?' selected':''}>— usar a pasta do equipamento —</option>
+           ${pastas.map(p=>`<option value="${p.id}"${d.pasta_id===p.id?' selected':''}>${esc(p.nome)}</option>`).join('')}
+         </select>
+       </div>`
+    : '';
   return `
     <div class="equip-panel-head"><span class="equip-panel-title">${esc(label)}</span>${setorTag}${atrasoTag}</div>
 
@@ -1815,6 +1837,7 @@ function renderTipoPanel(tipo){
 
     <div class="doc-sec">
       <div class="doc-sec-title">Arquivos</div>
+      ${seletorPasta}
       <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede) ${armHint}</label>
         <div class="armazenamento-row">
           <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento_efetivo||'')}">
@@ -1831,14 +1854,26 @@ function renderTipoPanel(tipo){
     <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" type="button" onclick="saveTipoDoc('${tipo}')">Salvar alterações</button></div>`;
 }
 
-// Devolve o documento ao caminho do equipamento (remove o override).
+// Remove a exceção: o documento volta a herdar da pasta dele (ou, se não tiver
+// pasta, do equipamento). Manda o campo vazio em vez de copiar o caminho do
+// equipamento — copiá-lo ignorava a pasta e devolvia o documento ao lugar errado.
 async function limparOverrideArm(tipo){
   const d = _equipCtx.byTipo[tipo];
   if(!d) return;
-  const base = d.armazenamento_base || '';
-  const el = document.getElementById('et-arm-'+tipo);
-  if(el) el.value = base;
-  await saveTipoDoc(tipo);
+  try{
+    const res = await _patchDoc(d.id, { armazenamento: '' });
+    if(res && res.ok){
+      _aplicarDocLocal((await res.json()).documento);
+      const key = _equipCtx.g && _equipCtx.g.key;
+      const abaEl = document.querySelector('#equip-tabs .equip-modal-tab.active');
+      renderDashboard(); renderDocs();
+      if(key) openEquipModal(key, { aba: abaEl?abaEl.dataset.tab:null, manterAberto:true });
+      showToast('Documento devolvido ao grupo','success');
+    } else {
+      const e = await res.json().catch(()=>({}));
+      showToast(e.erro||'Erro ao salvar','error');
+    }
+  }catch(e){ showToast('Erro de rede','error'); }
 }
 
 // Histórico do documento aberto (aging + últimas transições). Carregado sob
@@ -1914,6 +1949,17 @@ async function saveTipoDoc(tipo){
     armazenamento: val('et-arm-'+tipo),
     prazo: val('et-prazo-'+tipo),
   };
+  // pasta_id só vai quando o usuário REALMENTE trocou de pasta: o servidor
+  // limpa o caminho livre ao receber pasta_id, então mandá-lo sempre apagaria
+  // uma exceção que o usuário acabou de digitar no campo ao lado.
+  const selPasta = document.getElementById('et-pasta-'+tipo);
+  if(selPasta){
+    const escolhida = selPasta.value ? Number(selPasta.value) : null;
+    if(escolhida !== (d.pasta_id||null)){
+      payload.pasta_id = escolhida;
+      delete payload.armazenamento;
+    }
+  }
   if(_isPreTipo(tipo)){
     payload.data_treinamento = val('et-treino-'+tipo);
     payload.data_homologacao = val('et-homol-'+tipo);
