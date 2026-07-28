@@ -1785,30 +1785,6 @@ function renderTipoPanel(tipo){
       <div class="form-group"><label class="form-label">Obs. Treinamento</label><input class="form-input" id="et-obstr-${tipo}" value="${esc(d.obs_treinamento)}"></div>
       <div class="form-group"><label class="form-label">Obs. Homologação</label><input class="form-input" id="et-obshm-${tipo}" value="${esc(d.obs_homologacao)}"></div>
     </div>` : '';
-  // O caminho vem de três lugares, do mais específico ao mais geral: exceção
-  // do documento > pasta do grupo > cadastro do equipamento. O selo diz QUAL
-  // deles venceu — antes chamava de "exceção" o manual apontado para a pasta
-  // de manuais, que é a regra e não a anomalia.
-  const origem = d.armazenamento_origem || '';
-  const armHint =
-    origem === 'pasta'
-      ? `<span class="arm-hint" title="Vem da pasta &quot;${esc(d.pasta_nome||'')}&quot; do equipamento e vale para todos os documentos dela">pasta: ${esc(d.pasta_nome||'')}</span>`
-    : origem === 'equipamento'
-      ? `<span class="arm-hint" title="Vem do cadastro do equipamento e vale para todo documento sem pasta própria">herdado do equipamento</span>`
-    : origem === 'documento'
-      ? `<span class="arm-hint override" title="Endereço só deste documento, diferente do grupo dele">exceção deste documento<button type="button" class="btn-link" onclick="limparOverrideArm('${tipo}')">voltar ao grupo</button></span>`
-    : '';
-
-  // Seletor de pasta: as pastas são do equipamento (ver aba Equipamentos).
-  const pastas = (_equipCtx && _equipCtx.pastas) || [];
-  const seletorPasta = pastas.length
-    ? `<div class="form-group"><label class="form-label">Pasta (grupo)</label>
-         <select class="form-input" id="et-pasta-${tipo}">
-           <option value=""${!d.pasta_id?' selected':''}>— usar a pasta do equipamento —</option>
-           ${pastas.map(p=>`<option value="${p.id}"${d.pasta_id===p.id?' selected':''}>${esc(p.nome)}</option>`).join('')}
-         </select>
-       </div>`
-    : '';
   return `
     <div class="equip-panel-head"><span class="equip-panel-title">${esc(label)}</span>${setorTag}${atrasoTag}</div>
 
@@ -1837,13 +1813,7 @@ function renderTipoPanel(tipo){
 
     <div class="doc-sec">
       <div class="doc-sec-title">Arquivos</div>
-      ${seletorPasta}
-      <div class="form-group"><label class="form-label">Armazenamento (Caminho na Rede) ${armHint}</label>
-        <div class="armazenamento-row">
-          <input class="form-input" id="et-arm-${tipo}" value="${esc(d.armazenamento_efetivo||'')}">
-          <button type="button" class="btn btn-ghost btn-sm" title="Ver arquivos desta pasta" onclick="abrirArquivos(document.getElementById('et-arm-${tipo}').value, '${esc(label)} — '+(_equipCtx?_equipCtx.equipamento:''))">📄 Ver arquivos</button>
-        </div>
-      </div>
+      <div id="et-arqplat-${tipo}">${renderArquivoPlataforma(d, tipo)}</div>
     </div>
 
     <div class="doc-sec">
@@ -1854,25 +1824,176 @@ function renderTipoPanel(tipo){
     <div class="modal-footer" style="margin-top:8px"><button class="btn btn-primary" type="button" onclick="saveTipoDoc('${tipo}')">Salvar alterações</button></div>`;
 }
 
-// Remove a exceção: o documento volta a herdar da pasta dele (ou, se não tiver
-// pasta, do equipamento). Manda o campo vazio em vez de copiar o caminho do
-// equipamento — copiá-lo ignorava a pasta e devolvia o documento ao lugar errado.
-async function limparOverrideArm(tipo){
-  const d = _equipCtx.byTipo[tipo];
+// ── Arquivos hospedados na plataforma ────────────────────────────────────────
+// São CÓPIAS de conveniência: o mestre continua no servidor da engenharia e a
+// Qualidade mantém o sistema dela. Um documento comporta vários arquivos ao
+// mesmo tempo (manual PT e ES, IT e checklist). Adicionar/remover é de
+// admin+gestor; ler e baixar é de qualquer um — quem entra no DocTrack já
+// acessa as pastas de rede, então travar o download não protegeria nada.
+function _podeGerenciarArquivo(){
+  return currentUser.role==='admin' || currentUser.role==='gestor';
+}
+
+function renderArquivoPlataforma(d, tipo){
+  const lista = (d && d.arquivos) || [];
+  const pode = _podeGerenciarArquivo();
+  const btnAdd = pode
+    ? `<button type="button" class="arq-btn arq-btn-add" onclick="enviarArquivoDoc('${tipo}')">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+         Adicionar arquivo</button>`
+    : '';
+  if(!lista.length){
+    return `<div class="arq-plat-vazio">
+      <span>Nenhum arquivo enviado para a plataforma.</span>
+      ${btnAdd}
+    </div>`;
+  }
+  const linhas = lista.map(a=>{
+    const cor = _ICON_ARQUIVO[a.ext] || 'var(--t3)';
+    // Autor e data ficam SEMPRE visíveis: não há sincronização com o mestre,
+    // então é isso que impede alguém ler uma cópia velha sem perceber.
+    const meta = [_fmtTamanho(a.tamanho), a.enviado_por, a.enviado_em]
+                   .filter(Boolean).join(' · ');
+    const nomeEsc = (a.nome||'').replace(/'/g,"\\'");
+    const acoes = [
+      a.pode_visualizar
+        ? `<button type="button" class="arq-btn" title="Visualizar na plataforma" onclick="visualizarArquivoDoc(${a.id}, '${nomeEsc}', '${a.ext}')">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+             Visualizar</button>`
+        : '',
+      `<button type="button" class="arq-btn" title="Baixar o arquivo" onclick="baixarArquivoDoc(${a.id})">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+         Baixar</button>`,
+      pode
+        ? `<button type="button" class="arq-btn danger" title="Remover esta cópia da plataforma" onclick="removerArquivoDoc(${a.id}, '${tipo}')">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
+             Remover</button>`
+        : ''
+    ].filter(Boolean).join('');
+    return `<div class="arquivo-row arq-plat">
+      <span class="arquivo-ext" style="background:${cor}">${esc((a.ext||'?').toUpperCase().slice(0,4))}</span>
+      <span class="arquivo-info">
+        <span class="arquivo-nome">${esc(a.nome)}</span>
+        <span class="arquivo-meta">${esc(meta)}${a.observacao?' · '+esc(a.observacao):''}</span>
+      </span>
+      <span class="arq-plat-acoes">${acoes}</span>
+    </div>`;
+  }).join('');
+  return linhas + (btnAdd ? `<div class="arq-plat-footer">${btnAdd}</div>` : '');
+}
+
+// Repinta só a faixa do arquivo — repintar o painel inteiro descartaria o que o
+// usuário já digitou nos outros campos e ainda não salvou.
+function _repintarArqPlat(tipo, doc){
+  const el = document.getElementById('et-arqplat-'+tipo);
+  if(el) el.innerHTML = renderArquivoPlataforma(doc, tipo);
+}
+
+function enviarArquivoDoc(tipo){
+  const d = _equipCtx && _equipCtx.byTipo[tipo];
   if(!d) return;
-  try{
-    const res = await _patchDoc(d.id, { armazenamento: '' });
-    if(res && res.ok){
-      _aplicarDocLocal((await res.json()).documento);
-      const key = _equipCtx.g && _equipCtx.g.key;
-      const abaEl = document.querySelector('#equip-tabs .equip-modal-tab.active');
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.pdf,.docx,.doc,.xlsx,.xls,.pptx,.png,.jpg,.jpeg';
+  inp.onchange = async ()=>{
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    const el = document.getElementById('et-arqplat-'+tipo);
+    if(el) el.innerHTML = '<div class="loading-state"><div class="spinner"></div>Enviando…</div>';
+    const fd = new FormData();
+    fd.append('arquivo', f);
+    try{
+      // Sem Content-Type manual: o navegador precisa definir o boundary do
+      // multipart, e authHeader() forçaria application/json.
+      const res = await apiFetch(`/documentos/${d.id}/arquivos`, {
+        method:'POST', body: fd,
+        headers:{'Authorization':'Bearer '+getToken()}
+      });
+      if(!res){ _repintarArqPlat(tipo, d); return; }
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok){
+        showToast(data.erro||'Erro ao enviar o arquivo','error');
+        _repintarArqPlat(tipo, d);
+        return;
+      }
+      _aplicarDocLocal(data.documento);
+      _equipCtx.byTipo[tipo] = data.documento;
+      _repintarArqPlat(tipo, data.documento);
       renderDashboard(); renderDocs();
-      if(key) openEquipModal(key, { aba: abaEl?abaEl.dataset.tab:null, manterAberto:true });
-      showToast('Documento devolvido ao grupo','success');
-    } else {
-      const e = await res.json().catch(()=>({}));
-      showToast(e.erro||'Erro ao salvar','error');
+      showToast('Arquivo enviado','success');
+    }catch(e){
+      showToast('Erro de rede ao enviar','error');
+      _repintarArqPlat(tipo, d);
     }
+  };
+  inp.click();
+}
+
+// Visualiza dentro da plataforma: PDF/imagem em iframe (visualizador nativo do
+// navegador) e .docx renderizado client-side. O token vai na querystring porque
+// JWT_TOKEN_LOCATION inclui "query_string" — o iframe não manda cabeçalho.
+async function visualizarArquivoDoc(arqId, nome, ext){
+  const body = document.getElementById('docview-body');
+  const rota = `/documentos/arquivos/${arqId}/conteudo`;
+  document.getElementById('docview-title').textContent = nome || 'Documento';
+  document.getElementById('docview-download').onclick = ()=>baixarArquivoDoc(arqId);
+  openModal('docview');
+  ext = (ext||'').toLowerCase();
+
+  if(ext !== 'docx'){
+    body.innerHTML = `<iframe class="docview-frame" title="${esc(nome||'Documento')}"
+      src="${API}${rota}?token=${encodeURIComponent(getToken())}"></iframe>`;
+    return;
+  }
+  if(typeof docx === 'undefined' || !docx.renderAsync){
+    closeModal('docview');
+    showToast('Visualizador indisponível — baixando o arquivo','error');
+    baixarArquivoDoc(arqId);
+    return;
+  }
+  body.innerHTML = '<div class="loading-state"><div class="spinner"></div>Renderizando documento...</div>';
+  try{
+    const res = await apiFetch(rota);
+    if(!res || !res.ok){
+      body.innerHTML = '<div class="docview-erro">Não foi possível carregar o documento.</div>';
+      return;
+    }
+    const blob = await res.blob();
+    body.innerHTML = '';
+    await docx.renderAsync(blob, body, null, {
+      className:'docx', inWrapper:true, useBase64URL:true,
+      breakPages:true, ignoreLastRenderedPageBreak:true, experimental:true
+    });
+    _ajustarDocxNaPagina(body);
+  }catch(e){
+    body.innerHTML = '<div class="docview-erro">Não foi possível renderizar este documento.<br><span style="color:var(--t3);font-size:12px">Use o botão “Baixar” acima para abrir no Word.</span></div>';
+  }
+}
+
+function baixarArquivoDoc(arqId){
+  const a = document.createElement('a');
+  a.href = API + `/documentos/arquivos/${arqId}/conteudo?download=1&token=`
+           + encodeURIComponent(getToken());
+  a.style.display = 'none';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function removerArquivoDoc(arqId, tipo){
+  const ok = await confirmModal('Remover arquivo',
+    'Remover esta cópia da plataforma? O arquivo no servidor da engenharia não é afetado.');
+  if(!ok) return;
+  try{
+    const res = await apiFetch(`/documentos/arquivos/${arqId}`, {method:'DELETE'});
+    if(!res){ return; }
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok){ showToast(data.erro||'Erro ao remover','error'); return; }
+    if(data.documento){
+      _aplicarDocLocal(data.documento);
+      _equipCtx.byTipo[tipo] = data.documento;
+      _repintarArqPlat(tipo, data.documento);
+      renderDashboard(); renderDocs();
+    }
+    showToast('Arquivo removido','success');
   }catch(e){ showToast('Erro de rede','error'); }
 }
 

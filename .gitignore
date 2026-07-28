@@ -9,6 +9,11 @@
 *.db.backup-*
 backups/
 
+# Arquivos enviados pelos usuarios para a plataforma (DOCTRACK_ARQUIVOS).
+# Padrao = <raiz>/arquivos, ou seja, DENTRO do checkout em desenvolvimento.
+# Sao dados, nao codigo — e podem conter documentos internos.
+arquivos/
+
 # Logs do servico (NSSM redireciona stdout/stderr para ca)
 logs/
 

@@ -733,6 +733,27 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .arquivo-meta{font-size:10.5px;color:var(--t3);}
 .arquivo-acao{flex-shrink:0;font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.3px;}
 
+/* Arquivos hospedados na plataforma (cópias enviadas, não o caminho de rede) */
+.arq-plat-vazio{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px;border:1px dashed var(--border-mid);border-radius:8px;
+  font-size:12px;color:var(--t3);}
+.arquivo-row.arq-plat{cursor:default;}
+.arquivo-row.arq-plat:hover{transform:none;border-color:var(--border-soft);}
+.arq-plat-acoes{flex-shrink:0;display:flex;gap:6px;align-items:center;}
+.arq-plat-footer{display:flex;justify-content:flex-end;margin-top:2px;}
+/* Botões pill das ações de arquivo: contorno discreto, cor da ação no hover */
+.arq-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;
+  border-radius:8px;border:1px solid var(--border-mid);background:transparent;
+  color:var(--t2);font-size:11px;font-weight:600;letter-spacing:.2px;cursor:pointer;
+  transition:border-color .15s,color .15s,background .15s;white-space:nowrap;}
+.arq-btn svg{width:13px;height:13px;flex-shrink:0;}
+.arq-btn:hover{border-color:var(--cyan);color:var(--cyan);
+  background:color-mix(in srgb, var(--cyan) 8%, transparent);}
+.arq-btn.danger:hover{border-color:var(--red);color:var(--red);
+  background:color-mix(in srgb, var(--red) 8%, transparent);}
+.arq-btn.arq-btn-add{border-style:dashed;color:var(--cyan);}
+.arq-btn.arq-btn-add:hover{border-style:solid;}
+
 /* Visualizador de documento (docx) */
 .docview-modal{width:min(940px,94vw)!important;max-width:min(940px,94vw)!important;height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden;}
 .docview-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border-mid);flex-shrink:0;}
@@ -742,6 +763,8 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .docview-body{flex:1;overflow:auto;background:#525659;padding:0;}
 .docview-body .loading-state{color:#e5e7eb;padding:60px;}
 .docview-erro{text-align:center;padding:50px 20px;color:var(--red);background:#525659;height:100%;}
+/* PDF/imagem: visualizador nativo do navegador embutido no modal */
+.docview-frame{width:100%;height:100%;border:0;display:block;background:#525659;}
 /* páginas renderizadas pelo docx-preview */
 .docview-body .docx-wrapper{background:transparent;padding:24px 12px;}
 .docview-body .docx-wrapper>section.docx{box-shadow:0 4px 18px rgba(0,0,0,.45);margin-bottom:24px;background:#fff;overflow:visible;}
