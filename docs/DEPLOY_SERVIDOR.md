@@ -19,9 +19,17 @@ Saída: **`dist\DocTrack\`** — uma pasta contendo:
 
 1. **Copie a pasta `DocTrack` inteira** para o servidor (ex.: `C:\DocTrack`).
 2. (Opcional) Edite o `.env` ao lado do `.exe`:
-   - `DOCTRACK_FILE_ROOTS=P:\Engenharia` — pasta(s) de documentos (separe várias com `;`).
+   - `DOCTRACK_FILE_ROOTS=\\loccus-srv03\Projetos$\Engenharia` — pasta(s) de documentos
+     (separe várias com `;`). Use a forma **UNC**: mapeamento de unidade é por sessão de
+     logon, então rodando como serviço o DocTrack não enxerga `P:`.
+   - `DOCTRACK_PATH_ALIASES=P:=\\loccus-srv03\Projetos$` — apelidos `LETRA:=UNC`. É o que
+     faz o caminho colado da barra do Explorer (`P:\Engenharia\...`) ser reconhecido como
+     a mesma pasta da UNC acima. Sem isto, esses caminhos batem em
+     "fora das pastas permitidas". Vazio = autodetecta os mapeamentos da sessão atual,
+     o que **não** funciona rodando como serviço.
    - `CORS_ORIGINS=*` — origens liberadas.
 3. **Mapeie o drive `P:`** (rede) se for usar o preview de documentos. (Não exige admin.)
+   Não é obrigatório: com a UNC em `DOCTRACK_FILE_ROOTS` o acesso funciona sem o mapeamento.
 4. **Execute `DocTrack.exe`** (duplo clique ou por uma PowerShell normal). Uma janela de
    console abre mostrando os logs. Para parar, feche a janela ou `Ctrl+C`.
 

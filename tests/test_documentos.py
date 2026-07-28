@@ -231,6 +231,56 @@ def test_abrir_pasta_ancestral_sucesso(client, admin_token, auth_headers):
         mock_startfile.assert_called_once_with(os.path.normpath(diretorio_real))
 
 
+def test_abrir_pasta_aceita_unidade_mapeada_com_raiz_em_unc(client, admin_token, auth_headers, tmp_path):
+    """O caso que motivou o módulo `caminhos`: a allowlist declara a pasta numa
+    forma e o usuário cola a outra (copiada da barra do Explorer). Antes disso
+    era um 403 'fora das pastas permitidas' numa pasta que ele acabara de abrir.
+    """
+    import os
+    from unittest.mock import patch
+    import caminhos
+
+    destino = tmp_path / "Engenharia" / "Projetos"
+    destino.mkdir(parents=True)
+    original = dict(caminhos.ALIASES)
+    caminhos.definir_aliases({"X:": str(tmp_path)})
+    try:
+        # raiz declarada pelo caminho de verdade; usuário cola a forma com letra
+        with patch("documentos.ARQUIVOS_ROOTS", [str(tmp_path)]), \
+             patch("os.startfile") as mock_startfile:
+            res = client.post("/api/documentos/abrir-pasta",
+                              json={"caminho": r"X:\Engenharia\Projetos"}, headers=auth_headers(admin_token))
+            assert res.status_code == 200
+            assert res.get_json()["tipo"] == "direto"
+            mock_startfile.assert_called_once_with(str(destino))
+    finally:
+        caminhos.definir_aliases(original)
+
+
+def test_listar_arquivos_aceita_unidade_mapeada(client, admin_token, auth_headers, tmp_path):
+    from unittest.mock import patch
+    import caminhos
+
+    pasta = tmp_path / "Engenharia"
+    pasta.mkdir()
+    (pasta / "IT-001.pdf").write_bytes(b"%PDF-1.4\n")
+
+    original = dict(caminhos.ALIASES)
+    caminhos.definir_aliases({"X:": str(tmp_path)})
+    try:
+        with patch("documentos.ARQUIVOS_ROOTS", [str(tmp_path)]):
+            res = client.get("/api/documentos/arquivos?caminho=X:%5CEngenharia",
+                             headers=auth_headers(admin_token))
+        assert res.status_code == 200
+        dados = res.get_json()
+        # a pasta volta na forma com letra — a que o usuário reconhece
+        assert dados["pasta"] == r"X:\Engenharia"
+        assert [a["nome"] for a in dados["arquivos"]] == ["IT-001.pdf"]
+        assert dados["arquivos"][0]["categoria"] == "IT"
+    finally:
+        caminhos.definir_aliases(original)
+
+
 def test_abrir_pasta_acesso_remoto(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
     import os

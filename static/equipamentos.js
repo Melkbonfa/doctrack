@@ -504,7 +504,8 @@ function painelFicha(k,e){
   }
   if(k==="tecnico") return `<div class="g2">${fld("Fabricante","f-fabricante",e.fabricante)}${fld("Código do fabricante","f-codigo_fabricante",e.codigo_fabricante)}</div>
       ${fld("Nome original","f-nome_original",e.nome_original)}
-      <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="f-armazenamento_base" value="${esc(e.armazenamento_base||"")}"></div>`;
+      <div class="form-group"><label class="form-label">Armazenamento base</label><input class="form-input" id="f-armazenamento_base" value="${esc(e.armazenamento_base||"")}" placeholder="\\\\servidor\\share\\... ou P:\\..."><p class="muted" style="font-size:11px;margin-top:4px">Pasta padrão do equipamento: vale para todo documento que não estiver num grupo abaixo.</p></div>
+      ${renderPastasFicha(e)}`;
   if(k==="reg"){
     const clOpts=["","RUO","IVD"].map(v=>`<option value="${v}" ${e.classificacao_reg===v?'selected':''}>${v||"— não definido —"}</option>`).join("");
     return `<div class="g2">
@@ -536,6 +537,83 @@ function painelFicha(k,e){
   if(k==="consumivel") return painelConsVinc(e);
   if(k==="acessorio") return painelItens(k,e);
   return painelHistorico(e);
+}
+
+// ── Pastas do equipamento (grupos de documentos) ────────────────────────────
+// A estrutura de rede separa manuais, IT/checklists e QI/QO/QD em pastas
+// diferentes, e os caminhos variam de produto para produto. Cada equipamento
+// declara as suas; no módulo Documentos, cada documento escolhe uma.
+// Ao contrário do resto da ficha, estas gravam na hora (têm rota própria) —
+// por isso só aparecem depois que o equipamento existe e tem id.
+function renderPastasFicha(e){
+  if(!e||!e.id){
+    return `<div id="eq-pastas-wrap" class="form-group"><label class="form-label">Pastas por grupo de documentos</label>
+      <p class="muted" style="font-size:12px">Salve o equipamento primeiro para cadastrar as pastas.</p></div>`;
+  }
+  const pastas = e.pastas||[];
+  const linhas = pastas.map(p=>`
+    <div class="pasta-row" data-pasta="${p.id}" style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;margin-bottom:6px">
+      <input class="form-input" id="pasta-nome-${p.id}" value="${esc(p.nome||"")}" placeholder="Manuais">
+      <input class="form-input" id="pasta-cam-${p.id}" value="${esc(p.caminho||"")}" placeholder="\\\\servidor\\share\\... ou P:\\...">
+      <span style="display:flex;gap:4px">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="salvarPasta(${e.id},${p.id})" title="Salvar esta pasta">Salvar</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="removerPasta(${e.id},${p.id},'${esc(p.nome||"")}')" title="Remover">✕</button>
+      </span>
+    </div>`).join("");
+  return `<div id="eq-pastas-wrap" class="form-group"><label class="form-label">Pastas por grupo de documentos</label>
+      <p class="muted" style="font-size:11px;margin-bottom:8px">Ex.: uma pasta "Manuais", outra "IT e Checklist", outra "QI/QO/QD". No módulo Documentos cada documento aponta para uma delas.</p>
+      ${linhas || '<p class="muted" style="font-size:12px">Nenhuma pasta cadastrada — os documentos usam o armazenamento base acima.</p>'}
+      <div style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;margin-top:8px">
+        <input class="form-input" id="pasta-nova-nome" placeholder="Nome do grupo">
+        <input class="form-input" id="pasta-nova-cam" placeholder="Caminho da pasta">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="criarPasta(${e.id})">Adicionar</button>
+      </div>
+    </div>`;
+}
+
+async function _recarregarFichaPastas(equipId){
+  // Só a ficha é re-renderizada: recarregar tudo perderia o que o usuário
+  // digitou nos outros campos do formulário, que ainda não foram salvos.
+  try{
+    const eq = await api("/api/equipamentos/"+equipId);
+    const bloco = document.getElementById("eq-pastas-wrap");
+    if(bloco) bloco.outerHTML = renderPastasFicha(eq);
+    const idx = (equipamentos||[]).findIndex(x=>x.id===equipId);
+    if(idx>=0) equipamentos[idx] = eq;
+  }catch(err){ toast(err.message,true); }
+}
+
+async function criarPasta(equipId){
+  const nome=(document.getElementById("pasta-nova-nome").value||"").trim();
+  const caminho=(document.getElementById("pasta-nova-cam").value||"").trim();
+  if(!nome) return toast("Dê um nome ao grupo",true);
+  try{
+    await api(`/api/equipamentos/${equipId}/pastas`,
+              {method:"POST",body:JSON.stringify({nome,caminho})});
+    toast("Pasta criada");
+    await _recarregarFichaPastas(equipId);
+  }catch(e){ toast(e.message,true); }
+}
+
+async function salvarPasta(equipId,pastaId){
+  const nome=(document.getElementById("pasta-nome-"+pastaId).value||"").trim();
+  const caminho=(document.getElementById("pasta-cam-"+pastaId).value||"").trim();
+  if(!nome) return toast("Dê um nome ao grupo",true);
+  try{
+    await api(`/api/equipamentos/${equipId}/pastas/${pastaId}`,
+              {method:"PATCH",body:JSON.stringify({nome,caminho})});
+    toast("Pasta salva");
+    await _recarregarFichaPastas(equipId);
+  }catch(e){ toast(e.message,true); }
+}
+
+async function removerPasta(equipId,pastaId,nome){
+  if(!confirm(`Remover a pasta "${nome}"?\n\nOs documentos dela voltam a usar o armazenamento base do equipamento.`)) return;
+  try{
+    const r = await api(`/api/equipamentos/${equipId}/pastas/${pastaId}`,{method:"DELETE"});
+    toast(`Pasta removida (${r.documentos_desvinculados||0} documento(s) desvinculados)`);
+    await _recarregarFichaPastas(equipId);
+  }catch(e){ toast(e.message,true); }
 }
 
 // ── Histórico da ficha (trilha de-para + evolução do ICE) ───────────────────

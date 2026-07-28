@@ -91,7 +91,7 @@ app.config["BCRYPT_LOG_ROUNDS"]              = int(os.environ.get("BCRYPT_LOG_RO
 
 from models import (
     db, bcrypt, User, Documento, DocumentoHistorico, Equipamento, AuditLog, RevokedToken,
-    EquipamentoHistorico, EquipamentoSnapshot, ParetoHistorico, ImportacaoLog,
+    EquipamentoHistorico, EquipamentoSnapshot, EquipamentoPasta, ParetoHistorico, ImportacaoLog,
     CategoriaEquipamento, FamiliaEquipamento, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
     SETORES, SETOR_PROCESSO, SETORES_TODOS, STATUS_PRE, STATUS_FABRICANTE, STATUS_MAP,
@@ -102,6 +102,7 @@ from models import (
 from auth import auth_bp, log_action, require_role, get_client_ip
 from event_bus import publish_event, get_events_since, EventType
 from utils import norm, norm_sku
+import caminhos
 from scheduler import iniciar_agendador, rodar_uma_vez, agendador_habilitado
 import equipamentos_core as eqcore
 
@@ -294,7 +295,7 @@ def _import_excel_to_db():
                     obs_treinamento=s("Obs. Treinamento Piloto"),
                     data_homologacao=pd.to_datetime(dt_homol) if pd.notna(dt_homol) else None,
                     obs_homologacao=s("Obs. Envio Homologação"),
-                    armazenamento=s("Armazenamento - Pasta de Projetos")
+                    armazenamento=caminhos.normalizar(s("Armazenamento - Pasta de Projetos"))
                 ))
 
         # 2. Fabricante
@@ -311,8 +312,8 @@ def _import_excel_to_db():
                 sku = s("SKU")
                 cod = s("Código do Doc")
                 fab = s("Fabricante")
-                armazenamento = s("Armazenamento - Pasta de Projetos")
-                
+                armazenamento = caminhos.normalizar(s("Armazenamento - Pasta de Projetos"))
+
                 # Para cada tipo de documento na linha
                 cols_tipos = {
                     "Manuais ES": "Manual_ES",
@@ -354,7 +355,7 @@ def _import_excel_to_db():
                     codigo_doc=s("Código do Doc"),
                     documento=doc_nome,
                     status=s("Status") or "Elaborar",
-                    armazenamento=s("Armazenamento - Pasta de Projetos")
+                    armazenamento=caminhos.normalizar(s("Armazenamento - Pasta de Projetos"))
                 ))
 
         # SÓ SEMEIA BANCO VAZIO. Aqui existia um
@@ -644,7 +645,12 @@ def _aplicar_campos_equip(equip, data):
 
     for campo in _EQUIP_STR:
         if campo in data:
-            _troca(campo, (data.get(campo) or "").strip())
+            # o caminho da pasta é canonizado na entrada (unidade mapeada → UNC)
+            # para o banco não guardar duas grafias do mesmo diretório
+            if campo == "armazenamento_base":
+                _troca(campo, caminhos.normalizar(data.get(campo)))
+            else:
+                _troca(campo, (data.get(campo) or "").strip())
     if "bloqueado" in data:
         _troca("bloqueado", bool(data.get("bloqueado")))
     for campo in _EQUIP_REV:
@@ -729,6 +735,134 @@ def update_equipamento(equip_id):
                                   Documento.equipamento_id == equip.id).all()
     d["completude"] = eqcore.indices(equip, docs)
     return jsonify({"mensagem": "Equipamento atualizado", "equipamento": d}), 200
+
+# ── Pastas do equipamento (grupos de documentos) ─────────────────────────────
+# Cada equipamento declara as SUAS pastas de rede porque a estrutura varia:
+# manuais numa, IT e checklists em outra, QI/QO/QD em outra, com caminhos que
+# mudam de produto para produto. Ver EquipamentoPasta.
+
+def _equip_ativo(equip_id):
+    return Equipamento.query.filter(Equipamento.ativo == True,
+                                    Equipamento.id == equip_id).first()
+
+
+def _pastas_do_equip(equip_id):
+    return EquipamentoPasta.query.filter(
+        EquipamentoPasta.equipamento_id == equip_id,
+        EquipamentoPasta.ativo == True).order_by(
+        EquipamentoPasta.ordem, EquipamentoPasta.nome).all()
+
+
+@app.route("/api/equipamentos/<int:equip_id>/pastas", methods=["GET"])
+@jwt_required()
+def listar_pastas_equipamento(equip_id):
+    if not _equip_ativo(equip_id):
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    return jsonify([p.to_dict() for p in _pastas_do_equip(equip_id)]), 200
+
+
+@app.route("/api/equipamentos/<int:equip_id>/pastas", methods=["POST"])
+@require_role("admin", "gestor", "tecnico")
+def criar_pasta_equipamento(equip_id):
+    caller = get_jwt_identity()
+    equip = _equip_ativo(equip_id)
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    data = request.get_json(silent=True) or {}
+    nome = (data.get("nome") or "").strip()[:80]
+    if not nome:
+        return jsonify({"erro": "Nome da pasta é obrigatório"}), 400
+    existentes = _pastas_do_equip(equip_id)
+    if any((p.nome or "").lower() == nome.lower() for p in existentes):
+        return jsonify({"erro": f'Já existe uma pasta "{nome}" neste equipamento'}), 409
+
+    pasta = EquipamentoPasta(
+        equipamento_id=equip_id, nome=nome,
+        caminho=caminhos.normalizar(data.get("caminho")),
+        ordem=int(data.get("ordem") or len(existentes)), ativo=True)
+    db.session.add(pasta)
+    db.session.commit()
+    log_action(caller, "CREATE", entidade=f"Equipamento: {equip.nome}",
+               campo=f"pasta:{nome}", novo=pasta.caminho, ip=get_client_ip())
+    return jsonify({"mensagem": "Pasta criada", "pasta": pasta.to_dict()}), 201
+
+
+@app.route("/api/equipamentos/<int:equip_id>/pastas/<int:pasta_id>", methods=["PATCH", "PUT"])
+@require_role("admin", "gestor", "tecnico")
+def atualizar_pasta_equipamento(equip_id, pasta_id):
+    caller = get_jwt_identity()
+    equip = _equip_ativo(equip_id)
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    pasta = EquipamentoPasta.query.filter(
+        EquipamentoPasta.id == pasta_id,
+        EquipamentoPasta.equipamento_id == equip_id,
+        EquipamentoPasta.ativo == True).first()
+    if not pasta:
+        return jsonify({"erro": "Pasta não encontrada"}), 404
+
+    data = request.get_json(silent=True) or {}
+    mudou = {}
+    if "nome" in data:
+        nome = (data.get("nome") or "").strip()[:80]
+        if not nome:
+            return jsonify({"erro": "Nome da pasta é obrigatório"}), 400
+        if any((p.nome or "").lower() == nome.lower() and p.id != pasta.id
+               for p in _pastas_do_equip(equip_id)):
+            return jsonify({"erro": f'Já existe uma pasta "{nome}" neste equipamento'}), 409
+        if nome != pasta.nome:
+            mudou["nome"] = (pasta.nome, nome)
+            pasta.nome = nome
+    if "caminho" in data:
+        novo = caminhos.normalizar(data.get("caminho"))
+        if novo != (pasta.caminho or ""):
+            mudou["caminho"] = (pasta.caminho or "", novo)
+            pasta.caminho = novo
+    if "ordem" in data:
+        try:
+            pasta.ordem = int(data.get("ordem") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    if mudou:
+        db.session.commit()
+        log_action(caller, "UPDATE", entidade=f"Equipamento: {equip.nome}",
+                   campo=f"pasta:{pasta.nome}",
+                   antigo=" | ".join(f"{c}={a or '—'}" for c, (a, _n) in mudou.items()),
+                   novo=" | ".join(f"{c}={n or '—'}" for c, (_a, n) in mudou.items()),
+                   ip=get_client_ip())
+    return jsonify({"mensagem": "Pasta atualizada", "pasta": pasta.to_dict()}), 200
+
+
+@app.route("/api/equipamentos/<int:equip_id>/pastas/<int:pasta_id>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def remover_pasta_equipamento(equip_id, pasta_id):
+    """Remove a pasta e devolve os documentos dela ao caminho do equipamento.
+
+    Soft delete: desvincular os documentos antes é o que evita deixá-los
+    apontando para uma pasta que sumiu — nesse estado o caminho efetivo cairia
+    silenciosamente para o do equipamento sem ninguém saber por quê.
+    """
+    caller = get_jwt_identity()
+    equip = _equip_ativo(equip_id)
+    if not equip:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+    pasta = EquipamentoPasta.query.filter(
+        EquipamentoPasta.id == pasta_id,
+        EquipamentoPasta.equipamento_id == equip_id,
+        EquipamentoPasta.ativo == True).first()
+    if not pasta:
+        return jsonify({"erro": "Pasta não encontrada"}), 404
+
+    soltos = Documento.query.filter(Documento.pasta_id == pasta.id).update(
+        {Documento.pasta_id: None}, synchronize_session=False)
+    pasta.ativo = False
+    db.session.commit()
+    log_action(caller, "DELETE", entidade=f"Equipamento: {equip.nome}",
+               campo=f"pasta:{pasta.nome}", antigo=pasta.caminho or "",
+               novo=f"removida (+{soltos} docs desvinculados)", ip=get_client_ip())
+    return jsonify({"mensagem": "Pasta removida", "documentos_desvinculados": soltos}), 200
+
 
 @app.route("/api/equipamentos/<int:equip_id>", methods=["DELETE"])
 @require_role("admin", "gestor")
@@ -1926,6 +2060,9 @@ def _sync_schema():
             ("entrou_status_em", "TIMESTAMP"),
             ("data_inicio",      "DATE"),
             ("peso",             "FLOAT DEFAULT 1"),
+            # Grupo de pastas do equipamento (ver EquipamentoPasta). A tabela
+            # em si é criada por create_all; aqui só a FK na tabela existente.
+            ("pasta_id",         "INTEGER"),
         ],
         "equipamentos": [
             ("nome_tecnico",      "VARCHAR(400) DEFAULT ''"),
@@ -2293,12 +2430,47 @@ def _backfill_equipamentos():
               f"completados; {revinculados} documentos revinculados a equipamento ativo.")
 
 
-def _consolidar_armazenamento():
-    """Sobe o caminho da pasta para o EQUIPAMENTO e limpa as cópias redundantes.
+def _normalizar_caminhos_armazenados():
+    """Canoniza os caminhos já gravados (unidade mapeada → UNC). Idempotente.
 
-    O caminho é atributo do equipamento, mas era gravado nas 12 linhas de
-    documento (1 caminho distinto por equipamento em 100% dos casos). Editar numa
-    aba não refletia nas outras 11. Aqui:
+    O banco acumulou as duas grafias do MESMO diretório porque cada usuário
+    colava o que via: quem copiou da barra do Explorer gravou `P:\\Engenharia\\...`,
+    quem copiou de outro registro gravou a UNC. As formas com letra falhavam na
+    allowlist e no acesso a disco do serviço (que não tem mapeamento de unidade),
+    e ainda impediam `_consolidar_armazenamento` de reconhecer que documento e
+    equipamento apontam para a mesma pasta.
+
+    Roda no boot, antes da consolidação, para que ela compare valores canônicos.
+    """
+    ajustados = 0
+    for equip in Equipamento.query.all():
+        atual = equip.armazenamento_base or ""
+        novo = caminhos.normalizar(atual)
+        if novo != atual:
+            equip.armazenamento_base = novo
+            ajustados += 1
+    for doc in Documento.query.all():
+        atual = doc.armazenamento or ""
+        novo = caminhos.normalizar(atual)
+        if novo != atual:
+            doc.armazenamento = novo
+            ajustados += 1
+    if ajustados:
+        db.session.commit()
+        print(f"[INFO] Armazenamento: {ajustados} caminho(s) canonizados para a forma UNC.")
+
+
+def _consolidar_armazenamento():
+    """Elege o caminho PADRÃO do equipamento e limpa as cópias redundantes.
+
+    ATENÇÃO — a premissa original desta rotina ("1 caminho distinto por
+    equipamento em 100% dos casos") está errada e foi medida como tal: 14
+    equipamentos têm de 2 a 4 pastas distintas, porque a estrutura real separa
+    manuais, IT/checklists e QI/QO/QD em pastas diferentes. Quem representa isso
+    hoje é EquipamentoPasta; o que sobra aqui é eleger o caminho padrão do
+    equipamento (o mais frequente) e evitar 12 cópias da mesma string.
+
+    Editar numa aba não refletia nas outras 11. Aqui:
       1) equipamento sem armazenamento_base herda o caminho mais frequente entre
          os seus documentos;
       2) documento cujo caminho é igual ao do equipamento passa a herdar (fica
@@ -2333,6 +2505,104 @@ def _consolidar_armazenamento():
         db.session.commit()
         print(f"[INFO] Armazenamento: {promovidos} equipamento(s) receberam o caminho base; "
               f"{limpos} documento(s) passaram a herdar (cópias redundantes removidas).")
+
+
+def _nomes_de_pastas(lista_caminhos, base):
+    """Nome curto e único para cada pasta, derivado do próprio caminho.
+
+    A pasta igual à do equipamento vira "Principal"; as demais herdam o nome da
+    folha (`...\\Documentos\\Manuais` → "Manuais"). Quando duas folhas colidem
+    (`...\\A\\Manuais` e `...\\B\\Manuais`), TODAS as envolvidas sobem um nível
+    ("A\\Manuais", "B\\Manuais"). Desambiguar só a segunda deixaria "Manuais" e
+    "B\\Manuais" lado a lado, e ninguém saberia qual é qual.
+
+    Devolve {caminho: nome}.
+    """
+    import ntpath
+    import collections
+
+    bruto = {}
+    for caminho in lista_caminhos:
+        if base and caminho.lower() == base.lower():
+            bruto[caminho] = "Principal"
+        else:
+            bruto[caminho] = ntpath.basename(caminho) or caminho
+
+    repetidos = {n.lower() for n, c in collections.Counter(bruto.values()).items() if c > 1}
+    nomes, usados = {}, set()
+    for caminho, nome in bruto.items():
+        if nome.lower() in repetidos:
+            pai = ntpath.basename(ntpath.dirname(caminho))
+            if pai:
+                nome = f"{pai}\\{nome}"
+        final, n = nome, 2
+        while final.lower() in usados:      # empate que sobreviveu: numera
+            final = f"{nome} ({n})"
+            n += 1
+        usados.add(final.lower())
+        nomes[caminho] = final
+    return nomes
+
+
+def _backfill_pastas_equipamento():
+    """Converte os caminhos já gravados em pastas nomeadas por equipamento.
+
+    Até aqui a estrutura real de rede — manuais numa pasta, IT e checklists em
+    outra — só era representável marcando uma "exceção" em cada documento. Este
+    backfill lê o que já está no banco e materializa os grupos: cada caminho
+    EFETIVO distinto de um equipamento vira uma EquipamentoPasta, e os documentos
+    que apontavam para ele passam a apontar para a pasta.
+
+    Preserva o caminho efetivo de todo documento (só muda de onde ele vem), e o
+    `armazenamento` do documento é limpo porque a informação passou para a pasta.
+    Idempotente: equipamento que já tem pasta é pulado.
+    """
+    criadas = vinculados = 0
+    equips = Equipamento.query.filter(Equipamento.ativo == True).all()
+    ja_tem = {p.equipamento_id for p in EquipamentoPasta.query.all()}
+
+    for equip in equips:
+        if equip.id in ja_tem:
+            continue
+        docs = Documento.query.filter(Documento.ativo == True,
+                                      Documento.equipamento_id == equip.id).all()
+        base = caminhos.normalizar(equip.armazenamento_base)
+        # caminho efetivo de cada documento, na ordem em que aparecem
+        efetivos = []
+        for d in docs:
+            efet = caminhos.normalizar(d.armazenamento) or base
+            if efet and efet.lower() not in {e.lower() for e in efetivos}:
+                efetivos.append(efet)
+        if base and base.lower() not in {e.lower() for e in efetivos}:
+            efetivos.insert(0, base)
+        if not efetivos:
+            continue
+
+        # a pasta do equipamento vem primeiro; as demais na ordem encontrada
+        efetivos.sort(key=lambda c: (0 if base and c.lower() == base.lower() else 1))
+        nomes = _nomes_de_pastas(efetivos, base)
+        por_caminho = {}
+        for i, caminho in enumerate(efetivos):
+            pasta = EquipamentoPasta(equipamento_id=equip.id, nome=nomes[caminho],
+                                     caminho=caminho, ordem=i, ativo=True)
+            db.session.add(pasta)
+            por_caminho[caminho.lower()] = pasta
+            criadas += 1
+        db.session.flush()          # precisa dos ids para vincular os documentos
+
+        for d in docs:
+            efet = caminhos.normalizar(d.armazenamento) or base
+            pasta = por_caminho.get(efet.lower()) if efet else None
+            if pasta is None:
+                continue
+            d.pasta_id = pasta.id
+            d.armazenamento = ""    # o caminho passou a viver na pasta
+            vinculados += 1
+
+    if criadas or vinculados:
+        db.session.commit()
+        print(f"[INFO] Pastas: {criadas} pasta(s) criadas a partir dos caminhos existentes; "
+              f"{vinculados} documento(s) vinculados ao seu grupo.")
 
 
 def _backfill_historico_documentos():
@@ -2707,7 +2977,13 @@ def init_app(app_=None):
             _backfill_equipamentos()
             # Caminho da pasta é do equipamento (documento só guarda override) e
             # todo documento nasce com um marco na trilha de status. Idempotentes.
+            # A canonização vem ANTES: consolidar compara caminhos por igualdade
+            # de string, e `P:\...` vs UNC do mesmo diretório não casariam.
+            _normalizar_caminhos_armazenados()
             _consolidar_armazenamento()
+            # Materializa os grupos de pastas a partir dos caminhos já gravados.
+            # Roda DEPOIS da consolidação para ver os caminhos efetivos finais.
+            _backfill_pastas_equipamento()
             _backfill_historico_documentos()
             # Documentos: marcos temporais derivados da trilha + responsáveis
             # tipados. Idempotentes.

@@ -78,9 +78,17 @@ if (Test-Path $envFile) {
     $senhaBanco = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
         [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secSenha))
 
-    # Caminho dos arquivos de engenharia (Enter para o padrao)
-    $fileRoots = Read-Host "Caminho da pasta de arquivos (Enter para 'P:\Engenharia')"
-    if ([string]::IsNullOrWhiteSpace($fileRoots)) { $fileRoots = "P:\Engenharia" }
+    # Caminho dos arquivos de engenharia. Tem que ser UNC: rodando como servico
+    # o DocTrack nao enxerga drive mapeado (P:, Z:) — mapeamento e por sessao.
+    $padraoRoot = '\\loccus-srv03\Projetos$\Engenharia'
+    $fileRoots = Read-Host "Caminho UNC da pasta de arquivos (Enter para '$padraoRoot')"
+    if ([string]::IsNullOrWhiteSpace($fileRoots)) { $fileRoots = $padraoRoot }
+
+    # Apelidos LETRA:=UNC. Sem isto, o caminho que o usuario cola do Explorer
+    # (P:\Engenharia\...) nao e reconhecido como a mesma pasta da UNC acima.
+    $padraoAlias = 'P:=\\loccus-srv03\Projetos$'
+    $pathAliases = Read-Host "Apelidos de unidade LETRA:=UNC (Enter para '$padraoAlias')"
+    if ([string]::IsNullOrWhiteSpace($pathAliases)) { $pathAliases = $padraoAlias }
 
     # Gera JWT_SECRET aleatorio automaticamente
     $jwt = & $py -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -90,6 +98,7 @@ JWT_SECRET=$jwt
 DATABASE_URL=postgresql://doctrack_app:$senhaBanco@localhost:5432/doctrack
 CORS_ORIGINS=*
 DOCTRACK_FILE_ROOTS=$fileRoots
+DOCTRACK_PATH_ALIASES=$pathAliases
 "@
     # UTF-8 SEM BOM, nao 'Set-Content -Encoding UTF8': no PowerShell 5.1 esse
     # parametro grava o BOM (EF BB BF) no inicio do arquivo, e o python-dotenv
