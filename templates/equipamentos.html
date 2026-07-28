@@ -150,7 +150,6 @@
                 <input class="search-input" id="eq-busca" placeholder="Buscar nome, SKU, fabricante..." oninput="buscaLista()">
               </div>
               <select class="filter-sel" id="eq-f-cat" onchange="renderLista()"><option value="">Categoria: todas</option></select>
-              <select class="filter-sel" id="eq-f-linha" onchange="renderLista()"><option value="">Linha: todas</option></select>
               <select class="filter-sel" id="eq-f-status" onchange="renderLista()"><option value="">Status: todos</option></select>
               <select class="filter-sel" id="eq-ordem" onchange="renderLista()" aria-label="Ordenar equipamentos">
                 <option value="nome">Ordem: nome</option>
@@ -183,7 +182,7 @@
       <!-- CATEGORIAS -->
       <div class="page" id="page-cat">
         <div class="page-header">
-          <div><div class="page-title">Categorias, Famílias &amp; Linhas</div><div class="page-sub">Taxonomia editável — família aninhada na categoria, linha de produto transversal</div></div>
+          <div><div class="page-title">Categorias &amp; Famílias</div><div class="page-sub">Taxonomia editável — família aninhada na categoria</div></div>
         </div>
         <div class="eq-cat-cols">
           <div class="card">
@@ -192,11 +191,6 @@
             <div class="eq-addline"><input class="form-input" id="cat-new" placeholder="Nova categoria…"><button class="btn btn-primary btn-sm" onclick="addCategoria()">+</button></div>
           </div>
           <div class="card" id="cat-detail"></div>
-        </div>
-        <div class="card mb" style="margin-top:16px">
-          <div class="card-title">Linhas de produto</div>
-          <div class="eq-chips" id="linha-list"></div>
-          <div class="eq-addline" style="max-width:320px" id="linha-add"></div>
         </div>
       </div>
 

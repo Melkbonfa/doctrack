@@ -489,7 +489,6 @@ class Equipamento(db.Model):
     nome_original      = db.Column(db.String(300), default="")
     nome_tecnico       = db.Column(db.String(400), default="")  # nome longo/descritivo (planilha mestra)
     descricao          = db.Column(db.Text, default="")         # descritivo livre (≠ nome_tecnico ≠ observacoes)
-    codigo_interno     = db.Column(db.String(50), default="")
     # SKU de Venda é a chave de junção do importador mestre, do Pareto e dos
     # documentos: indexado para não varrer a tabela em cada casamento e porque
     # a checagem de duplicidade (servidor) consulta por ele a cada gravação.
@@ -506,11 +505,9 @@ class Equipamento(db.Model):
     # equipamentos_core.campos_regulatorios().
     classe_risco         = db.Column(db.String(10), default="")   # I | II | III | IV (RDC 751)
     situacao_regulatoria = db.Column(db.String(30), default="")   # Vigente | Em renovação | Cancelado | Não aplicável
-    # Descritores técnicos do plano (antes só existia "campos técnicos avançados
-    # crescem por fase" escrito na aba).
-    modelo             = db.Column(db.String(120), default="")
-    tecnologia         = db.Column(db.String(200), default="")
-    aplicacao          = db.Column(db.String(300), default="")
+    # Código interno, modelo, tecnologia e aplicação saíram da ficha: repetiam o
+    # que já vem em SKU/código do fabricante e no descritivo. As colunas seguem
+    # no banco, sem uso, para não exigir migração destrutiva.
     fabricante         = db.Column(db.String(200), default="")
     codigo_fabricante  = db.Column(db.String(80), default="")   # código interno do fabricante (part number)
     familia            = db.Column(db.String(120), default="")  # LEGADO (texto); migrar p/ familia_id
@@ -534,14 +531,12 @@ class Equipamento(db.Model):
     # Taxonomia gerenciada (família aninhada na categoria)
     categoria_id       = db.Column(db.Integer, db.ForeignKey("categorias_equipamento.id"), nullable=True, index=True)
     familia_id         = db.Column(db.Integer, db.ForeignKey("familias_equipamento.id"), nullable=True, index=True)
-    linha_id           = db.Column(db.Integer, db.ForeignKey("linhas_produto.id"), nullable=True, index=True)
     ativo              = db.Column(db.Boolean, default=True, nullable=False, index=True)
     criado_em          = db.Column(db.DateTime, default=datetime.now)
     updated_em         = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     categoria_rel = db.relationship("CategoriaEquipamento", foreign_keys=[categoria_id], lazy="joined")
     familia_rel   = db.relationship("FamiliaEquipamento", foreign_keys=[familia_id], lazy="joined")
-    linha_rel     = db.relationship("LinhaProduto", foreign_keys=[linha_id], lazy="joined")
     historico     = db.relationship("EquipamentoHistorico", back_populates="equipamento",
                                     cascade="all, delete-orphan",
                                     order_by="EquipamentoHistorico.em.desc()")
@@ -556,7 +551,6 @@ class Equipamento(db.Model):
             "nome_original":      self.nome_original or "",
             "nome_tecnico":       self.nome_tecnico or "",
             "descricao":          self.descricao or "",
-            "codigo_interno":     self.codigo_interno or "",
             "sku":                self.sku or "",
             "sku_importacao":     self.sku_importacao or "",
             "classificacao_reg":  self.classificacao_reg or "",
@@ -565,9 +559,6 @@ class Equipamento(db.Model):
             "anvisa_validade":    self.anvisa_validade or "",
             "classe_risco":         self.classe_risco or "",
             "situacao_regulatoria": self.situacao_regulatoria or "",
-            "modelo":             self.modelo or "",
-            "tecnologia":         self.tecnologia or "",
-            "aplicacao":          self.aplicacao or "",
             "fabricante":         self.fabricante or "",
             "codigo_fabricante":  self.codigo_fabricante or "",
             "status":             self.status or "Ativo",
@@ -584,8 +575,6 @@ class Equipamento(db.Model):
             "categoria":          (self.categoria_rel.nome if self.categoria_rel else ""),
             "familia_id":         self.familia_id,
             "familia":            (self.familia_rel.nome if self.familia_rel else (self.familia or "")),
-            "linha_id":           self.linha_id,
-            "linha":              (self.linha_rel.nome if self.linha_rel else ""),
             "ativo":              bool(self.ativo),
             # Sem as datas não dá para responder "quais cadastros estão parados
             # há meses" — a coluna existia e nunca chegava ao cliente.
@@ -729,8 +718,11 @@ class ParetoHistorico(db.Model):
 
 
 # ── TAXONOMIA DE EQUIPAMENTOS (gerenciável) ──────────────────────────────────
-# Categoria → Famílias (aninhadas) · Linhas (lista plana). O vínculo de cada
-# equipamento é feito na ficha do card; estas tabelas só guardam as listas.
+# Categoria → Famílias (aninhadas). O vínculo de cada equipamento é feito na
+# ficha do card; estas tabelas só guardam as listas. A linha de produto foi
+# removida: era um segundo agrupamento transversal que na prática repetia a
+# família (a tabela linhas_produto e a coluna equipamentos.linha_id continuam no
+# banco, sem uso, para não exigir migração destrutiva).
 
 class CategoriaEquipamento(db.Model):
     __tablename__ = "categorias_equipamento"
@@ -761,17 +753,6 @@ class FamiliaEquipamento(db.Model):
         return {"id": self.id, "categoria_id": self.categoria_id,
                 "categoria_nome": self.categoria.nome if self.categoria else "",
                 "nome": self.nome or "", "ordem": self.ordem or 0, "ativo": bool(self.ativo)}
-
-
-class LinhaProduto(db.Model):
-    __tablename__ = "linhas_produto"
-    id    = db.Column(db.Integer, primary_key=True)
-    nome  = db.Column(db.String(120), nullable=False, index=True)
-    ordem = db.Column(db.Integer, default=0)
-    ativo = db.Column(db.Boolean, default=True, nullable=False, index=True)
-
-    def to_dict(self):
-        return {"id": self.id, "nome": self.nome or "", "ordem": self.ordem or 0, "ativo": bool(self.ativo)}
 
 
 # ── ITENS DO EQUIPAMENTO (consumíveis e acessórios) ──────────────────────────
