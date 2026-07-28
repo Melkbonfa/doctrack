@@ -2062,9 +2062,9 @@ function closeModal(id){
   m.setAttribute('aria-hidden','true');
   if(_previousFocus&&_previousFocus.focus){_previousFocus.focus()}
 }
-document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{
-  if(e.target===m){m.classList.remove('open');m.setAttribute('aria-hidden','true');if(_previousFocus&&_previousFocus.focus)_previousFocus.focus()}
-}));
+// Clique no fundo do overlay NÃO fecha o card: a ficha do equipamento e os
+// formulários têm edições em andamento e um clique fora acidental descartava tudo.
+// O fechamento é sempre explícito — botão "Fechar"/"Cancelar" (ou ESC).
 
 document.addEventListener('keydown',(e)=>{
   const openOverlay=document.querySelector('.modal-overlay.open, .confirm-modal.open');
