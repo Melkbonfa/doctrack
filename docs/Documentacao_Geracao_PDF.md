@@ -1,5 +1,13 @@
 # Documentação: Geração de Relatório PDF (DocTrack v4.0)
 
+> ⚠️ **HISTÓRICO — não descreve o código atual.** Este documento registra a
+> **primeira** das três gerações do relatório PDF, baseada em `html2pdf.js`. Vieram
+> depois o caminho WeasyPrint no servidor (`/api/report/pdf`, removido em jul/2026)
+> e o atual, montado no navegador com **jsPDF** — veja `gerarRelatorioPDF()` em
+> [`static/app.js`](../static/app.js). A função `exportKPIs()` citada abaixo **não
+> existe mais**. Mantido porque o layout A4 paisagem e o racional de dimensões
+> fixas continuam valendo. **Reescrever para o jsPDF está pendente.**
+
 Este documento contém a lógica exata utilizada para a criação do relatório executivo em modo paisagem (Landscape) no DocTrack. Ele é composto por duas partes principais: a marcação HTML (que monta o layout) e a lógica em JavaScript (que coleta os dados, plota os gráficos via Chart.js e converte a tela em PDF via html2pdf.js).
 
 ---

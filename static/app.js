@@ -221,38 +221,6 @@ function updateUserUI(){
   }
 }
 
-function exportKPIs() {
-    if(!_lastKpis) { showToast('Nenhum dado para exportar', 'error'); return; }
-    
-    showToast('Gerando PDF de Alta Qualidade (Servidor)...', 'info');
-    
-    apiFetch('/report/pdf', {
-        method: 'POST',
-        body: JSON.stringify({ kpis: _lastKpis })
-    })
-    .then(async res => {
-        if(!res.ok) {
-            const err = await res.json();
-            throw new Error(err.erro || "Falha no servidor");
-        }
-        return res.blob();
-    })
-    .then(blob => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = "DocTrack_Enterprise_KPIs.pdf";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        showToast('Relatório Gerado com Sucesso!', 'success');
-    })
-    .catch(err => {
-        console.error("Erro na exportação via servidor: ", err);
-        showToast('Erro ao gerar PDF: ' + err.message, 'error');
-    });
-}
-
 // CSV bruto dos documentos — o PDF de KPIs responde "como estamos"; o CSV
 // permite qualquer recorte fora do sistema (Excel/BI). Respeita a busca da tela.
 async function exportarDocumentosCSV(){
@@ -2094,9 +2062,9 @@ function closeModal(id){
   m.setAttribute('aria-hidden','true');
   if(_previousFocus&&_previousFocus.focus){_previousFocus.focus()}
 }
-document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{
-  if(e.target===m){m.classList.remove('open');m.setAttribute('aria-hidden','true');if(_previousFocus&&_previousFocus.focus)_previousFocus.focus()}
-}));
+// Clique no fundo do overlay NÃO fecha o card: a ficha do equipamento e os
+// formulários têm edições em andamento e um clique fora acidental descartava tudo.
+// O fechamento é sempre explícito — botão "Fechar"/"Cancelar" (ou ESC).
 
 document.addEventListener('keydown',(e)=>{
   const openOverlay=document.querySelector('.modal-overlay.open, .confirm-modal.open');

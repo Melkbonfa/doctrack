@@ -63,5 +63,5 @@ de Dados" — os dois itens acima são as lacunas a fechar antes de uma auditori
   montado no cliente.
 - `planos/` — planejamento por módulo (consumíveis, equipamentos, entregáveis…).
 - `superpowers/plans/` e `superpowers/specs/` — planos e specs datados no nome.
-- `mockups/` e `relatorios/` — protótipos de tela e relatórios gerados.
+- `mockups/` — protótipos de tela.
 - `referencias/` — normas ANVISA/ISPE que o sistema precisa atender.

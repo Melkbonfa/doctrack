@@ -5,7 +5,7 @@ import os, sys, json, argparse, io, csv, re, zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date
 
-from flask import Flask, jsonify, render_template, request, send_from_directory, send_file
+from flask import Flask, jsonify, render_template, request, send_file
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, jwt_required, get_jwt_identity, get_jwt, decode_token
@@ -15,7 +15,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 
 # ── CAMINHOS (compatível com PyInstaller / executável "congelado") ─────────────
-# ASSET_DIR: assets somente-leitura (templates, static, js/html da raiz, files/)
+# ASSET_DIR: assets somente-leitura (templates/, static/)
 # RUN_DIR  : pasta gravável ao lado do .exe (banco doctrack.db, .env, planilha)
 if getattr(sys, "frozen", False):
     ASSET_DIR = sys._MEIPASS
@@ -51,7 +51,7 @@ CORS(app, origins=_cors_origins, supports_credentials=not _allow_all_origins)
 if os.environ.get("TRUST_PROXY", "").lower() in ("true", "1", "t"):
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-BASE_DIR   = ASSET_DIR                                   # assets de leitura (js/html da raiz, files/)
+BASE_DIR   = ASSET_DIR                                   # assets de leitura (templates/, static/)
 # Planilha legada de seed: procura em data/ (layout do repositório) e na raiz
 # (layout do .exe empacotado, onde fica ao lado do executável).
 EXCEL_PATH = os.path.join(RUN_DIR, "data", "Lista_de_Documentos_IT_padronizada_1.xlsx")
@@ -386,7 +386,8 @@ def _static_version():
     """Token de cache-busting baseado no mtime dos estáticos (muda só quando o arquivo muda)."""
     try:
         files = ["static/app.js", "static/auth.js", "static/common.js",
-                 "static/style.css"]
+                 "static/style.css", "static/socket-client.js",
+                 "static/app-realtime.js"]
         latest = max(os.path.getmtime(os.path.join(BASE_DIR, f)) for f in files if os.path.exists(os.path.join(BASE_DIR, f)))
         return str(int(latest))
     except Exception:
@@ -433,14 +434,6 @@ def config_page():
     # e nas APIs (audit/users já exigem gestor+).
     from areas import AREAS
     return render_template("config.html", asset_v=_static_version(), areas=AREAS)
-
-@app.route("/socket-client.js")
-def serve_socket_client():
-    return send_from_directory(BASE_DIR, "socket-client.js")
-
-@app.route("/app-realtime.js")
-def serve_app_realtime():
-    return send_from_directory(BASE_DIR, "app-realtime.js")
 
 # ── API — DADOS ───────────────────────────────────────────────────────────────
 @app.route("/api/data")
@@ -1685,32 +1678,6 @@ def export_consumiveis_csv():
     return send_file(io.BytesIO(out.getvalue().encode("utf-8-sig")),
                      mimetype="text/csv", as_attachment=True, download_name="consumiveis.csv")
 
-# ── API — PDF REPORT ─────────────────────────────────────────────────────────
-@app.route("/api/report/pdf", methods=["POST"])
-@require_role("admin", "gestor", "tecnico")
-def api_report_pdf():
-    try:
-        import sys
-        files_dir = os.path.join(BASE_DIR, "files")
-        if files_dir not in sys.path:
-            sys.path.append(files_dir)
-        import generate_report
-        
-        payload = request.get_json(force=True, silent=True) or {}
-        kpis = payload.get("kpis") or payload
-        pdf_bytes = generate_report.render_pdf(kpis)
-        
-        return send_file(
-            io.BytesIO(pdf_bytes),
-            mimetype="application/pdf",
-            as_attachment=True,
-            download_name="DocTrack_Enterprise_KPIs.pdf",
-        )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"erro": f"Erro na geração do PDF: {e}"}), 500
-
 # ── API — METRICS / ENUMS / AUDIT / EXPORT ───────────────────────────────────
 
 @app.route("/api/metrics")
@@ -1780,8 +1747,9 @@ def api_audit():
 def export_audit():
     logs = _filter_audit_dates(AuditLog.query.order_by(AuditLog.timestamp.desc())).all()
     
-    # Caminho para o template do relatório HTML
-    template_path = os.path.join(BASE_DIR, "audit_log_report.html")
+    # Template do relatório HTML. Mora em templates/, mas é lido como arquivo
+    # cru (substituição de string abaixo), não renderizado pelo Jinja.
+    template_path = os.path.join(BASE_DIR, "templates", "audit_log_report.html")
     if not os.path.exists(template_path):
         return jsonify({"erro": "Template de relatório não encontrado"}), 500
         

@@ -1000,8 +1000,8 @@ class ConsumivelEquipamento(db.Model):
 # ── RESPONSAVEL (removido) ────────────────────────────────────────────────────
 # O modelo `Responsavel` (N:N documento↔usuário com papéis elaborador/revisor_1/
 # revisor_2/aprovador) foi removido: nasceu para um fluxo de aprovação que nunca
-# existiu — zero linhas, nenhuma rota ativa (o CRUD ficou em
-# scripts/legado/servidor_v4_backup.py) e nenhuma UI. Quem responde pelo
+# existiu — zero linhas, nenhuma rota ativa (o CRUD ficou no servidor_v4, hoje
+# só no histórico do git) e nenhuma UI. Quem responde pelo
 # documento é `Documento.responsavel`, agora alimentado por um seletor dos
 # usuários reais (GET /api/documentos/responsaveis).
 # A TABELA `responsaveis` não é derrubada — só deixa de ser mapeada.

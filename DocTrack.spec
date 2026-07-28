@@ -4,11 +4,8 @@
 #   Gerar com:  .\venv\Scripts\pyinstaller.exe DocTrack.spec --noconfirm
 
 datas = [
-    ('templates', 'templates'),
-    ('static', 'static'),
-    ('socket-client.js', '.'),
-    ('app-realtime.js', '.'),
-    ('audit_log_report.html', '.'),
+    ('templates', 'templates'),   # inclui audit_log_report.html
+    ('static', 'static'),         # inclui socket-client.js e app-realtime.js
 ]
 
 hiddenimports = [

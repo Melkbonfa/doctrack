@@ -5,8 +5,12 @@
 
 # Backups e arquivos temporarios
 *.bak
+*-bak
 *.db.backup-*
 backups/
+
+# Logs do servico (NSSM redireciona stdout/stderr para ca)
+logs/
 
 # Instaladores / binarios grandes
 *.exe
