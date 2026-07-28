@@ -14,6 +14,43 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Arquivos hospedados na plataforma
+- **Novo** upload de arquivos direto no DocTrack: cada documento comporta
+  **vários arquivos convivendo** (manual PT e ES, IT e checklist), visualizáveis
+  dentro da plataforma. São **cópias de conveniência** — o mestre continua no
+  servidor da engenharia e a Qualidade mantém o sistema dela; por isso autor e
+  data de envio ficam sempre visíveis na linha do arquivo (não há sincronização
+  com o mestre, e é essa informação que impede alguém ler cópia velha sem saber).
+- **Novo** `DocumentoArquivo` (tabela `documento_arquivos`) + módulo
+  `arquivos_store.py`: blob **endereçado por conteúdo** (nome em disco =
+  SHA-256), o que elimina path traversal por construção, deduplica conteúdo
+  idêntico e nunca deixa parcial de upload com nome válido (grava em `_tmp` e
+  move). Allowlist de extensão (pdf/office/imagem) e teto de upload
+  (`DOCTRACK_UPLOAD_MAX_MB`, padrão 80 MB) — antes o app não tinha
+  `MAX_CONTENT_LENGTH` nenhum.
+- **Novo** API: `GET/POST /api/documentos/<id>/arquivos`,
+  `GET /api/documentos/arquivos/<aid>/conteudo` (inline para PDF/imagem,
+  `?download=1` força download) e `DELETE /api/documentos/arquivos/<aid>`.
+  Adicionar/remover é de **admin+gestor** (a hierarquia já existente); ler e
+  baixar é de qualquer autenticado — quem acessa o DocTrack já acessa as pastas
+  de rede, restringir download seria teatro. Upload e remoção auditados
+  (`UPLOAD`/`DELETE` no AuditLog).
+- Aba do documento reorganizada: a seção **Pasta na rede** (seletor de pasta +
+  caminho + "Ver arquivos") saiu da aba — os arquivos da plataforma assumem o
+  papel; a resolução de caminhos em 3 níveis continua no backend e na ficha do
+  equipamento. Ações do arquivo em botões próprios (Visualizar/Baixar/Remover)
+  e visor embutido no modal existente (iframe para PDF/imagem, render
+  client-side para .docx).
+- `X-Frame-Options` de `DENY` para `SAMEORIGIN` + `frame-ancestors 'self'` no
+  CSP: o visor enquadra o próprio endpoint de conteúdo em `<iframe>`, e DENY
+  bloqueia até em mesma origem; contra clickjacking de terceiros, SAMEORIGIN
+  protege igual.
+- `scripts/gerar_backup.ps1` agora espelha a pasta de arquivos
+  (`DOCTRACK_ARQUIVOS`) junto do `pg_dump` — banco sem os blobs aponta para
+  arquivos inexistentes, e blobs sem o banco são hashes sem significado. O
+  espelho é cumulativo (blob nunca muda de conteúdo, então nunca precisa ser
+  apagado). `.gitignore` cobre `arquivos/` (dados, não código).
+
 ### Pastas por grupo de documentos
 - **Novo** `EquipamentoPasta`: cada equipamento declara as SUAS pastas de rede
   (nome livre + caminho completo) e cada documento aponta para uma delas. A

@@ -33,7 +33,8 @@ from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import (
-    db, Documento, DocumentoHistorico, Equipamento, EquipamentoPasta, AuditLog, User,
+    db, Documento, DocumentoHistorico, DocumentoArquivo,
+    Equipamento, EquipamentoPasta, AuditLog, User,
     SETORES, SETORES_TODOS, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS,
     SETOR_DO_TIPO, TIPOS_DOC_LABELS, MOTIVOS_NA, MOTIVO_NA_LIVRE,
@@ -42,6 +43,7 @@ from auth import require_role, log_action, get_client_ip
 from event_bus import EventType
 from utils import norm
 import caminhos
+import arquivos_store
 # Sync Documento → Cartão (import acíclico: missoes.py só importa models/auth)
 from missoes import sincronizar_cartoes_documento, emitir_eventos_sync
 
@@ -1157,6 +1159,148 @@ def servir_arquivo():
         )
     except Exception as e:
         return jsonify({"erro": f"Erro ao abrir arquivo: {str(e)}"}), 500
+
+# ── API — ARQUIVOS HOSPEDADOS NA PLATAFORMA ───────────────────────────────────
+# Diferente do bloco acima: lá o arquivo mora na rede e o caminho vem do cliente
+# (daí a allowlist); aqui o arquivo foi ENVIADO para o DocTrack e o caminho é
+# derivado do SHA gravado no banco — o cliente nunca escolhe caminho nenhum.
+#
+# Permissão: enviar/substituir/remover é de admin+gestor (a hierarquia que o
+# sistema já tem). Ler e baixar é de qualquer autenticado — quem acessa o
+# DocTrack já acessa as pastas da rede, então restringir download seria teatro.
+
+def _sha_orfao(sha, ignorar_id=None):
+    """True se nenhuma outra linha referencia este blob (dedup por conteúdo)."""
+    q = DocumentoArquivo.query.filter_by(sha256=sha)
+    if ignorar_id is not None:
+        q = q.filter(DocumentoArquivo.id != ignorar_id)
+    return q.first() is None
+
+
+@documentos_bp.route("/api/documentos/<int:doc_id>/arquivos", methods=["GET"])
+@jwt_required()
+def listar_arquivos_doc(doc_id):
+    """Todos os arquivos já enviados para este documento (o mais novo primeiro,
+    inclusive os removidos — ativo=False — para fins de histórico)."""
+    doc = db.session.get(Documento, doc_id)
+    if not doc or not doc.ativo:
+        return jsonify({"erro": "Documento não encontrado"}), 404
+    itens = (DocumentoArquivo.query
+             .filter_by(documento_id=doc.id)
+             .order_by(DocumentoArquivo.versao.desc())
+             .all())
+    return jsonify({"arquivos": [a.to_dict() for a in itens]}), 200
+
+
+@documentos_bp.route("/api/documentos/<int:doc_id>/arquivos", methods=["POST"])
+@require_role("admin", "gestor")
+def enviar_arquivo_doc(doc_id):
+    """Adiciona um arquivo a este documento (multipart/form-data).
+
+    Adiciona, não substitui: um documento comporta vários arquivos convivendo
+    (manual PT e ES, IT e o checklist dela). Para trocar um, remove-se e
+    envia-se o novo.
+    """
+    caller = get_jwt_identity()
+    doc = db.session.get(Documento, doc_id)
+    if not doc or not doc.ativo:
+        return jsonify({"erro": "Documento não encontrado"}), 404
+
+    enviado = request.files.get("arquivo")
+    if not enviado or not (enviado.filename or "").strip():
+        return jsonify({"erro": "Nenhum arquivo enviado"}), 400
+
+    nome = os.path.basename(enviado.filename.strip())
+    if not arquivos_store.extensao_ok(nome):
+        permitidas = ", ".join(sorted(e.lstrip(".") for e in arquivos_store.EXT_PERMITIDAS))
+        return jsonify({"erro": f"Formato não aceito. Aceitos: {permitidas}"}), 415
+
+    try:
+        sha, tamanho = arquivos_store.guardar(enviado.stream, nome)
+    except arquivos_store.ArquivoGrandeDemais:
+        return jsonify({"erro": f"Arquivo maior que {arquivos_store.MAX_MB} MB"}), 413
+    except OSError as e:
+        return jsonify({"erro": f"Erro ao gravar o arquivo: {str(e)}"}), 500
+
+    # Sequencial de envio dentro do documento (conta também os removidos, para
+    # nunca repetir número na trilha de auditoria).
+    ultimo = max((a.versao or 0 for a in (doc.arquivos or [])), default=0)
+
+    arq = DocumentoArquivo(
+        documento_id=doc.id,
+        versao=ultimo + 1,
+        sha256=sha,
+        nome_original=nome,
+        ext=arquivos_store.ext_de(nome),
+        mime=arquivos_store.mime_de(nome),
+        tamanho=tamanho,
+        observacao=(request.form.get("observacao") or "").strip()[:300],
+        enviado_por=caller,
+    )
+    db.session.add(arq)
+    db.session.flush()
+
+    log_action(caller, "UPLOAD", entidade=doc.documento, campo="arquivo",
+               antigo="", novo=nome, documento_id=doc.id, ip=get_client_ip())
+    db.session.refresh(doc)
+    return jsonify({"documento": doc.to_dict(), "arquivo": arq.to_dict()}), 201
+
+
+@documentos_bp.route("/api/documentos/arquivos/<int:arq_id>/conteudo", methods=["GET"])
+@jwt_required()
+def servir_arquivo_doc(arq_id):
+    """Serve o arquivo hospedado. PDF/imagem inline (para o visor da plataforma),
+    o resto como download. `?download=1` força o download em qualquer formato."""
+    arq = db.session.get(DocumentoArquivo, arq_id)
+    if not arq:
+        return jsonify({"erro": "Arquivo não encontrado"}), 404
+    # O caminho vem do SHA gravado, nunca da requisição.
+    real = arquivos_store.caminho_de(arq.sha256)
+    if not os.path.isfile(real):
+        return jsonify({"erro": "Arquivo não está mais disponível no servidor"}), 404
+    inline = (arquivos_store.abre_inline(arq.nome_original)
+              and request.args.get("download") != "1")
+    try:
+        return send_file(
+            real,
+            as_attachment=not inline,
+            download_name=arq.nome_original or f"documento{arq.ext or ''}",
+            mimetype=arq.mime or None,
+            conditional=True,
+        )
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao abrir arquivo: {str(e)}"}), 500
+
+
+@documentos_bp.route("/api/documentos/arquivos/<int:arq_id>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def remover_arquivo_doc(arq_id):
+    """Remove a versão. Soft delete primeiro; o blob só sai se ficar órfão.
+
+    A ordem importa: em Windows o `os.remove` pode falhar se alguém estiver
+    baixando o arquivo naquele instante. Marcando inativo antes, a falha física
+    deixa no máximo um blob órfão — nunca uma linha apontando para o vazio.
+    """
+    caller = get_jwt_identity()
+    arq = db.session.get(DocumentoArquivo, arq_id)
+    if not arq:
+        return jsonify({"erro": "Arquivo não encontrado"}), 404
+    doc = db.session.get(Documento, arq.documento_id)
+    nome, sha = arq.nome_original, arq.sha256
+
+    db.session.delete(arq)
+    db.session.flush()
+    if _sha_orfao(sha):
+        arquivos_store.remover(sha)
+
+    log_action(caller, "DELETE", entidade=(doc.documento if doc else ""),
+               campo="arquivo", antigo=nome, novo="",
+               documento_id=arq.documento_id, ip=get_client_ip())
+    if doc is not None:
+        db.session.refresh(doc)
+        return jsonify({"documento": doc.to_dict()}), 200
+    return jsonify({"ok": True}), 200
+
 
 # ── API — STATUS FLOW ─────────────────────────────────────────────────────────
 @documentos_bp.route("/api/documento/<int:doc_id>/status", methods=["PUT"])

@@ -407,6 +407,19 @@ class Documento(db.Model):
         texto = (self.responsavel or "").strip()
         return [n.strip() for n in texto.split(",") if n.strip()] if texto else []
 
+    @property
+    def arquivos_ativos(self):
+        """Arquivos hospedados na plataforma, o mais recente primeiro.
+
+        Um documento pode ter VÁRIOS arquivos convivendo (o manual em PT e em
+        ES, a IT e o checklist dela) — enviar um novo não substitui os outros.
+
+        Filtra em Python de propósito: a coleção já vem carregada por selectin,
+        então uma consulta por documento aqui anularia o ganho.
+        """
+        ativos = [a for a in (self.arquivos or []) if a.ativo]
+        return sorted(ativos, key=lambda a: a.versao or 0, reverse=True)
+
     def to_dict(self):
         return {
             "id":               self.id,
@@ -463,6 +476,10 @@ class Documento(db.Model):
             "motivo_na_codigo": self.motivo_na_codigo or "",
             "motivo_na":        self.motivo_na or "",
             "motivo_na_label":  self.motivo_na_label,
+            # Cópias hospedadas na plataforma (independem do caminho de rede).
+            # Lista completa: um documento pode ter vários arquivos convivendo.
+            "tem_arquivo":      bool(self.arquivos_ativos),
+            "arquivos":         [a.to_dict() for a in self.arquivos_ativos],
         }
 
     def snapshot(self):
@@ -514,6 +531,60 @@ class DocumentoHistorico(db.Model):
             "em":            self.em.strftime("%d/%m/%Y %H:%M") if self.em else "",
             "em_iso":        self.em.isoformat() if self.em else "",
             "por":           self.por or "",
+        }
+
+
+class DocumentoArquivo(db.Model):
+    """Cópia do documento hospedada na plataforma (o mestre segue no servidor).
+
+    Um documento comporta VÁRIOS arquivos ao mesmo tempo — enviar não substitui
+    os existentes; remover desativa um. `versao` é o número sequencial de envio
+    dentro do documento (só cresce), usado para ordenar do mais novo ao mais
+    velho. Quem enviou e quando fica sempre visível: não há sincronização com o
+    mestre, e é essa informação que impede alguém ler uma cópia velha sem saber.
+
+    `sha256` é o nome do blob em disco (ver `arquivos_store`): o caminho é
+    derivado do conteúdo, nunca da requisição.
+    """
+    __tablename__ = "documento_arquivos"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    documento_id  = db.Column(db.Integer, db.ForeignKey("documentos.id"),
+                              nullable=False, index=True)
+    versao        = db.Column(db.Integer, default=1, nullable=False)
+    sha256        = db.Column(db.String(64), nullable=False, index=True)
+    nome_original = db.Column(db.String(300), nullable=False, default="")
+    ext           = db.Column(db.String(10), default="")
+    mime          = db.Column(db.String(120), default="")
+    tamanho       = db.Column(db.Integer, default=0)
+    observacao    = db.Column(db.String(300), default="")
+    enviado_por   = db.Column(db.String(120), default="")
+    enviado_em    = db.Column(db.DateTime, default=datetime.now, index=True)
+    ativo         = db.Column(db.Boolean, default=True, nullable=False, index=True)
+
+    # selectin (e não select): to_dict() do Documento consulta o arquivo, e o
+    # dashboard serializa mais de mil linhas de uma vez — com lazy="select" isso
+    # viraria uma consulta por documento.
+    documento = db.relationship(
+        "Documento", backref=db.backref("arquivos", lazy="selectin",
+                                        cascade="all, delete-orphan"))
+
+    def to_dict(self):
+        import arquivos_store
+        return {
+            "id":            self.id,
+            "documento_id":  self.documento_id,
+            "versao":        self.versao or 1,
+            "nome":          self.nome_original or "",
+            "ext":           (self.ext or "").lstrip("."),
+            "mime":          self.mime or "",
+            "tamanho":       self.tamanho or 0,
+            "observacao":    self.observacao or "",
+            "enviado_por":   self.enviado_por or "",
+            "enviado_em":    self.enviado_em.strftime("%d/%m/%Y %H:%M") if self.enviado_em else "",
+            "enviado_em_iso": self.enviado_em.isoformat() if self.enviado_em else "",
+            "ativo":         bool(self.ativo),
+            "pode_visualizar": arquivos_store.pode_visualizar(self.nome_original or ""),
         }
 
 

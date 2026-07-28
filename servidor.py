@@ -88,9 +88,23 @@ app.config["JWT_QUERY_STRING_NAME"]          = "token"
 # para 4 via ambiente (187ms -> 1ms por hash). Precisa estar no config ANTES do
 # bcrypt.init_app() abaixo — o Flask-Bcrypt lê o valor uma única vez.
 app.config["BCRYPT_LOG_ROUNDS"]              = int(os.environ.get("BCRYPT_LOG_ROUNDS", "12"))
+# Teto de corpo da requisição. Vale para TODO upload (planilha de import,
+# arquivo de documento). Antes disto não havia teto nenhum: encher o disco do
+# servidor era um POST. Ajuste por DOCTRACK_UPLOAD_MAX_MB.
+import arquivos_store
+app.config["MAX_CONTENT_LENGTH"]             = arquivos_store.MAX_BYTES
+
+
+@app.errorhandler(413)
+def _erro_arquivo_grande(_e):
+    """O Flask aborta com HTML quando o corpo estoura MAX_CONTENT_LENGTH; o
+    front faz res.json() em toda resposta, então precisa ser JSON."""
+    return jsonify({"erro": f"Arquivo maior que {arquivos_store.MAX_MB} MB"}), 413
+
 
 from models import (
-    db, bcrypt, User, Documento, DocumentoHistorico, Equipamento, AuditLog, RevokedToken,
+    db, bcrypt, User, Documento, DocumentoHistorico, DocumentoArquivo, Equipamento,
+    AuditLog, RevokedToken,
     EquipamentoHistorico, EquipamentoSnapshot, EquipamentoPasta, ParetoHistorico, ImportacaoLog,
     CategoriaEquipamento, FamiliaEquipamento, EquipamentoItem, ITEM_TIPOS,
     Consumivel, TipoConsumivel, ConsumivelEquipamento, FORNECIMENTO, TIPOS_CONSUMIVEL_SEED,
@@ -160,7 +174,11 @@ def check_revoked(jwt_header, jwt_payload):
 
 @app.after_request
 def add_security_headers(response):
-    response.headers["X-Frame-Options"] = "DENY"
+    # SAMEORIGIN e não DENY: o visor de documento enquadra o próprio endpoint de
+    # conteúdo (PDF/imagem) num <iframe>, e DENY bloqueia isso até em mesma
+    # origem. O que clickjacking exige é impedir que OUTRO site enquadre o
+    # DocTrack — e disso SAMEORIGIN dá conta igual.
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     # Sem CDN em nenhuma diretiva: as bibliotecas JS já eram servidas de
@@ -174,6 +192,10 @@ def add_security_headers(response):
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self'; "
         "img-src 'self' data:; "
+        # frame-ancestors é a diretiva que substitui X-Frame-Options nos
+        # navegadores modernos; sem ela a política herda default-src e o
+        # cabeçalho acima ficaria sendo a única regra.
+        "frame-ancestors 'self'; "
         "connect-src 'self' ws: wss: http: https:;"
     )
     return response

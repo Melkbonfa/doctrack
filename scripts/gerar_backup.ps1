@@ -3,8 +3,9 @@
 # ----------------------------------------------------------------------------
 #  O que faz:
 #    - Gera um arquivo .sql com TODO o conteudo do banco (pg_dump)
+#    - Espelha a pasta dos arquivos enviados para a plataforma (DOCTRACK_ARQUIVOS)
 #    - Salva em C:\apps\doctrack\backups com a data no nome
-#    - Apaga backups com mais de 30 dias (para nao lotar o disco)
+#    - Apaga DUMPS com mais de 30 dias (o espelho de arquivos e cumulativo)
 #
 #  Como usar manualmente:
 #    cd C:\apps\doctrack
@@ -59,7 +60,44 @@ if (Test-Path $arquivo) {
     throw "O backup nao foi gerado."
 }
 
+# --- Copia os arquivos enviados para a plataforma ---------------------------
+# O banco guarda so o SHA-256 de cada arquivo; os bytes ficam em disco. Salvar
+# um sem o outro produz um backup que nao restaura: dump sem os blobs aponta
+# para arquivos inexistentes, e os blobs sozinhos sao nomes em hash sem sentido.
+#
+# O espelho e CUMULATIVO de proposito (/E e nao /MIR): como o nome do arquivo e
+# o hash do conteudo, um blob nunca muda. Nunca apagando, qualquer dump dos
+# ultimos 30 dias continua encontrando todos os blobs que referencia — sem
+# precisar de uma copia completa por dia.
+$linhaArq = Get-Content $envFile | Where-Object { $_ -match "^DOCTRACK_ARQUIVOS=" }
+if ($linhaArq) {
+    $PastaArquivos = ($linhaArq -replace "^DOCTRACK_ARQUIVOS=", "").Trim().Trim('"')
+} else {
+    $PastaArquivos = "$Raiz\arquivos"
+}
+
+if (Test-Path $PastaArquivos) {
+    $EspelhoArq = "$PastaBackup\arquivos"
+    Write-Host "Copiando arquivos enviados ($PastaArquivos)..." -ForegroundColor Cyan
+    # /E subdiretorios (inclusive vazios) | /XD _tmp ignora parciais de upload
+    # /NFL /NDL /NJH /NJS silencia a listagem, deixando so o resumo
+    & robocopy $PastaArquivos $EspelhoArq /E /XD "_tmp" /R:2 /W:2 /NFL /NDL /NJH /NJS | Out-Null
+    # Robocopy usa 0-7 para sucesso (8+ e falha real) — nao trate como exit code comum
+    if ($LASTEXITCODE -ge 8) {
+        throw "Falha ao copiar os arquivos enviados (robocopy retornou $LASTEXITCODE)."
+    }
+    $qtd = (Get-ChildItem $EspelhoArq -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object).Count
+    $gb  = [math]::Round(((Get-ChildItem $EspelhoArq -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum).Sum / 1GB), 2)
+    Write-Host "  [OK] Arquivos no espelho: $qtd ($gb GB) em $EspelhoArq" -ForegroundColor Green
+} else {
+    Write-Host "  [--] Nenhum arquivo enviado ainda ($PastaArquivos nao existe)." -ForegroundColor DarkGray
+}
+
 # --- Limpa backups antigos --------------------------------------------------
+# So os dumps do banco. O espelho de arquivos NAO e podado: e ele que garante
+# que um dump de 30 dias atras ainda ache os blobs que referencia.
 $limite = (Get-Date).AddDays(-$DiasManter)
 $antigos = Get-ChildItem "$PastaBackup\doctrack_*.sql" |
            Where-Object { $_.LastWriteTime -lt $limite }

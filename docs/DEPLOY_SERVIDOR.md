@@ -28,6 +28,13 @@ Saída: **`dist\DocTrack\`** — uma pasta contendo:
      "fora das pastas permitidas". Vazio = autodetecta os mapeamentos da sessão atual,
      o que **não** funciona rodando como serviço.
    - `CORS_ORIGINS=*` — origens liberadas.
+   - `DOCTRACK_ARQUIVOS=C:\DocTrack\arquivos` — pasta dos arquivos **enviados**
+     para a plataforma (a cópia que o usuário sobe em cada documento). Padrão:
+     `arquivos\` ao lado do `.exe`. **Nunca aponte para dentro de `_internal\`** —
+     essa pasta é substituída a cada atualização (ver o passo de atualização no
+     fim deste documento) e os arquivos enviados seriam apagados.
+   - `DOCTRACK_UPLOAD_MAX_MB=80` — teto de upload. O maior documento observado no
+     share tem 56 MB.
 3. **Mapeie o drive `P:`** (rede) se for usar o preview de documentos. (Não exige admin.)
    Não é obrigatório: com a UNC em `DOCTRACK_FILE_ROOTS` o acesso funciona sem o mapeamento.
 4. **Execute `DocTrack.exe`** (duplo clique ou por uma PowerShell normal). Uma janela de
@@ -66,4 +73,9 @@ Sem essa regra, o app funciona normalmente em `localhost` no próprio servidor.
 - O `pandas` só é usado para semear o banco a partir do Excel e **não** é embutido no
   `.exe`. O pacote já vai com o `doctrack.db` pronto.
 - Para atualizar a versão no servidor: gere um novo pacote, e no servidor substitua o
-  `DocTrack.exe` e a pasta `_internal\` — **preserve** o `doctrack.db` e o `.env` existentes.
+  `DocTrack.exe` e a pasta `_internal\` — **preserve** o `doctrack.db`, o `.env` e a
+  pasta `arquivos\` existentes.
+- **Backup:** `scripts\gerar_backup.ps1` salva o banco **e** a pasta de arquivos na
+  mesma execução. As duas metades precisam vir do mesmo momento: banco sem os
+  arquivos aponta para blobs que não existem, e arquivos sem o banco são um monte
+  de nomes em hash sem significado.
