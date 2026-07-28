@@ -2142,6 +2142,11 @@ def _sync_schema():
         # A coluna não tinha índice: cada abertura da tela de auditoria era um
         # full scan + sort da tabela que mais cresce no sistema.
         ("ix_audit_logs_timestamp", "audit_logs", "timestamp"),
+        # `documentos.pasta_id` nasce com index=True no modelo, mas o
+        # ALTER TABLE acima só cria a coluna: em banco que já existia o índice
+        # não vem junto. É por ele que o backfill de pastas e a remoção de uma
+        # pasta (que desvincula os documentos dela) varrem a tabela.
+        ("ix_documentos_pasta_id", "documentos", "pasta_id"),
     ]
     for nome_idx, tabela, coluna in novos_indices:
         if tabela not in existentes:

@@ -169,6 +169,61 @@ def test_remover_ultima_referencia_apaga_o_blob(client, admin_token, auth_header
     assert not os.path.isfile(arquivos_store.caminho_de(sha))
 
 
+# ── remoção é soft delete ────────────────────────────────────────────────────
+def test_remocao_preserva_a_linha_para_o_historico(client, admin_token, auth_headers):
+    """A linha sobrevive inativa: é ela que responde quem enviou, quando e com
+    que nome o arquivo que alguém apagou. Apagá-la de fato deixava a listagem
+    de histórico sem nada para mostrar."""
+    h = auth_headers(admin_token)
+    doc_id = _um_documento(client, h)
+    arq_id = _upload(client, admin_token, doc_id).get_json()["arquivo"]["id"]
+
+    assert client.delete(f"/api/documentos/arquivos/{arq_id}", headers=h).status_code == 200
+
+    linha = db.session.get(DocumentoArquivo, arq_id)
+    assert linha is not None
+    assert linha.ativo is False
+
+    # a listagem devolve o histórico completo; o documento, só os ativos
+    itens = client.get(f"/api/documentos/{doc_id}/arquivos", headers=h).get_json()["arquivos"]
+    assert [a["id"] for a in itens] == [arq_id]
+    assert itens[0]["ativo"] is False
+    assert client.get(f"/api/documentos/{doc_id}", headers=h).get_json()["arquivos"] == []
+
+
+def test_numero_de_versao_nao_se_repete_apos_remocao(client, admin_token, auth_headers):
+    """Apagando a linha, `max(versao)` voltava a 0 e o próximo envio era outra
+    v1 — dois arquivos diferentes com o mesmo número na trilha de auditoria."""
+    h = auth_headers(admin_token)
+    doc_id = _um_documento(client, h)
+    primeiro = _upload(client, admin_token, doc_id, "v1.pdf", b"um").get_json()["arquivo"]
+    assert primeiro["versao"] == 1
+
+    client.delete(f"/api/documentos/arquivos/{primeiro['id']}", headers=h)
+    segundo = _upload(client, admin_token, doc_id, "v2.pdf", b"dois").get_json()["arquivo"]
+    assert segundo["versao"] == 2
+
+
+def test_arquivo_removido_nao_e_mais_baixavel(client, admin_token, auth_headers):
+    """Mesmo quando o blob sobrevive por dedup (outro documento tem o mesmo
+    conteúdo), o id do arquivo removido não pode continuar servindo bytes."""
+    h = auth_headers(admin_token)
+    docs = client.get("/api/documentos", headers=h).get_json()
+    conteudo = b"mesmo conteudo nos dois"
+    a1 = _upload(client, admin_token, docs[0]["id"], "A.pdf", conteudo).get_json()["arquivo"]
+    a2 = _upload(client, admin_token, docs[1]["id"], "B.pdf", conteudo).get_json()["arquivo"]
+
+    client.delete(f"/api/documentos/arquivos/{a1['id']}", headers=h)
+
+    assert client.get(f"/api/documentos/arquivos/{a1['id']}/conteudo",
+                      headers=h).status_code == 404
+    assert client.get(f"/api/documentos/arquivos/{a2['id']}/conteudo",
+                      headers=h).status_code == 200
+    # e remover duas vezes não é um segundo evento
+    assert client.delete(f"/api/documentos/arquivos/{a1['id']}",
+                         headers=h).status_code == 404
+
+
 # ── auditoria ────────────────────────────────────────────────────────────────
 def test_upload_registra_auditoria(client, admin_token, auth_headers):
     doc_id = _um_documento(client, auth_headers(admin_token))

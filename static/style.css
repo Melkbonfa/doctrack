@@ -699,13 +699,6 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .equip-tag.late{color:var(--red);background:color-mix(in srgb, var(--red) 12%, transparent);font-weight:700}
 .equip-tag.warn{color:var(--amber);background:color-mix(in srgb, var(--amber) 12%, transparent);font-weight:700}
 
-/* Origem do caminho de armazenamento (herdado do equipamento × exceção do doc) */
-.arm-hint{font-size:10px;font-weight:600;color:var(--t3);background:var(--bg-elevated);
-  border-radius:6px;padding:2px 7px;margin-left:6px;text-transform:none;letter-spacing:0}
-.arm-hint.override{color:var(--amber);background:color-mix(in srgb, var(--amber) 12%, transparent)}
-.arm-hint .btn-link{background:none;border:none;color:var(--cyan);font:inherit;cursor:pointer;
-  padding:0;margin-left:6px;text-decoration:underline}
-
 /* Trilha de status do documento (aging + últimas transições) */
 .doc-hist{background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:8px;
   padding:8px 10px;max-height:112px;overflow:auto;font-size:11px;color:var(--t3);line-height:1.7}
@@ -719,19 +712,13 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .manual-row-name{font-size:12px;font-weight:600;color:var(--t1);}
 .section-label-line{font-size:10px;color:var(--cyan-lt);letter-spacing:1px;margin:6px 0 10px;text-transform:uppercase;}
 
-/* Linha de armazenamento (input + botão Ver arquivos) */
-.armazenamento-row{display:flex;gap:8px;align-items:stretch;}
-.armazenamento-row .form-input{flex:1;min-width:0;}
-.armazenamento-row .btn{white-space:nowrap;flex-shrink:0;}
-
-/* Lista de arquivos do equipamento */
+/* Linha de arquivo (usada pela lista de arquivos hospedados na plataforma) */
 .arquivo-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border-soft);margin-bottom:7px;cursor:pointer;transition:border-color .15s,transform .1s;}
 .arquivo-row:hover{border-color:var(--border-hi);transform:translateY(-1px);}
 .arquivo-ext{flex-shrink:0;width:42px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:#fff;font-size:9px;font-weight:800;letter-spacing:.3px;}
 .arquivo-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
 .arquivo-nome{font-size:12.5px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .arquivo-meta{font-size:10.5px;color:var(--t3);}
-.arquivo-acao{flex-shrink:0;font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:.3px;}
 
 /* Arquivos hospedados na plataforma (cópias enviadas, não o caminho de rede) */
 .arq-plat-vazio{display:flex;align-items:center;justify-content:space-between;gap:12px;

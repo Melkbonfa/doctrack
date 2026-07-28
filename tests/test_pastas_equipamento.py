@@ -137,6 +137,50 @@ def test_pasta_de_outro_equipamento_e_rejeitada(client, admin_token, auth_header
     assert "Pasta inválida" in res.get_json()["erro"]
 
 
+@pytest.mark.parametrize("bruto", ["abc", "1; DROP TABLE", 1.5, [3], {"id": 3}])
+def test_pasta_id_nao_numerico_da_400_e_nao_500(client, admin_token, auth_headers, bruto):
+    """O id vem do cliente: `int()` cru virava ValueError não tratado — 500 onde
+    a resposta certa é a mesma de uma pasta que não existe."""
+    h = auth_headers(admin_token)
+    _, por_tipo = _equip_com_docs(client, h, f"EQ-PASTA-ID-{abs(hash(str(bruto)))}")
+    res = client.patch(f"/api/documentos/{por_tipo['IT']['id']}",
+                       json={"pasta_id": bruto}, headers=h)
+    assert res.status_code == 400
+    assert "Pasta inválida" in res.get_json()["erro"]
+
+
+def test_lista_de_equipamentos_nao_consulta_pastas_uma_vez_por_linha(
+        client, admin_token, auth_headers, app):
+    """`Equipamento.to_dict()` serializa as pastas e `/api/equipamentos`
+    serializa a lista inteira: com o backref em `lazy="select"` era uma consulta
+    por equipamento — o mesmo N+1 que `DocumentoArquivo` já evitava com
+    `selectin`."""
+    from sqlalchemy import event
+
+    h = auth_headers(admin_token)
+    for i in range(4):
+        eid, _ = _equip_com_docs(client, h, f"EQ-NMAIS1-{i}")
+        client.post(f"/api/equipamentos/{eid}/pastas",
+                    json={"nome": "Manuais", "caminho": PASTA_MANUAIS}, headers=h)
+
+    consultas = []
+    engine = db.engines[None]
+
+    def _contar(conn, cursor, stmt, params, ctx, many):
+        if "equipamento_pastas" in stmt.lower():
+            consultas.append(stmt)
+
+    event.listen(engine, "before_cursor_execute", _contar)
+    try:
+        res = client.get("/api/equipamentos", headers=h)
+    finally:
+        event.remove(engine, "before_cursor_execute", _contar)
+
+    assert res.status_code == 200
+    assert len(res.get_json()) >= 4
+    assert len(consultas) <= 1, f"N+1: {len(consultas)} consultas de pastas na lista"
+
+
 def test_remover_pasta_devolve_os_documentos_ao_equipamento(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
     eid, por_tipo = _equip_com_docs(client, h, "EQ-PASTA-7")

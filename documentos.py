@@ -404,8 +404,15 @@ def update_documento(doc_id):
         if bruto in (None, "", 0, "0"):
             doc.pasta_id = None
         else:
+            # O id vem do cliente: `int()` cru transformava qualquer coisa não
+            # numérica em ValueError não tratado — 500 onde a resposta certa é
+            # a mesma de uma pasta inexistente.
+            try:
+                pasta_id_novo = int(bruto)
+            except (TypeError, ValueError):
+                return jsonify({"erro": "Pasta inválida para este equipamento"}), 400
             pasta = EquipamentoPasta.query.filter(
-                EquipamentoPasta.id == int(bruto),
+                EquipamentoPasta.id == pasta_id_novo,
                 EquipamentoPasta.ativo == True).first()
             # a pasta tem que ser DO equipamento do documento: aceitar a de outro
             # deixaria um documento apontando para a pasta de outro produto
@@ -1017,10 +1024,7 @@ def abrir_pasta():
                 break
             next_parent = os.path.dirname(parent)
             if next_parent == parent:
-                if achado and os.path.isdir(achado):
-                    caminho_final = achado
-                    tipo_abertura = "raiz"
-                break
+                break            # chegou à raiz do volume sem achar diretório
             parent = next_parent
 
     if not caminho_final:
@@ -1170,8 +1174,13 @@ def servir_arquivo():
 # DocTrack já acessa as pastas da rede, então restringir download seria teatro.
 
 def _sha_orfao(sha, ignorar_id=None):
-    """True se nenhuma outra linha referencia este blob (dedup por conteúdo)."""
-    q = DocumentoArquivo.query.filter_by(sha256=sha)
+    """True se nenhuma linha ATIVA ainda aponta para este blob (dedup por conteúdo).
+
+    Linha inativa não segura o blob: ela sobrevive só para o histórico (quem
+    enviou, quando, com que nome) e o conteúdo é justamente o que se quis
+    apagar. Quem tentar baixá-la recebe 404 em `servir_arquivo_doc`.
+    """
+    q = DocumentoArquivo.query.filter_by(sha256=sha, ativo=True)
     if ignorar_id is not None:
         q = q.filter(DocumentoArquivo.id != ignorar_id)
     return q.first() is None
@@ -1254,6 +1263,11 @@ def servir_arquivo_doc(arq_id):
     arq = db.session.get(DocumentoArquivo, arq_id)
     if not arq:
         return jsonify({"erro": "Arquivo não encontrado"}), 404
+    # A linha inativa sobrevive para o histórico, o conteúdo não. Sem este
+    # teste, um arquivo removido cujo blob ficou vivo por dedup (outro
+    # documento com o mesmo conteúdo) continuaria baixável pelo id antigo.
+    if not arq.ativo:
+        return jsonify({"erro": "Arquivo removido"}), 404
     # O caminho vem do SHA gravado, nunca da requisição.
     real = arquivos_store.caminho_de(arq.sha256)
     if not os.path.isfile(real):
@@ -1285,17 +1299,25 @@ def remover_arquivo_doc(arq_id):
     arq = db.session.get(DocumentoArquivo, arq_id)
     if not arq:
         return jsonify({"erro": "Arquivo não encontrado"}), 404
+    if not arq.ativo:
+        return jsonify({"erro": "Arquivo já removido"}), 404
     doc = db.session.get(Documento, arq.documento_id)
-    nome, sha = arq.nome_original, arq.sha256
+    doc_id, nome, sha = arq.documento_id, arq.nome_original, arq.sha256
 
-    db.session.delete(arq)
-    db.session.flush()
-    if _sha_orfao(sha):
-        arquivos_store.remover(sha)
+    # Soft delete: a linha fica para o histórico e para segurar o número de
+    # versão (apagá-la fazia o próximo envio voltar a ser v1, repetindo número
+    # numa trilha de auditoria).
+    arq.ativo = False
 
+    # log_action é quem faz o commit — o blob só sai DEPOIS dele. Na ordem
+    # inversa, um commit que falhasse deixaria a linha viva apontando para um
+    # arquivo que já não existe; assim, o pior caso é um blob órfão.
     log_action(caller, "DELETE", entidade=(doc.documento if doc else ""),
                campo="arquivo", antigo=nome, novo="",
-               documento_id=arq.documento_id, ip=get_client_ip())
+               documento_id=doc_id, ip=get_client_ip())
+    if _sha_orfao(sha, ignorar_id=arq_id):
+        arquivos_store.remover(sha)
+
     if doc is not None:
         db.session.refresh(doc)
         return jsonify({"documento": doc.to_dict()}), 200

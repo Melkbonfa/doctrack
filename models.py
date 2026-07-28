@@ -728,8 +728,11 @@ class EquipamentoPasta(db.Model):
     ativo          = db.Column(db.Boolean, default=True, nullable=False)
     criado_em      = db.Column(db.DateTime, default=datetime.now)
 
+    # selectin (e não select): Equipamento.to_dict() serializa as pastas, e
+    # /api/equipamentos serializa a lista inteira — com lazy="select" isso
+    # viraria uma consulta por equipamento.
     equipamento_rel = db.relationship("Equipamento", foreign_keys=[equipamento_id],
-                                      backref=db.backref("pastas", lazy="select"))
+                                      backref=db.backref("pastas", lazy="selectin"))
 
     def to_dict(self):
         return {
