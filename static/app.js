@@ -969,7 +969,9 @@ async function abrirPasta(caminho) {
   }
 }
 
-// ═══ VISUALIZAR ARQUIVOS DO EQUIPAMENTO ═══
+// ═══ AUXILIARES DE ARQUIVO ═══
+// Compartilhados pela lista de arquivos hospedados na plataforma
+// (renderArquivoPlataforma).
 function _fmtTamanho(b){
   if(!b) return '';
   if(b < 1024) return b+' B';
@@ -981,110 +983,6 @@ const _ICON_ARQUIVO = {
   pdf:'#ef4444', docx:'#2563eb', doc:'#2563eb', xlsx:'#16a34a', xls:'#16a34a',
   zip:'#a855f7', rar:'#a855f7', png:'#0891b2', jpg:'#0891b2', jpeg:'#0891b2'
 };
-
-async function abrirArquivos(caminho, titulo){
-  if(!caminho){ showToast('Este documento não tem caminho de armazenamento definido','error'); return; }
-  document.getElementById('arquivos-title').textContent = titulo || 'Documentos';
-  document.getElementById('arquivos-sub').textContent = caminho;
-  document.getElementById('arquivos-body').innerHTML = '<div class="loading-state"><div class="spinner"></div>Carregando arquivos...</div>';
-  openModal('arquivos');
-  try{
-    const res = await apiFetch('/documentos/arquivos?caminho='+encodeURIComponent(caminho));
-    if(!res){ return; }
-    const data = await res.json().catch(()=>({}));
-    if(!res.ok){
-      document.getElementById('arquivos-body').innerHTML =
-        `<div style="text-align:center;padding:28px;color:var(--t3);font-size:13px">${esc(data.erro||'Não foi possível listar os arquivos')}</div>`;
-      return;
-    }
-    // o servidor devolve a pasta na forma que o usuário reconhece (P:\...),
-    // que nem sempre é a que ele digitou nem a canônica gravada no banco
-    if(data.pasta) document.getElementById('arquivos-sub').textContent = data.pasta;
-    renderArquivosLista(data.arquivos || []);
-  }catch(e){
-    document.getElementById('arquivos-body').innerHTML =
-      '<div style="text-align:center;padding:28px;color:var(--red);font-size:13px">Erro de rede ao listar arquivos</div>';
-  }
-}
-
-function renderArquivosLista(arquivos){
-  const body = document.getElementById('arquivos-body');
-  if(!arquivos.length){
-    body.innerHTML = '<div style="text-align:center;padding:28px;color:var(--t3);font-size:13px">Nenhum arquivo encontrado nesta pasta.</div>';
-    return;
-  }
-  const grupos = [['IT','Instrução de Trabalho'],['Checklist','Checklists'],['Outros','Outros arquivos']];
-  let html = '';
-  for(const [cat, label] of grupos){
-    const items = arquivos.filter(a=>a.categoria===cat);
-    if(!items.length) continue;
-    html += `<div class="section-label-line">${esc(label)}</div>`;
-    html += items.map(a=>{
-      const ext = (a.ext||'').toLowerCase();
-      const cor = _ICON_ARQUIVO[ext] || 'var(--t3)';
-      const podeVisualizar = a.inline || ext==='docx';
-      const acao = podeVisualizar ? 'Visualizar' : 'Baixar';
-      const meta = [a.ext?a.ext.toUpperCase():'', _fmtTamanho(a.tamanho), a.modificado].filter(Boolean).join(' · ');
-      const c = encodeURIComponent(a.caminho);
-      const nomeEsc = (a.nome||'').replace(/'/g,"\\'");
-      return `<div class="arquivo-row" onclick="abrirArquivo('${c}', '${nomeEsc}', '${ext}', ${a.inline?'true':'false'})" title="${esc(acao)}">
-        <span class="arquivo-ext" style="background:${cor}">${esc((a.ext||'?').toUpperCase().slice(0,4))}</span>
-        <span class="arquivo-info"><span class="arquivo-nome">${esc(a.nome)}</span><span class="arquivo-meta">${esc(meta)}</span></span>
-        <span class="arquivo-acao">${esc(acao)}</span>
-      </div>`;
-    }).join('');
-  }
-  body.innerHTML = html;
-}
-
-function _downloadArquivo(caminhoEnc, nome){
-  const a = document.createElement('a');
-  a.href = API + '/documentos/arquivo?caminho=' + caminhoEnc + '&token=' + encodeURIComponent(getToken()) + '&download=1';
-  a.download = nome || ''; a.style.display = 'none';
-  document.body.appendChild(a); a.click(); a.remove();
-}
-
-function abrirArquivo(caminhoEnc, nome, ext, inline){
-  ext = (ext||'').toLowerCase();
-  if(ext === 'docx'){ return visualizarDocx(caminhoEnc, nome); }
-  if(inline){
-    const url = API + '/documentos/arquivo?caminho=' + caminhoEnc + '&token=' + encodeURIComponent(getToken());
-    window.open(url, '_blank');
-  }else{
-    _downloadArquivo(caminhoEnc, nome);
-    showToast('Download iniciado: '+(nome||'arquivo'),'success');
-  }
-}
-
-// Renderiza um .docx dentro do navegador (client-side, sem sair da rede)
-async function visualizarDocx(caminhoEnc, nome){
-  const body = document.getElementById('docview-body');
-  document.getElementById('docview-title').textContent = nome || 'Documento';
-  document.getElementById('docview-download').onclick = ()=>_downloadArquivo(caminhoEnc, nome);
-  if(typeof docx === 'undefined' || !docx.renderAsync){
-    showToast('Visualizador indisponível — baixando o arquivo','error');
-    _downloadArquivo(caminhoEnc, nome);
-    return;
-  }
-  body.innerHTML = '<div class="loading-state"><div class="spinner"></div>Renderizando documento...</div>';
-  openModal('docview');
-  try{
-    const res = await apiFetch('/documentos/arquivo?caminho=' + caminhoEnc);
-    if(!res || !res.ok){
-      body.innerHTML = '<div class="docview-erro">Não foi possível carregar o documento.</div>';
-      return;
-    }
-    const blob = await res.blob();
-    body.innerHTML = '';
-    await docx.renderAsync(blob, body, null, {
-      className:'docx', inWrapper:true, useBase64URL:true,
-      breakPages:true, ignoreLastRenderedPageBreak:true, experimental:true
-    });
-    _ajustarDocxNaPagina(body);
-  }catch(e){
-    body.innerHTML = '<div class="docview-erro">Não foi possível renderizar este documento.<br><span style="color:var(--t3);font-size:12px">Use o botão “Baixar” acima para abrir no Word.</span></div>';
-  }
-}
 
 // Garante que todo o conteúdo (tabelas/imagens) caiba dentro dos limites da folha A4
 function _ajustarDocxNaPagina(body){
@@ -2063,24 +1961,17 @@ async function saveTipoDoc(tipo){
   const d = _equipCtx.byTipo[tipo];
   if(!d) return;
   const val = id => { const el=document.getElementById(id); return el?el.value:undefined; };
+  // Sem `armazenamento` e sem `pasta_id`: a pasta de rede saiu desta aba e o
+  // endereço do documento é resolvido pelo backend (exceção > pasta do grupo >
+  // equipamento). Ler campos que o painel não renderiza mais só devolvia
+  // `undefined` — chave que o JSON.stringify descarta —, mas era código morto
+  // apontando para uma seção inexistente.
   const payload = {
     codigo_doc: val('et-cod-'+tipo),
     responsavel: val('et-resp-'+tipo),
     status: val('et-st-'+tipo),
-    armazenamento: val('et-arm-'+tipo),
     prazo: val('et-prazo-'+tipo),
   };
-  // pasta_id só vai quando o usuário REALMENTE trocou de pasta: o servidor
-  // limpa o caminho livre ao receber pasta_id, então mandá-lo sempre apagaria
-  // uma exceção que o usuário acabou de digitar no campo ao lado.
-  const selPasta = document.getElementById('et-pasta-'+tipo);
-  if(selPasta){
-    const escolhida = selPasta.value ? Number(selPasta.value) : null;
-    if(escolhida !== (d.pasta_id||null)){
-      payload.pasta_id = escolhida;
-      delete payload.armazenamento;
-    }
-  }
   if(_isPreTipo(tipo)){
     payload.data_treinamento = val('et-treino-'+tipo);
     payload.data_homologacao = val('et-homol-'+tipo);

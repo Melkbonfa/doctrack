@@ -14,6 +14,36 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Integridade das entregas acima (varredura)
+- **Corrigido** `PATCH /api/documentos/<id>` com `pasta_id` não numérico: o
+  `int()` cru levantava `ValueError` não tratado e devolvia 500. Agora responde
+  400, o mesmo de uma pasta inexistente.
+- **Corrigido** `DELETE /api/documentos/arquivos/<aid>`, que apagava a linha em
+  vez de marcá-la inativa. O hard delete anulava três coisas do próprio
+  desenho: o histórico prometido por `GET .../arquivos` (a linha sumia), o
+  número de versão (apagar o v1 fazia o próximo envio voltar a ser v1) e a
+  ordem segura de remoção (o blob saía do disco antes do commit, que é o caso
+  que o soft delete existia para evitar). O blob agora só é apagado depois do
+  commit e só quando nenhuma linha **ativa** ainda o referencia; a linha
+  inativa deixa de ser baixável (404), inclusive quando o blob sobreviveu por
+  dedup.
+- **Corrigido** N+1 em `/api/equipamentos`: `Equipamento.to_dict()` serializa as
+  pastas, e o backref estava em `lazy="select"` — uma consulta por equipamento
+  da lista. Passa a `selectin`, como já era o caso em `DocumentoArquivo`.
+- **Removido** o código morto deixado pela saída da seção "Pasta na rede" da aba
+  do documento: o `saveTipoDoc` continuou lendo `et-pasta-*` e `et-arm-*`, que
+  o painel já não renderiza (devolviam `undefined`, chave que o `JSON.stringify`
+  descarta — sem efeito em produção, mas apontando para uma seção inexistente).
+  Saíram junto os órfãos da mesma seção: `abrirArquivos` e a cadeia dela
+  (`renderArquivosLista`, `abrirArquivo`, `_downloadArquivo`, `visualizarDocx`),
+  o modal `modal-arquivos` e as regras `.arm-hint`, `.armazenamento-row` e
+  `.arquivo-acao`. A resolução de caminho em 3 níveis segue no backend e a
+  gestão de pastas, na ficha do equipamento.
+- **Corrigido** `documentos.pasta_id` sem índice em banco já existente: o
+  `_sync_schema` adicionava a coluna mas não estava na lista de índices novos.
+- Removido um ramo inalcançável na subida por ancestral de
+  `/api/documentos/abrir-pasta` (repetia um teste que já havia falhado).
+
 ### Arquivos hospedados na plataforma
 - **Novo** upload de arquivos direto no DocTrack: cada documento comporta
   **vários arquivos convivendo** (manual PT e ES, IT e checklist), visualizáveis
@@ -60,8 +90,9 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
   uma "exceção" em cada documento do grupo.
 - `Documento.armazenamento_efetivo` passa a resolver em três níveis: exceção do
   documento → pasta do grupo → caminho do equipamento. `armazenamento_origem`
-  diz qual venceu, e é o que a tela usa para parar de chamar de exceção o manual
-  que está na pasta de manuais — ou seja, a regra.
+  acompanha dizendo qual dos três venceu, para que consumir a API não exija
+  reimplementar a precedência — nem confundir com exceção o manual que está na
+  pasta de manuais, que é a regra.
 - **Novo** CRUD `GET/POST /api/equipamentos/<id>/pastas` e
   `PATCH/DELETE /api/equipamentos/<id>/pastas/<pid>`; `PATCH /api/documentos/<id>`
   aceita `pasta_id`. Remover uma pasta desvincula seus documentos antes do soft
@@ -75,9 +106,9 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 - **Corrigida** a premissa de `_consolidar_armazenamento`, que afirmava no
   próprio docstring "1 caminho distinto por equipamento em 100% dos casos". A
   medição no banco desmente: 14 equipamentos têm de 2 a 4 pastas distintas.
-- "voltar ao grupo" (antes "usar o do equipamento") devolve o documento à pasta
-  do grupo dele. Antes copiava o caminho do equipamento, ignorando a pasta e
-  mandando o documento para o lugar errado.
+- Limpar o campo `armazenamento` de um documento passa a devolvê-lo à pasta do
+  grupo dele. Antes o caminho do equipamento era copiado para o campo,
+  ignorando a pasta e mandando o documento para o lugar errado.
 
 ### Caminhos de pasta: UNC e unidade mapeada passam a ser o mesmo caminho
 - **Corrigido** o "Caminho fora das pastas permitidas" / "pasta não encontrada" em
