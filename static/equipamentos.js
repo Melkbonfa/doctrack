@@ -1040,9 +1040,18 @@ function iniciarRealtime(){
 
 if(!token()){ window.location.href="/"; }
 else { document.getElementById("app").style.display="block";
-  Promise.resolve(loadAll()).then(()=>{   // deep-link: /equipamentos?ficha=<id> abre a ficha (ex.: chip do Missões)
-    const f=parseInt(new URLSearchParams(location.search).get("ficha")||"");
+  Promise.resolve(loadAll()).then(()=>{
+    // Deep-links: ?ficha=<id> abre o formulário de edição (chip do Missões) e
+    // ?equip=<id> abre o card do equipamento — o mesmo que clicar nele na lista,
+    // usado pelo link "Abrir no módulo Equipamentos" do card de Documentos.
+    const q=new URLSearchParams(location.search);
+    const f=parseInt(q.get("ficha")||""), v=parseInt(q.get("equip")||"");
     if(f && _eqById(f)){ navigate("lista"); abrirFicha(f); }
+    else if(v){
+      navigate("lista");
+      if(_eqById(v)) openView(v);
+      else toast("Equipamento não encontrado no módulo Equipamentos", true);
+    }
     iniciarRealtime();
   });
 }

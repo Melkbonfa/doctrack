@@ -1486,7 +1486,7 @@ function renderEquipHeader(){
     ${e.nome_original?`<div class="equip-id-orig"><span>nome original:</span> ${esc(e.nome_original)}</div>`:''}
     <div class="equip-id-badges">
       ${badges}
-      ${_equipCtx.equip_id?`<a class="btn btn-ghost btn-sm" href="/equipamentos" title="Editar a identidade no módulo Equipamentos" style="text-decoration:none">↗ Abrir no módulo Equipamentos</a>`:''}
+      ${_equipCtx.equip_id?`<a class="btn btn-ghost btn-sm" href="/equipamentos?equip=${_equipCtx.equip_id}" title="Abrir o card deste equipamento no módulo Equipamentos" style="text-decoration:none">↗ Abrir no módulo Equipamentos</a>`:''}
     </div>
     <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
 }
