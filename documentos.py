@@ -13,7 +13,7 @@ Rotas:
   GET    /api/documentos/<id>/historico  — trilha de status/escopo do documento
   GET    /api/documentos/responsaveis    — usuários atribuíveis (picker)
   GET    /api/documentos/export          — CSV bruto para análise externa
-  GET    /api/documentos/diagnostico     — pastas ausentes / documentos sem local
+  GET    /api/documentos/diagnostico     — cadastro × arquivos que existem de fato
   POST   /api/documentos/abrir-pasta     — abre a pasta no servidor (acesso local)
   GET    /api/documentos/arquivos        — lista arquivos da pasta do equipamento
   GET    /api/documentos/arquivo         — serve um arquivo (preview/download)
@@ -44,6 +44,7 @@ from event_bus import EventType
 from utils import norm
 import caminhos
 import arquivos_store
+import diagnostico
 # Sync Documento → Cartão (import acíclico: missoes.py só importa models/auth)
 from missoes import sincronizar_cartoes_documento, emitir_eventos_sync
 
@@ -931,35 +932,32 @@ def export_documentos():
 @documentos_bp.route("/api/documentos/diagnostico", methods=["GET"])
 @require_role("admin", "gestor")
 def diagnostico_documentos():
-    """Consistência entre o cadastro e o filesystem.
+    """Consistência entre o cadastro e o que existe de fato (ver `diagnostico.py`).
 
-    Responde o que ninguém verificava: quais documentos não têm caminho e quais
-    apontam para uma pasta que não existe mais. Usa o agente_scanner (que já
-    implementava exatamente isto e não era chamado por rota nenhuma) sobre o
-    caminho EFETIVO — o herdado do equipamento, não a cópia da linha.
+    Confronta as DUAS fontes de arquivo — a pasta de rede e a cópia hospedada na
+    plataforma — porque ter uma das duas basta. O caminho considerado é o
+    EFETIVO (herdado do grupo ou do equipamento), não a exceção da linha.
+
+    Fora do escopo, de propósito: documento inativo e documento marcado N/A não
+    devem ter arquivo, então acusá-los seria ruído garantido.
     """
-    from agente_scanner import scan_documents
-
-    docs = Documento.query.filter(Documento.ativo == True,
-                                  Documento.aplicavel == True).all()
-    payload = []
-    por_id = {}
-    for d in docs:
-        payload.append({"id": d.id, "documento": d.documento or "",
-                        "armazenamento": d.armazenamento_efetivo})
-        por_id[d.id] = d
-    rel = scan_documents(payload)
-
-    # Enriquece cada apontamento com o contexto que o gestor precisa para agir
-    for issue in rel.get("issues", []):
-        d = por_id.get(issue.get("documento_id"))
-        if d is not None:
-            issue.update(equipamento=d.equipamento or "", tipo_doc=d.tipo_doc or "",
-                         tipo_doc_label=d.tipo_doc_label, setor=d.setor or "",
-                         caminho=d.armazenamento_efetivo)
-    rel.pop("directory_structure", None)   # árvore local não interessa aqui
-    rel["stats"]["total_verificados"] = len(payload)
-    return jsonify(rel), 200
+    docs = (Documento.query
+            .filter(Documento.ativo == True, Documento.aplicavel == True)
+            .all())
+    entrada = [{
+        "id":             d.id,
+        "equipamento":    d.equipamento or "",
+        "documento":      d.documento or "",
+        "tipo_doc_label": d.tipo_doc_label,
+        "setor":          d.setor or "",
+        "status":         d.status or "",
+        "concluido":      d.concluido,
+        "caminho":        d.armazenamento_efetivo,
+        "arquivos":       [{"id": a.id, "sha256": a.sha256,
+                            "nome": a.nome_original or ""}
+                           for a in d.arquivos_ativos],
+    } for d in docs]
+    return jsonify(diagnostico.diagnosticar(entrada)), 200
 
 
 @documentos_bp.route("/api/documentos/abrir-pasta", methods=["POST"])

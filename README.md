@@ -42,7 +42,7 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── entregaveis.py            # Blueprint do módulo Entregáveis
 ├── event_bus.py              # Barramento de eventos (tempo real)
 ├── equipamentos_importer.py  # Importador da planilha mestra de equipamentos
-├── agente_scanner.py         # Agente de varredura (assistente do dash)
+├── diagnostico.py            # Cadastro × arquivos que existem de fato (rede + plataforma)
 ├── utils.py                  # Utilitários compartilhados
 ├── templates/                # Templates Jinja + audit_log_report.html
 ├── static/                   # CSS/JS do frontend (inclui socket-client.js e app-realtime.js)

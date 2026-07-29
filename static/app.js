@@ -239,12 +239,26 @@ async function exportarDocumentosCSV(){
 }
 
 // ═══ DIAGNÓSTICO DE ARQUIVOS (admin/gestor) ═══
-// Confronta o cadastro com o filesystem: documento sem caminho e caminho que não
-// existe mais. "Homologado" no sistema não prova que existe arquivo na pasta.
+// Confronta o cadastro com as duas fontes de arquivo — a pasta de rede e a cópia
+// hospedada na plataforma. "Homologado" no sistema não prova que existe arquivo.
+const _DIAG_MAX_LINHAS = 200;
+
+// Um apontamento reúne todos os documentos que sofrem da MESMA causa (o mesmo
+// caminho que sumiu, o mesmo blob perdido). A tabela mostra o primeiro e resume
+// o resto: listar 40 linhas iguais esconderia os outros problemas.
+const _DIAG_PILL = {error:'pill-err', warning:'pill-warn', info:'pill-wip'};
+
+function _diagAfetados(docs){
+  const lista = docs||[];
+  if(!lista.length) return '—';
+  const primeiro = esc(`${lista[0].equipamento||'—'} · ${lista[0].tipo_doc_label||'—'}`);
+  return lista.length===1 ? primeiro : `${primeiro} <span style="color:var(--t3)">+${lista.length-1}</span>`;
+}
+
 async function abrirDiagnostico(){
   const modal = document.getElementById('diag-body');
   if(!modal) return;
-  modal.innerHTML = '<div class="loading-state">Verificando pastas…</div>';
+  modal.innerHTML = '<div class="loading-state">Verificando pastas e arquivos…</div>';
   openBaseModal('diag');
   try{
     const res = await apiFetch('/documentos/diagnostico');
@@ -256,17 +270,33 @@ async function abrirDiagnostico(){
     const rel = await res.json();
     const s = rel.stats||{};
     const cards = [
-      ['Verificados', s.total_verificados||0, ''],
-      ['Com caminho', s.com_local||0, 'ok'],
-      ['Sem caminho', s.sem_local||0, 'warn'],
-      ['Pasta não encontrada', s.arquivos_nao_encontrados||0, 'err'],
+      ['Verificados',        s.documentos||0,            ''],
+      ['Sem apontamento',    s.ok||0,                    'ok'],
+      ['Pasta não encontrada', s.pastas_ausentes||0,     'err'],
+      ['Pasta vazia',        s.pastas_vazias||0,         'warn'],
+      ['Arquivo sumido',     s.arquivos_sumidos||0,      'err'],
     ].map(([l,v,c])=>`<div class="diag-stat ${c}"><span class="diag-stat-val">${v}</span><span class="diag-stat-lbl">${esc(l)}</span></div>`).join('');
-    const linhas = (rel.issues||[]).slice(0,300).map(i=>
-      `<tr><td>${esc(i.equipamento||'—')}</td><td>${esc(i.tipo_doc_label||i.tipo_doc||'—')}</td>
-       <td><span class="pill ${i.severidade==='error'?'pill-warn':'pill-elab'}">${esc(i.tipo)}</span></td>
+
+    // Com o share fora do ar, TODO caminho responde "não existe". Nesse caso o
+    // servidor descarta a checagem de rede em vez de reportar centenas de falsos
+    // positivos — e a tela precisa dizer que a metade de rede não foi avaliada.
+    const aviso = rel.rede_indisponivel
+      ? `<div class="diag-aviso">⚠ Pastas de rede não verificadas — o servidor de arquivos não respondeu${
+          rel.orcamento_estourado ? ' dentro do tempo limite' : ''}. Os apontamentos abaixo cobrem só os arquivos hospedados na plataforma.</div>`
+      : '';
+
+    const issues = rel.issues||[];
+    const linhas = issues.slice(0,_DIAG_MAX_LINHAS).map(i=>
+      `<tr><td><span class="pill ${_DIAG_PILL[i.severidade]||'pill-wip'}">${esc(i.titulo||i.tipo)}</span></td>
+       <td>${_diagAfetados(i.documentos)}</td>
+       <td style="font-size:11px;color:var(--t3)">${esc(i.detalhe||'')}</td>
        <td style="font-size:11px;color:var(--t3)">${esc(i.caminho||'—')}</td></tr>`).join('');
-    modal.innerHTML = `<div class="diag-stats">${cards}</div>` + (linhas
-      ? `<div class="tbl-wrap"><table><thead><tr><th>Equipamento</th><th>Documento</th><th>Problema</th><th>Caminho</th></tr></thead><tbody>${linhas}</tbody></table></div>`
+    const corte = issues.length>_DIAG_MAX_LINHAS
+      ? `<div class="diag-aviso">Mostrando ${_DIAG_MAX_LINHAS} de ${issues.length} apontamentos — resolva os mais graves e rode de novo.</div>`
+      : '';
+
+    modal.innerHTML = `<div class="diag-stats">${cards}</div>` + aviso + (linhas
+      ? `<div class="tbl-wrap"><table><thead><tr><th>Problema</th><th>Documentos</th><th>Detalhe</th><th>Caminho</th></tr></thead><tbody>${linhas}</tbody></table></div>${corte}`
       : '<div class="loading-state">Nenhuma inconsistência encontrada.</div>');
   }catch(e){ modal.innerHTML = '<div class="loading-state">Erro de rede</div>'; }
 }

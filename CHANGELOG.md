@@ -14,6 +14,55 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Diagnóstico de documentos — reescrito
+O diagnóstico nasceu quando o arquivo só podia estar na rede e verificava uma
+única coisa: se a string de caminho batia com algum diretório. Depois que os
+arquivos passaram a ser hospedados na plataforma, ele passou a mentir.
+
+- **Corrigido** o falso positivo que afetava todo documento hospedado na
+  plataforma. O upload nunca preenche `armazenamento` — cria um
+  `DocumentoArquivo` —, e o diagnóstico olhava só o caminho de rede: documento
+  com o PDF anexado era reportado como "sem local de armazenamento". Agora as
+  duas fontes são confrontadas e **ter uma das duas basta**.
+- **Adicionado** `ARQUIVO_SUMIDO`: blob referenciado pelo banco que não está
+  mais em disco. Era o ponto cego que ninguém cobria — e é o risco que o próprio
+  `arquivos_store` documenta (a pasta de arquivos dentro de `_internal\` é
+  apagada no primeiro deploy). Agrupa por `sha256`, porque o store deduplica por
+  conteúdo e um blob perdido derruba todos os documentos que o referenciam.
+- **Adicionado** `PASTA_VAZIA`: a pasta existe e não tem nada dentro. Verificar
+  só a existência do diretório nunca respondeu a pergunta que motivou a tela —
+  "Homologado" no sistema não prova que alguém depositou o arquivo lá. Na
+  primeira execução contra o share real apareceram 7 pastas `IT_Checklist`
+  vazias.
+- **Alterado** o peso de "sem arquivo": documento em elaboração ainda não ter
+  arquivo é o curso normal das coisas (`info`); o que não fecha é o que consta
+  como concluído e não tem arquivo em fonte alguma (`error`).
+- **Alterado** os apontamentos, que agora vêm **agrupados pela causa**. A
+  herança de pasta faz os 9 documentos de um equipamento compartilharem o mesmo
+  caminho: uma pasta que sumiu era uma linha por documento, e um punhado de
+  equipamentos quebrados enchia o relatório e escondia todo o resto. Medido no
+  share real: 489 documentos, 194 afetados, **26 linhas**.
+- **Corrigido** o custo de I/O. Cada consulta é um round-trip SMB e a versão
+  anterior fazia até 4 por documento — inclusive sobre o mesmo diretório, dezenas
+  de vezes. Agora cada caminho distinto é consultado uma vez (368 documentos com
+  caminho → **33 consultas**, uma por árvore de equipamento).
+- **Adicionado** orçamento de tempo (`DOCTRACK_DIAG_TIMEOUT`, 20s) e detecção de
+  share fora do ar. Sem teto, o timeout SMB de centenas de caminhos deixava a
+  rota pendurada; e com o share caído *todo* caminho responde "não existe" — a
+  checagem de rede passa a ser descartada inteira, com aviso na tela, em vez de
+  reportar centenas de pastas apagadas que estão lá.
+- **Removido** o efeito colateral de um GET criar diretórios no servidor:
+  `scan_documents` chamava `ensure_directory_structure()`, que montava a árvore
+  `documentos/{Tecnico,Qualidade,Engenharia}/...` na raiz do app — estrutura
+  legada, vazia, sem relação com o armazenamento real. E `get_directory_tree()`
+  varria essa árvore para a rota descartar o resultado com um `pop`.
+- **Removido** `agente_scanner.py`, substituído por `diagnostico.py`. Fora as 20
+  linhas que a rota usava, o módulo era código morto (`discover_files`,
+  `save_discovery_report`, `run_scan`, `ScanResult`, `KEYWORD_MAP`) e a stat
+  `diretorio_incorreto` nunca saía de zero porque nada a emitia. O novo módulo
+  recebe dicts em vez de models: o confronto com o filesystem é testável sem
+  banco (`tests/test_diagnostico.py`).
+
 ### Audit Log — exportação em PDF
 - **Corrigido** o botão **PDF** do relatório de auditoria, que não gerava nada.
   `templates/audit_log_report.html` era o último arquivo do projeto ainda
