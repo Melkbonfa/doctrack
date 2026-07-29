@@ -933,14 +933,9 @@ async function exportarMissao(){
   if(!BOARD) return;
   toast("Gerando planilha…");
   try{
-    const res=await fetch(`/api/missoes/${BOARD.id}/export`, {headers:{Authorization:"Bearer "+token()}});
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const blob=await res.blob();
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);
-    a.download=`Missao_${BOARD.nome.replace(/[^\w-]+/g,"_")}.xlsx`;
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    // O nome (com data) vem do servidor; o fallback só vale se o header sumir.
+    await baixarDoServidor(`/api/missoes/${BOARD.id}/export`,
+                           `Missao_${BOARD.nome.replace(/[^\w-]+/g,"_")}.xlsx`);
   }catch(e){ toast("Erro ao exportar: "+e.message, true); }
 }
 

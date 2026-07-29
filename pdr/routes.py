@@ -367,13 +367,41 @@ def api_reimport():
 @pdr_bp.route("/api/export/apresentacoes.csv", methods=["GET"])
 @require_pdr_access()
 def export_csv():
+    """CSV das apresentações conforme os filtros da aba.
+
+    O export ignorava os filtros e devolvia sempre o catálogo inteiro. Os
+    critérios abaixo são os mesmos de `renderApres()` (pdr/static/app.js): linha,
+    fornecedor, ANVISA, status global e a busca livre.
+    """
+    linha = request.args.get("linha", "").strip()
+    fornecedor = request.args.get("fornecedor", "").strip()
+    anvisa = request.args.get("anvisa", "").strip()
+    status = request.args.get("status", "").strip()
+    busca = (request.args.get("busca", "") or "").strip().lower()
+
+    itens = Apresentacao.query.filter_by(ativo=True).join(Produto).order_by(Produto.nome).all()
+    if linha:
+        itens = [a for a in itens if (a.produto.linha if a.produto else "") == linha]
+    if fornecedor:
+        itens = [a for a in itens if (a.fornecedor or "") == fornecedor]
+    if anvisa:
+        itens = [a for a in itens if (a.anvisa or "") == anvisa]
+    if status:
+        itens = [a for a in itens if (a.status_global or "") == status]
+    if busca:
+        def _alvo(a):
+            return " ".join(str(x or "") for x in (
+                a.produto.nome if a.produto else "", a.sku, a.apresentacao,
+                a.modelo, a.fornecedor, a.descricao)).lower()
+        itens = [a for a in itens if busca in _alvo(a)]
+
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(["Produto", "Linha", "Sigla", "Apresentação", "SKU", "Modelo",
                 "Cadastro Protheus", "ANVISA", "Nº ANVISA", "Fornecedor",
                 "Status Global", "Avanço %",
                 "Espec.", "Descritivo", "IT", "Manual"])
-    for a in Apresentacao.query.filter_by(ativo=True).join(Produto).order_by(Produto.nome).all():
+    for a in itens:
         docs = {d.tipo: d for d in a.documentos}
         w.writerow([
             a.produto.nome if a.produto else "", a.produto.linha if a.produto else "",

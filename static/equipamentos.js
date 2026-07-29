@@ -1067,9 +1067,7 @@ async function exportarCSV(){
   const st=val("eq-f-status"); if(st) p.set("status",st);
   if(!(document.getElementById("eq-f-bloq")||{}).checked) p.set("incluir_bloqueados","0");
   const ordem=val("eq-ordem"); if(ordem) p.set("ordem",ordem);
-  try{ const res=await fetch("/api/equipamentos/export?"+p.toString(),{headers:{"Authorization":"Bearer "+token()}});
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const blob=await res.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="equipamentos.csv"; a.click();
+  try{ await baixarDoServidor("/api/equipamentos/export?"+p.toString(),"equipamentos.csv");   // common.js
     toast("CSV exportado com os filtros da tela"); }
   catch(e){ toast("Erro ao exportar",true); }
 }

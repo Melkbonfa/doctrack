@@ -245,15 +245,19 @@ async function rodarConsImport(dryrun){
 // um 401 baixaria o corpo de erro JSON com o nome do arquivo) e revoga o object
 // URL para não vazar memória.
 async function baixarArquivo(url, filename){
-  try{
-    const res=await fetch(url,{headers:{"Authorization":"Bearer "+token()}});
-    if(!res.ok){ toast("Falha ao exportar",true); return; }
-    const href=URL.createObjectURL(await res.blob());
-    const a=document.createElement("a"); a.href=href; a.download=filename; a.click();
-    setTimeout(()=>URL.revokeObjectURL(href),1000);
-  }catch(e){ toast("Erro ao exportar",true); }
+  try{ await baixarDoServidor(url, filename); }        // common.js
+  catch(e){ toast("Falha ao exportar",true); }
 }
-async function exportarConsCSV(){ await baixarArquivo("/api/consumiveis/export","consumiveis.csv"); }
+// O CSV sai com o mesmo recorte do grid: exportar tudo depois de filtrar por
+// tipo obrigava a refiltrar no Excel.
+async function exportarConsCSV(){
+  const p=new URLSearchParams();
+  const q=(val("cons-busca")||"").trim(); if(q) p.set("q",q);
+  const tf=val("cons-f-tipo"); if(tf) p.set("tipo",tf);
+  if((document.getElementById("cons-f-pend")||{}).checked) p.set("pendente","1");
+  const qs=p.toString();
+  await baixarArquivo("/api/consumiveis/export"+(qs?"?"+qs:""),"consumiveis.csv");
+}
 function copiarConsFicha(){ const c=consCur; if(!c) return; const L=[c.nome||""]; const add=(k,v)=>{ if(v&&String(v).trim()) L.push(k+": "+v); };
   add("Tipo",c.tipo); add("SKU de venda",c.sku); add("SKU de importação",c.sku_importacao); add("Fabricante",c.fabricante); add("Descrição",c.descricao);
   const at=c.atributos||{}; Object.keys(at).forEach(k=>{ if(k!=="descritivo") add(k,at[k]); });   // descritivo é objeto → formatado à parte
