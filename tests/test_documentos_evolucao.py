@@ -250,20 +250,45 @@ def test_picker_de_responsaveis(client, admin_token, auth_headers):
     assert "admin@test.com" in emails and "gestor@test.com" in emails
 
 
-def test_diagnostico_aponta_documento_sem_local(client, admin_token, tecnico_token, auth_headers):
+def test_diagnostico_aponta_documento_sem_nenhuma_fonte(client, admin_token,
+                                                        tecnico_token, auth_headers):
+    """Contrato da rota. As regras do confronto em si estão em test_diagnostico.py."""
     h = auth_headers(admin_token)
     client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-DIAG"}, headers=h)
 
     res = client.get("/api/documentos/diagnostico", headers=h)
     assert res.status_code == 200
     rel = res.get_json()
-    tipos = {i["tipo"] for i in rel["issues"]}
-    assert "SEM_LOCAL" in tipos
-    assert rel["stats"]["sem_local"] >= 1
-    # o apontamento traz o contexto para agir
-    sem_local = next(i for i in rel["issues"] if i["tipo"] == "SEM_LOCAL")
-    assert sem_local["equipamento"] and sem_local["tipo_doc"]
+    assert "SEM_ARQUIVO" in {i["tipo"] for i in rel["issues"]}
+    assert rel["stats"]["sem_nenhuma_fonte"] >= 1
+
+    # o apontamento traz o contexto para agir, para cada documento do grupo
+    sem_arquivo = next(i for i in rel["issues"] if i["tipo"] == "SEM_ARQUIVO")
+    assert sem_arquivo["qtd"] == len(sem_arquivo["documentos"])
+    primeiro = sem_arquivo["documentos"][0]
+    assert primeiro["equipamento"] and primeiro["tipo_doc_label"] and primeiro["id"]
 
     # técnico não vê diagnóstico (admin/gestor)
     assert client.get("/api/documentos/diagnostico",
                       headers=auth_headers(tecnico_token)).status_code == 403
+
+
+def test_diagnostico_nao_acusa_documento_com_arquivo_na_plataforma(
+        client, admin_token, auth_headers, tmp_path, monkeypatch):
+    """Regressão do falso positivo: o upload nunca preenche `armazenamento`, e o
+    documento que vive só na plataforma era reportado como 'sem local'."""
+    import io
+    import arquivos_store
+    monkeypatch.setattr(arquivos_store, "RAIZ", str(tmp_path / "blobs"))
+
+    h = auth_headers(admin_token)
+    doc = client.post("/api/documentos", json={"setor": "PRE", "equipamento": "MAQ-UP"},
+                      headers=h).get_json()["documento"]
+    envio = client.post(f"/api/documentos/{doc['id']}/arquivos",
+                        data={"arquivo": (io.BytesIO(b"%PDF-1.4"), "Manual.pdf")},
+                        content_type="multipart/form-data", headers=h)
+    assert envio.status_code == 201
+
+    rel = client.get("/api/documentos/diagnostico", headers=h).get_json()
+    afetados = {d["id"] for i in rel["issues"] for d in i["documentos"]}
+    assert doc["id"] not in afetados
