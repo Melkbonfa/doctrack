@@ -54,7 +54,6 @@
   /* Mesma pilha do static/style.css: sem <link> para o Google Fonts (rede
      fabril pode não ter saída externa). Ver o comentário lá. */
   --font-body:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
-  --font-display:'Inter','Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
   --font-mono:'JetBrains Mono','Cascadia Mono',Consolas,'Courier New',monospace;
 
   /* Raios (mais generosos) */
@@ -132,6 +131,10 @@ body.theme-light .btn-ghost:hover{background:rgba(8,145,178,.08);border-color:va
 body.theme-light .docs-count-badge{background:rgba(8,145,178,.10);border-color:rgba(8,145,178,.30);color:var(--cyan-brand-dim)}
 
 *{box-sizing:border-box;margin:0;padding:0}
+/* Mesmo reset do static/style.css: controles de formulário não herdam
+   font-family, então sem esta regra caem no Arial do navegador. O PDR carrega
+   só esta folha (/pdr/static/style.css), por isso ela se repete aqui. */
+button,input,select,textarea{font-family:inherit}
 html{scroll-behavior:smooth}
 body{
   background:var(--bg-void);

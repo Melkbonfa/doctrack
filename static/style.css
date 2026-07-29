@@ -57,9 +57,14 @@
      página caía no fallback de qualquer forma; agora a pilha é a escolha
      deliberada, com Segoe UI (padrão do Windows, métrica próxima da Inter) na
      frente. Se as fontes forem versionadas em /static/vendor/fonts no futuro,
-     basta declarar o @font-face e elas voltam à frente da pilha. */
+     basta declarar o @font-face e elas voltam à frente da pilha.
+
+     Havia também um --font-display, com 'Segoe UI Variable Display' na frente.
+     Ele tinha um único uso — o nome do perfil em config.html, a 16px — e a
+     Variable Display é desenhada para corpo grande (36pt+), então ali ela só
+     destoava do texto ao redor. Removido: o app não tem tipografia de display
+     de verdade, e o que existia era mais uma fonte diferente na tela. */
   --font-body:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
-  --font-display:'Inter','Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
   --font-mono:'JetBrains Mono','Cascadia Mono',Consolas,'Courier New',monospace;
 
   /* Raios (mais generosos) */
@@ -137,6 +142,14 @@ body.theme-light .btn-ghost:hover{background:rgba(8,145,178,.08);border-color:va
 body.theme-light .docs-count-badge{background:rgba(8,145,178,.10);border-color:rgba(8,145,178,.30);color:var(--cyan-brand-dim)}
 
 *{box-sizing:border-box;margin:0;padding:0}
+/* Controles de formulário não herdam font-family: quem define é a folha de
+   estilo do navegador (Arial em button/input/select, monospace em textarea).
+   Sem esta regra, todo controle que não repetisse var(--font-body) na mão
+   renderizava numa fonte diferente do resto da tela — eram 106 espalhados
+   pelos templates e pelo HTML gerado em JS. A especificidade é 0,0,1, então
+   as regras de classe que já declaram a fonte (inclusive as de --font-mono)
+   continuam vencendo; isto só cobre quem não declarava nada. */
+button,input,select,textarea{font-family:inherit}
 html{scroll-behavior:smooth}
 body{
   background:var(--bg-void);
