@@ -22,6 +22,15 @@
     --radius: 10px;
     --radius-sm: 6px;
 
+    /* Esta tela tem paleta própria (bege/creme, não o navy+cyan do app) e não
+       carrega static/style.css, então os tokens de fonte precisam ser
+       repetidos aqui. As pilhas são as mesmas de lá de propósito: o relatório
+       usava 'Segoe UI' e monospace puros, que no Windows 11 caem em Segoe UI
+       não-variable e Courier New — duas fontes que não aparecem em nenhum
+       outro lugar da plataforma. */
+    --font-body: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+
     --login-bg: #e6f1fb; --login-txt: #0c447c; --login-border: #378add;
     --update-bg: #eeedfe; --update-txt: #3c3489; --update-border: #7f77dd;
     --create-bg: #eaf3de; --create-txt: #27500a; --create-border: #639922;
@@ -44,7 +53,10 @@
     }
   }
 
-  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  body { font-family: var(--font-body); background: var(--bg); color: var(--text); min-height: 100vh; }
+  /* Controles não herdam font-family — sem isto, os filtros e os botões de
+     exportar renderizam em Arial. Ver o mesmo reset em static/style.css. */
+  button, input, select, textarea { font-family: inherit; }
 
   .wrapper { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
 
@@ -82,14 +94,14 @@
   .log-entity small { font-size: 12px; color: var(--text2); font-weight: 400; display: block; margin-top: 1px; }
 
   .log-change { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
-  .val-old { background: var(--delete-bg); color: var(--delete-txt); padding: 2px 8px; border-radius: 4px; font-family: monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .val-new { background: var(--create-bg); color: var(--create-txt); padding: 2px 8px; border-radius: 4px; font-family: monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val-old { background: var(--delete-bg); color: var(--delete-txt); padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val-new { background: var(--create-bg); color: var(--create-txt); padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .arrow { color: var(--text3); }
 
   .log-right { text-align: right; min-width: 160px; }
   .log-time { font-size: 12px; color: var(--text3); white-space: nowrap; }
   .log-date { font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 2px; }
-  .log-id { font-size: 11px; color: var(--text3); font-family: monospace; }
+  .log-id { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
 
   .user-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text2); margin-top: 6px; }
   .user-avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--update-bg); color: var(--update-txt); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; }
