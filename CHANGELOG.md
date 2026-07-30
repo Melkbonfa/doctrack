@@ -14,6 +14,42 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Exportações — formato, filtros e permissão
+Cada módulo ganhou seu export em momento diferente e nenhum olhou para o
+anterior. O resultado eram três convenções de planilha, filtros que valiam em
+uns e não em outros, e permissões sem critério.
+
+- **Corrigido** o CSV de consumíveis, que saía com **vírgula** enquanto todos os
+  outros usam ponto-e-vírgula. O Excel pt-BR abre o arquivo com vírgula numa
+  coluna só — o export existia e não servia. A lista de equipamentos dentro da
+  célula passou de `; ` para ` | `, senão o campo sairia todo entre aspas.
+- **Corrigido** os exports que ignoravam os filtros da tela e devolviam a base
+  inteira: **consumíveis** (busca, tipo, "sem SKU"), **projetos** (busca e
+  situação) e **PDR** (linha, fornecedor, ANVISA, status, busca). Quem filtrava
+  e exportava recebia de volta tudo que tinha acabado de excluir do recorte, e
+  refiltrava no Excel.
+- **Alterado** os filtros de projeto para um helper único (`_filtrar_projetos`),
+  usado pela listagem e pelo export. Estavam só na listagem — era por isso que o
+  export não tinha nenhum, e é o que evita divergirem de novo.
+- **Corrigido** o nome dos arquivos exportados, agora todos com data. O
+  frontend fixava o nome (`"Entregaveis.xlsx"`, `"Missao_<nome>.xlsx"`) e
+  descartava o nome datado que o servidor já montava: os exports se
+  sobrescreviam na pasta de Downloads.
+- **Alterado** a permissão de exportar. **Documentos**, **equipamentos** e
+  **consumíveis** liberavam a base completa para qualquer login, inclusive o
+  papel `leitura`; passam a exigir técnico pra cima. **Projetos** fica em gestor
+  pra cima porque a aba PMO traz orçado/gasto/EAC, e dinheiro já é gestão pra
+  cima pelo `pode_ver_financeiro`.
+- **Adicionado** `salvarResposta`/`baixarDoServidor` em `static/common.js`,
+  substituindo cinco cópias de download espalhadas por `app.js`,
+  `consumiveis.js`, `equipamentos.js`, `entregaveis.js` e `missoes.js` — três
+  nunca revogavam o object URL e a de projetos revogava antes do clique.
+- **Corrigido** o export do PDR, que era um `<a href>` com o **JWT na query
+  string** — e portanto no log de acesso do servidor. Virou download
+  autenticado por cabeçalho.
+- **Adicionado** `tests/test_exports.py` (17 testes), cobrindo formato, filtros
+  e permissão dos seis exports; inclui os primeiros testes automatizados do PDR.
+
 ### Diagnóstico de documentos — reescrito
 O diagnóstico nasceu quando o arquivo só podia estar na rede e verificava uma
 única coisa: se a string de caminho batia com algum diretório. Depois que os

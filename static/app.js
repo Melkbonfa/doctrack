@@ -228,12 +228,7 @@ async function exportarDocumentosCSV(){
   try{
     const res = await apiFetch('/documentos/export' + (q.trim()?('?q='+encodeURIComponent(q.trim())):''));
     if(!res || !res.ok){ showToast('Erro ao exportar','error'); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'documentos.csv';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
+    await salvarResposta(res, 'documentos.csv');   // nome datado vem do servidor
     showToast('CSV gerado','success');
   }catch(e){ showToast('Erro de rede','error'); }
 }

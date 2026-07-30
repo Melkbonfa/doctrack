@@ -50,6 +50,48 @@ function doLogout(){
   window.location.href = '/';
 }
 
+// ═══ DOWNLOAD AUTENTICADO ═══
+// Um <a href> simples não manda header, então os módulos ou punham o token na
+// query (vaza no log de acesso do servidor) ou faziam o próprio fetch+blob.
+// Estava copiado em app.js, consumiveis.js, equipamentos.js, entregaveis.js e
+// missoes.js — cinco cópias, três delas sem revogar o object URL.
+//
+// O nome do arquivo vem do Content-Disposition da resposta. As cópias fixavam o
+// nome no front ("Entregaveis.xlsx"), descartando o nome datado que o servidor
+// já montava: os exports se sobrescreviam na pasta de Downloads.
+function nomeDoContentDisposition(res, fallback){
+  const cd = res.headers.get('Content-Disposition') || '';
+  // filename*=UTF-8''… tem precedência sobre filename="…" (RFC 6266), e é a
+  // forma que o Flask usa quando o nome tem acento.
+  let m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if(m){ try{ return decodeURIComponent(m[1].trim()); }catch(e){ /* cai no filename simples */ } }
+  m = /filename="?([^";\n]+)"?/i.exec(cd);
+  return m ? m[1].trim() : fallback;
+}
+
+// Salva uma resposta já obtida. Separado do fetch de propósito: app.js baixa
+// pelo apiFetch, que renova o token no 401 — se este helper fizesse o próprio
+// fetch, o export seria o único ponto do módulo sem essa renovação.
+async function salvarResposta(res, fallback){
+  const href = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = nomeDoContentDisposition(res, fallback);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+// Atalho para os módulos que não têm wrapper de fetch próprio. Lança em erro de
+// rede ou HTTP — quem chama decide a mensagem. Checar res.ok importa: sem isso
+// um 401 baixa o corpo de erro JSON com o nome do arquivo esperado.
+async function baixarDoServidor(url, fallback){
+  const res = await fetch(url, {headers: {'Authorization': 'Bearer ' + getToken()}});
+  if(!res.ok) throw new Error('Falha ao exportar (HTTP ' + res.status + ')');
+  await salvarResposta(res, fallback);
+}
+
 // ═══ TEMA CLARO/ESCURO ═══
 // O botão do hub/subhub mostra "🌙 Tema" e o dos módulos apenas "🌙". Em vez de
 // duas implementações, o rótulo extra vem de data-label no próprio botão.

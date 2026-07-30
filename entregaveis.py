@@ -191,16 +191,19 @@ def _emit(event_type, payload, email, *, campo="", antigo=None, novo=None,
 
 # ── PROJETOS ─────────────────────────────────────────────────────────────────
 
-@entregaveis_bp.route("/api/projetos", methods=["GET"])
-@require_role("admin", "gestor", "tecnico")
-def listar_projetos():
-    user = _usuario_atual()
-    role = user.role if user else ""
-    financeiro = pode_ver_financeiro(role)
+def _filtrar_projetos(q):
+    """Aplica a `q` os filtros de projeto da querystring.
 
+    Vivia dentro da listagem, e por isso o export não tinha nenhum: quem
+    filtrava a tela e clicava em Excel recebia de volta o portfólio inteiro que
+    tinha acabado de excluir do recorte. Compartilhar a função é o que mantém os
+    dois em sincronia quando um filtro novo entrar.
+
+    Devolve `(query, erro)`, onde `erro` é a resposta 400 pronta ou None.
+    """
     # arquivados=1 lista os projetos arquivados (ativo=False); padrão = ativos.
     arquivados = request.args.get("arquivados", "").strip() == "1"
-    q = _query_projetos().filter_by(ativo=not arquivados)
+    q = q.filter_by(ativo=not arquivados)
 
     ano = request.args.get("ano", type=int)
     if ano:
@@ -213,7 +216,8 @@ def listar_projetos():
         q = q.filter(Projeto.status.in_(STATUS_PROJETO_ABERTO))
     elif status:
         if status not in STATUS_PROJETO:
-            return jsonify({"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400
+            return None, (jsonify(
+                {"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400)
         q = q.filter_by(status=status)
     tipo = request.args.get("tipo", "").strip()
     if tipo:
@@ -222,6 +226,19 @@ def listar_projetos():
     if busca:
         alvo = f"%{busca}%"
         q = q.filter(db.or_(Projeto.nome.ilike(alvo), Projeto.sku.ilike(alvo)))
+    return q, None
+
+
+@entregaveis_bp.route("/api/projetos", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def listar_projetos():
+    user = _usuario_atual()
+    role = user.role if user else ""
+    financeiro = pode_ver_financeiro(role)
+
+    q, erro = _filtrar_projetos(_query_projetos())
+    if erro:
+        return erro
 
     projetos = q.all()
     com_ent = request.args.get("com_entregaveis", "").strip() == "1"
@@ -1021,8 +1038,10 @@ def exportar_excel():
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.utils import get_column_letter
 
-    projetos = (_query_projetos().filter_by(ativo=True)
-                .order_by(Projeto.prioridade, Projeto.nome).all())
+    q, erro = _filtrar_projetos(_query_projetos())
+    if erro:
+        return erro
+    projetos = q.order_by(Projeto.prioridade, Projeto.nome).all()
     # união ordenada de tipos (categoria, tipo) preservando ordem de aparição
     tipos = []
     for p in projetos:

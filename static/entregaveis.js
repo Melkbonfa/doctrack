@@ -1981,17 +1981,17 @@ async function salvarPop(){
 }
 
 /* ── Export ── */
+// Segue a busca e a situação da aba Projetos — o export devolvia o portfólio
+// inteiro, e o nome fixo aqui descartava o "Projetos_AAAAMMDD.xlsx" do servidor.
 async function exportarExcel(){
   try{
-    const res = await fetch("/api/entregaveis/export", {
-      headers: {"Authorization": "Bearer " + token()}});
-    if (!res.ok) throw new Error("Falha no export (HTTP " + res.status + ")");
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "Entregaveis.xlsx";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const p = new URLSearchParams();
+    const busca = (document.getElementById("proj-search")||{}).value || "";
+    if (busca.trim()) p.set("busca", busca.trim());
+    if (_projStatus) p.set("status", _projStatus);
+    const qs = p.toString();
+    await baixarDoServidor("/api/entregaveis/export" + (qs ? "?" + qs : ""),
+                           "Projetos.xlsx");   // common.js
   }catch(err){ toast(err.message, true); }
 }
 

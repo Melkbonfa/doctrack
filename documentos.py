@@ -885,7 +885,7 @@ def listar_responsaveis_doc():
 
 
 @documentos_bp.route("/api/documentos/export", methods=["GET"])
-@jwt_required()
+@require_role("admin", "gestor", "tecnico")
 def export_documentos():
     """CSV bruto dos documentos ativos — análise fora do sistema (Excel/BI).
 
@@ -926,7 +926,7 @@ def export_documentos():
                      else ("" if j.get(c) is None else j.get(c))) for c, _ in cols])
     out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
     return send_file(out, mimetype="text/csv", as_attachment=True,
-                     download_name="documentos.csv")
+                     download_name=f"documentos_{datetime.now():%Y%m%d}.csv")
 
 
 @documentos_bp.route("/api/documentos/diagnostico", methods=["GET"])

@@ -908,7 +908,7 @@ def delete_equipamento(equip_id):
     return jsonify({"mensagem": "Equipamento excluído", "docs_removidos": ndocs}), 200
 
 @app.route("/api/equipamentos/export", methods=["GET"])
-@jwt_required()
+@require_role("admin", "gestor", "tecnico")
 def export_equipamentos():
     """CSV conforme os filtros da tela, com os índices que o dashboard calcula.
 
@@ -961,7 +961,8 @@ def export_equipamentos():
             d.get("pareto_classe", ""), d.get("qtd_saidas", 0),
         ])
     out = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
-    return send_file(out, mimetype="text/csv", as_attachment=True, download_name="equipamentos.csv")
+    return send_file(out, mimetype="text/csv", as_attachment=True,
+                     download_name=f"equipamentos_{datetime.now():%Y%m%d}.csv")
 
 
 @app.route("/api/equipamentos/<int:equip_id>/historico", methods=["GET"])
@@ -1784,21 +1785,44 @@ def import_descritivo_docx():
     return jsonify({"item": item}), 200
 
 @app.route("/api/consumiveis/export", methods=["GET"])
-@jwt_required()
+@require_role("admin", "gestor", "tecnico")
 def export_consumiveis_csv():
+    """CSV do catálogo conforme os filtros da tela.
+
+    Eram dois problemas juntos: o separador era vírgula (os outros exports do
+    sistema usam ponto-e-vírgula, que é o que o Excel pt-BR espera — com vírgula
+    o arquivo abre numa coluna só) e os filtros da tela eram ignorados, então
+    quem filtrava por tipo e exportava recebia o catálogo inteiro de volta.
+    """
+    q = norm(request.args.get("q", ""))
+    tipo = request.args.get("tipo", "").strip()
+    so_pendentes = request.args.get("pendente", "").strip() == "1"
+
+    query = Consumivel.query.filter_by(ativo=True)
+    if so_pendentes:
+        query = query.filter(Consumivel.pendente_sku.is_(True))
+    itens = query.order_by(Consumivel.nome).all()
+    # tipo e busca casam com o filtro do grid (consumiveis.js:renderConsGrid):
+    # o tipo vem pelo nome, e a busca olha nome e SKU.
+    if tipo:
+        itens = [c for c in itens if (c.tipo_rel.nome if c.tipo_rel else "") == tipo]
+    if q:
+        itens = [c for c in itens if q in norm(c.nome) or q in norm(c.sku)]
+
     out = io.StringIO()
-    w = csv.writer(out)
+    w = csv.writer(out, delimiter=";")
     w.writerow(["Nome", "SKU de Venda", "SKU de Importação", "Tipo", "Fabricante",
                 "Pendente SKU", "Nº equipamentos", "Equipamentos"])
-    for c in Consumivel.query.filter_by(ativo=True).order_by(Consumivel.nome).all():
-        eqs = "; ".join(f"{v.equipamento.nome} ({v.fornecimento})"
-                        for v in (c.vinculos or []) if v.ativo and v.equipamento)
+    for c in itens:
+        eqs = " | ".join(f"{v.equipamento.nome} ({v.fornecimento})"
+                         for v in (c.vinculos or []) if v.ativo and v.equipamento)
         w.writerow([c.nome, c.sku, c.sku_importacao, (c.tipo_rel.nome if c.tipo_rel else ""),
                     c.fabricante, "sim" if c.pendente_sku else "não",
                     len([v for v in (c.vinculos or []) if v.ativo]), eqs])
     out.seek(0)
     return send_file(io.BytesIO(out.getvalue().encode("utf-8-sig")),
-                     mimetype="text/csv", as_attachment=True, download_name="consumiveis.csv")
+                     mimetype="text/csv", as_attachment=True,
+                     download_name=f"consumiveis_{datetime.now():%Y%m%d}.csv")
 
 # ── API — METRICS / ENUMS / AUDIT / EXPORT ───────────────────────────────────
 
@@ -1911,10 +1935,15 @@ def export_audit():
         html_content
     )
     
+    # Continua inline (o relatório é interativo — filtra e tem os próprios botões
+    # de CSV/PDF; baixá-lo como anexo obrigaria a abrir o arquivo à mão). O que
+    # faltava era o nome: sem download_name o "Salvar como" do navegador propunha
+    # "audit", sem data, e as cópias se sobrescreviam.
     return send_file(
         io.BytesIO(html_content.encode('utf-8')),
         mimetype="text/html",
-        as_attachment=False
+        as_attachment=False,
+        download_name=f"auditoria_{datetime.now():%Y%m%d}.html"
     )
 
 @app.route("/api/events/replay", methods=["GET"])

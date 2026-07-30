@@ -83,9 +83,8 @@ async function enterApp() {
   $("nav-name").textContent = u.nome; $("nav-role").textContent = (u.role || "").toUpperCase();
   $("nav-avatar").textContent = (u.nome || "?")[0].toUpperCase();
   $("top-avatar").textContent = (u.nome || "?")[0].toUpperCase();
-  // Link de exportação CSV precisa do token na query (anchor não envia header).
   const exp = $("btn-export");
-  if (exp) exp.href = API + "/api/export/apresentacoes.csv?token=" + encodeURIComponent(state.token);
+  if (exp) exp.onclick = exportarApresCSV;
   applyRBAC();
   state.meta = await api("/api/meta");
   fillSelects();
@@ -421,6 +420,31 @@ async function loadApres() {
   $("ap-fornecedor").innerHTML = '<option value="">Todos fornecedores</option>' + forns.map((f) => `<option>${esc(f)}</option>`).join("");
   $("ap-anvisa").innerHTML = '<option value="">Toda ANVISA</option>' + anvs.map((a) => `<option>${esc(a)}</option>`).join("");
   renderApres();
+}
+
+// CSV com o mesmo recorte da aba. Antes era um <a href> com o token na query —
+// o que ignorava os filtros e ainda gravava o JWT no log de acesso do servidor.
+async function exportarApresCSV() {
+  const p = new URLSearchParams();
+  const busca = ($("ap-search").value || "").trim();
+  if (busca) p.set("busca", busca);
+  [["ap-linha", "linha"], ["ap-fornecedor", "fornecedor"],
+   ["ap-anvisa", "anvisa"], ["ap-status", "status"]].forEach(([id, chave]) => {
+    const v = $(id).value; if (v) p.set(chave, v);
+  });
+  const qs = p.toString();
+  try {
+    const r = await fetch(API + "/api/export/apresentacoes.csv" + (qs ? "?" + qs : ""),
+                          { headers: { "Authorization": "Bearer " + state.token } });
+    if (!r.ok) throw new Error("Erro " + r.status);
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = /filename="?([^";\n]+)"?/i.exec(cd);
+    const href = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = href; a.download = m ? m[1].trim() : "apresentacoes_pdr.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+  } catch (e) { toast("Falha ao exportar: " + e.message, "err"); }
 }
 
 function renderApres() {
