@@ -95,6 +95,12 @@ levar ICE ou IDP para uma reunião significava tirar print de tela.
   porque ali o grupo acrescenta uma condição em vez de definir o escopo.
 - `riscoLinhas()` saiu de dentro de `renderRisco()` para o relatório imprimir as
   mesmas quatro linhas de risco que a tela.
+- Os dois botões seguem as convenções fixadas em **Exportações — formato,
+  filtros e permissão**: exigem **técnico pra cima** (o PDF é montado no
+  navegador, então não há rota para barrar — o gate é o botão, escondido para o
+  papel `leitura` como o resto das exportações da tela) e o arquivo sai **com
+  data** (`DocTrack_Equipamentos_IDP_20260730.pdf`), senão gerar duas vezes
+  sobrescrevia o anterior no Downloads.
 
 ### Cache-busting dos estáticos ignorava os JS/CSS dos módulos
 - **Corrigido** `_static_version()`, que calculava o token a partir de uma

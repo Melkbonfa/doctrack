@@ -432,7 +432,7 @@ async function exportarDashboardPDF(){
   });
 
   ch.footer("DocTrack Enterprise — Relatório de Equipamentos (ICE)");
-  doc.save("DocTrack_Equipamentos_Dashboard.pdf");
+  doc.save(PDFRep.nomeArquivo("DocTrack_Equipamentos_Dashboard"));
   toast("Relatório gerado");
 }
 
@@ -655,6 +655,6 @@ async function exportarDevPDF(){
   });
 
   ch.footer("DocTrack Enterprise — Relatório de Desenvolvimento (IDP)");
-  doc.save("DocTrack_Equipamentos_IDP.pdf");
+  doc.save(PDFRep.nomeArquivo("DocTrack_Equipamentos_IDP"));
   toast("Relatório gerado");
 }

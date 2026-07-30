@@ -73,7 +73,7 @@
           <div><div class="page-title">Dashboard de Equipamentos</div><div class="page-sub">Completude · Cadastro + Regulatório + Documental (ICE)</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center">
             <span class="docs-count-badge" id="eq-ice-badge">—</span>
-            <button class="btn btn-ghost btn-sm" onclick="abrirExportDash()" title="Relatório executivo em PDF, com filtros próprios">Exportar PDF</button>
+            <button class="btn btn-ghost btn-sm" id="btn-export-dash" onclick="abrirExportDash()" title="Relatório executivo em PDF, com filtros próprios" style="display:none">Exportar PDF</button>
           </div>
         </div>
         <div class="dash-equipsel">
@@ -105,7 +105,7 @@
           <div><div class="page-title">Índice de Desenvolvimento de Produto</div><div class="page-sub">6 revisões por equipamento · priorização Pareto/ABC (Classe A primeiro)</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center">
             <span class="docs-count-badge" id="dev-idp-badge">—</span>
-            <button class="btn btn-ghost btn-sm" onclick="abrirExportDev()" title="Relatório do IDP em PDF, com filtros próprios">Exportar PDF</button>
+            <button class="btn btn-ghost btn-sm" id="btn-export-dev" onclick="abrirExportDev()" title="Relatório do IDP em PDF, com filtros próprios" style="display:none">Exportar PDF</button>
             <button class="btn btn-ghost btn-sm" id="btn-import-pareto" onclick="abrirImportPareto()" style="display:none">Importar Pareto</button>
           </div>
         </div>

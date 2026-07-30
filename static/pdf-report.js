@@ -135,6 +135,15 @@ window.PDFRep = (function(){
       {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
   }
 
+  /* Nome do arquivo com data, no mesmo formato dos exports do servidor
+     (`equipamentos_20260730.csv`). Sem a data, gerar o relatório duas vezes
+     sobrescrevia o anterior na pasta de Downloads. */
+  function nomeArquivo(base){
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return `${base}_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}.pdf`;
+  }
+
   /* ── A moldura de um documento ─────────────────────────────────────────────
      Recebe o doc do jsPDF e devolve os desenhos que todo relatório repete:
      fundo, cartão, título de cartão, legenda, barra de progresso, tabela
@@ -351,5 +360,5 @@ window.PDFRep = (function(){
 
   return { CHART_FONT, C, rgb, darken, vgradFull, hgrad,
            centerTextPlugin, barValueHPlugin, renderChartImage,
-           temJsPDF, fontePronta, novoDoc, agora, chrome };
+           temJsPDF, fontePronta, novoDoc, agora, nomeArquivo, chrome };
 })();

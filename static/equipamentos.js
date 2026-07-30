@@ -127,6 +127,12 @@ async function loadAll(){
   document.getElementById("nav-avatar").textContent=ini; document.getElementById("top-avatar").textContent=ini;
   if(podeEditar) document.getElementById("btn-novo-eq").style.display="";
   if(podeGerir){ document.getElementById("btn-import").style.display=""; const bp=document.getElementById("btn-import-pareto"); if(bp) bp.style.display=""; }
+  // Exportar segue a regra das outras exportações (ver /api/equipamentos/export
+  // e o CSV desta tela): a base completa não sai para o papel `leitura`. O PDF é
+  // montado no navegador, então não há rota para barrar — o gate é o botão.
+  if(podeEditar) ["btn-export-dash","btn-export-dev"].forEach(id=>{
+    const b=document.getElementById(id); if(b) b.style.display="";
+  });
   preencherSelects();
   renderDashboard(); renderDev(); renderLista(); renderCategorias();
   carregarEvolucao();   // série temporal: não bloqueia a tela se ainda não houver histórico
