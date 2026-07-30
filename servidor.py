@@ -406,13 +406,21 @@ def _import_excel_to_db():
 
 # ── PÁGINAS ───────────────────────────────────────────────────────────────────
 def _static_version():
-    """Token de cache-busting baseado no mtime dos estáticos (muda só quando o arquivo muda)."""
+    """Token de cache-busting baseado no mtime dos estáticos (muda só quando o arquivo muda).
+
+    Varre static/ em vez de uma lista fixa. A lista fixa cobria seis arquivos —
+    app.js, auth.js, common.js, style.css, socket-client.js, app-realtime.js —
+    e nenhum dos módulos: publicar uma correção em equipamentos.js, missoes.js,
+    entregaveis.js, config.js ou nos CSS deles não mudava o token, e o navegador
+    continuava servindo a versão antiga do cache até alguém dar Ctrl+F5.
+    Só o primeiro nível: static/vendor/ é de terceiros e muda junto com um
+    deploy, não com uma correção nossa.
+    """
     try:
-        files = ["static/app.js", "static/auth.js", "static/common.js",
-                 "static/style.css", "static/socket-client.js",
-                 "static/app-realtime.js"]
-        latest = max(os.path.getmtime(os.path.join(BASE_DIR, f)) for f in files if os.path.exists(os.path.join(BASE_DIR, f)))
-        return str(int(latest))
+        raiz = os.path.join(BASE_DIR, "static")
+        mtimes = [os.path.getmtime(os.path.join(raiz, n)) for n in os.listdir(raiz)
+                  if n.endswith((".js", ".css"))]
+        return str(int(max(mtimes))) if mtimes else "1"
     except Exception:
         return "1"
 

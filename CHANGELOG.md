@@ -50,6 +50,67 @@ uns e não em outros, e permissões sem critério.
 - **Adicionado** `tests/test_exports.py` (17 testes), cobrindo formato, filtros
   e permissão dos seis exports; inclui os primeiros testes automatizados do PDR.
 
+### Equipamentos — exportação em PDF do Dashboard e do Desenvolvimento
+Projetos e Documentos já saíam em PDF; Equipamentos só tinha CSV da lista, e
+levar ICE ou IDP para uma reunião significava tirar print de tela.
+
+- **Adicionado** `Exportar PDF` no Dashboard de Equipamentos: A4 paisagem com
+  KPIs por faixa de completude, roscas de categoria e de faixa, completude média
+  por dimensão, lacunas mais comuns, evolução do ICE/IDP e o bloco de risco
+  documental — e, a partir da página 2, a **worklist inteira**, não só o top 10
+  que cabe na tela (nome, SKU, categoria, as três dimensões, ICE, atrasados,
+  situação ANVISA e responsável).
+- **Adicionado** `Exportar PDF` na aba Desenvolvimento: faixas de IDP,
+  distribuição e completude por classe ABC, revisões mais pendentes, a situação
+  das 6 revisões estado a estado e a matriz priorizada por Pareto.
+- **Adicionado** `static/pdf-report.js` — a moldura (fundo, cartões, legenda com
+  quebra de linha, barra de progresso, tabela paginada, rodapé) e a
+  rasterização dos gráficos do Chart.js. Os relatórios de Documentos (`app.js`)
+  e de Projetos (`entregaveis.js`) nasceram cada um com a sua cópia desses
+  helpers e as cópias já divergiram — a de Projetos encolhe a legenda para caber
+  no cartão, a de Documentos deixa vazar. Os novos relatórios não abriram a
+  terceira cópia; **migrar os dois antigos para o arquivo comum fica pendente**
+  (por isso o namespace `PDFRep`: conviver com as cópias locais não colide).
+- **Corrigido**, de tabela, o travamento da rasterização em aba de fundo:
+  `requestAnimationFrame` é suspenso quando a aba perde o foco, e quem trocasse
+  de aba no meio da exportação ficava com o relatório pendurado para sempre. O
+  novo helper corre a captura contra um `setTimeout`. Os relatórios antigos
+  ainda dependem só do `requestAnimationFrame` (mesma pendência acima).
+- **Adicionado** um modal de filtros para cada relatório, com os recortes que
+  fazem sentido para ele — e não os da tela. O do **Dashboard** pergunta
+  categorias, faixa de ICE, situação do registro ANVISA, "só com documento
+  atrasado", "só sem responsável" e a ordem da worklist; o do **IDP** pergunta
+  classe ABC, categorias, faixa de IDP, **em qual das 6 revisões há pendência**
+  e a ordem da matriz. Todos os grupos são de seleção múltipla: a tela oferece
+  um valor por vez ("classe A" ou "todas") e um relatório costuma querer "A e
+  B", "só o que tem registro vencido", "só o que está parado em IT".
+- **Adicionado** contador de prévia que recalcula a cada clique
+  (`N equipamento(s) no relatório`) e desabilita o botão quando a combinação não
+  seleciona ninguém — o erro aparece antes de gerar, não depois.
+- **Alterado:** os grupos abrem semeados com o que está selecionado na tela, mas
+  a partir daí é o modal que manda; o PDF não lê mais os selects da página, para
+  não haver dois filtros somados sem ninguém perceber. A regra de cada grupo é
+  literal (vale o que está marcado, e desmarcar tudo dá zero) com uma exceção
+  declarada na própria tela: em "revisão pendente em", vazio não restringe,
+  porque ali o grupo acrescenta uma condição em vez de definir o escopo.
+- `riscoLinhas()` saiu de dentro de `renderRisco()` para o relatório imprimir as
+  mesmas quatro linhas de risco que a tela.
+- Os dois botões seguem as convenções fixadas em **Exportações — formato,
+  filtros e permissão**: exigem **técnico pra cima** (o PDF é montado no
+  navegador, então não há rota para barrar — o gate é o botão, escondido para o
+  papel `leitura` como o resto das exportações da tela) e o arquivo sai **com
+  data** (`DocTrack_Equipamentos_IDP_20260730.pdf`), senão gerar duas vezes
+  sobrescrevia o anterior no Downloads.
+
+### Cache-busting dos estáticos ignorava os JS/CSS dos módulos
+- **Corrigido** `_static_version()`, que calculava o token a partir de uma
+  **lista fixa de seis arquivos** (`app.js`, `auth.js`, `common.js`,
+  `style.css`, `socket-client.js`, `app-realtime.js`). Nenhum módulo estava na
+  lista: uma correção em `equipamentos.js`, `missoes.js`, `entregaveis.js`,
+  `config.js` ou nos CSS deles saía com o mesmo `?v=`, e o navegador continuava
+  servindo a versão antiga do cache até alguém dar Ctrl+F5. Agora varre
+  `static/` (primeiro nível — `vendor/` é de terceiros e muda com o deploy).
+
 ### Diagnóstico de documentos — reescrito
 O diagnóstico nasceu quando o arquivo só podia estar na rede e verificava uma
 única coisa: se a string de caminho batia com algum diretório. Depois que os
