@@ -147,11 +147,16 @@ function preencherSelects(){
 }
 
 // ══ DASHBOARD (gráficos no padrão do Documentos) ═══════════════════════════
+// A frota do Dashboard conforme os filtros da tela. O export em PDF NÃO usa
+// esta função: tem filtros próprios, escolhidos no modal (ver equipamentos-pdf.js).
+function dashFiltrados(){
+  const cat=val("dash-cat"), inc=(document.getElementById("dash-bloq")||{}).checked;
+  return EQUIP.filter(e=> (inc||!ehBloqueado(e)) && (!cat||String(e.categoria_id)===String(cat)))
+              .map(e=>({e, s:scores(e)}));
+}
 function renderDashboard(){
   if(typeof Chart==="undefined") return;
-  const cat=val("dash-cat"), inc=(document.getElementById("dash-bloq")||{}).checked;
-  let list = EQUIP.filter(e=> (inc||!ehBloqueado(e)) && (!cat||String(e.categoria_id)===String(cat)));
-  const S = list.map(e=>({e, s:scores(e)}));
+  const S = dashFiltrados();
   const n = S.length, avg=a=> n?Math.round(a.reduce((x,y)=>x+y,0)/n):0;
   const iceAvg=avg(S.map(o=>o.s.ice)), cadAvg=avg(S.map(o=>o.s.cad)), regAvg=avg(S.map(o=>o.s.reg)), docAvg=avg(S.map(o=>o.s.doc));
   document.getElementById("eq-ice-badge").textContent="ICE médio "+iceAvg+"%";
@@ -231,14 +236,15 @@ function teclaAbre(ev,id){
 }
 
 // ── risco documental e regulatório (dados que já vinham e não eram usados) ──
-function renderRisco(S){
-  const el=document.getElementById("risco-list"); if(!el) return;
+// Separado do render porque o PDF imprime as mesmas quatro linhas — recebe a
+// lista já filtrada, então serve tanto à tela quanto ao relatório.
+function riscoLinhas(S){
   const atrasados=S.filter(o=>o.s.docs_atrasados>0).sort((a,b)=>b.s.atraso_max-a.s.atraso_max);
   const docsAtrasados=atrasados.reduce((t,o)=>t+o.s.docs_atrasados,0);
   const vencidos=S.filter(o=>o.s.reg_estado==="vencido");
   const vencendo=S.filter(o=>o.s.reg_estado==="vencendo");
   const semDono=S.filter(o=>!(o.e.responsavel||"").trim() && !(o.s.responsaveis||[]).length);
-  const linhas=[
+  return [
     ["Equipamentos com documento atrasado", atrasados.length, "#f43f5e",
       docsAtrasados?`${docsAtrasados} documento(s), pior atraso ${atrasados[0].s.atraso_max} dia(s)`:""],
     ["Registro ANVISA vencido", vencidos.length, "#f43f5e",
@@ -247,7 +253,10 @@ function renderRisco(S){
       vencendo.length?vencendo.slice(0,3).map(o=>o.e.nome).join(", "):""],
     ["Sem responsável definido", semDono.length, "#94a3b8", ""],
   ];
-  el.innerHTML=linhas.map(([l,v,c,sub])=>
+}
+function renderRisco(S){
+  const el=document.getElementById("risco-list"); if(!el) return;
+  el.innerHTML=riscoLinhas(S).map(([l,v,c,sub])=>
     `<div class="prog-row" style="align-items:flex-start"><span class="prog-label" style="flex:1">${l}${sub?`<div class="muted" style="font-size:10px;margin-top:2px">${esc(sub)}</div>`:""}</span><span class="mono" style="font-weight:700;color:${v?c:'var(--t4)'}">${v}</span></div>`
   ).join("");
 }
@@ -320,12 +329,17 @@ function _chipManual(id,campo,estado){
 }
 function _idpBadge(v){ if(v==null) return '<span class="sg-badge">—</span>';
   return `<span class="sg-badge ${v>=85?'sg-finalizado':v>=50?'sg-progresso':'sg-pendente'}">${v}%</span>`; }
-function renderDev(){
-  if(typeof Chart==="undefined") return;
+// Frota da aba Desenvolvimento conforme os filtros da tela, já na ordem de
+// prioridade Pareto. Como dashFiltrados, é só da tela — o PDF filtra pelo modal.
+function devFiltrados(){
   const cls=val("dev-classe"), cat=val("dev-cat"), inc=(document.getElementById("dev-bloq")||{}).checked;
   let list=EQUIP.filter(e=> (inc||!ehBloqueado(e)) && (!cat||String(e.categoria_id)===String(cat)));
   if(cls) list=list.filter(e=> cls==="-" ? !(e.pareto_classe||"") : (e.pareto_classe||"")===cls );
-  const S=list.map(e=>({e, idp:idp(e)})).sort((a,b)=>_prioridade(a.e,b.e));
+  return list.map(e=>({e, idp:idp(e)})).sort((a,b)=>_prioridade(a.e,b.e));
+}
+function renderDev(){
+  if(typeof Chart==="undefined") return;
+  const S=devFiltrados();
   const comIdp=S.filter(o=>o.idp!=null);
   const media=comIdp.length?Math.round(comIdp.reduce((x,o)=>x+o.idp,0)/comIdp.length):0;
   document.getElementById("dev-idp-badge").textContent="IDP médio "+media+"%";

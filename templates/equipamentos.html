@@ -73,6 +73,7 @@
           <div><div class="page-title">Dashboard de Equipamentos</div><div class="page-sub">Completude · Cadastro + Regulatório + Documental (ICE)</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center">
             <span class="docs-count-badge" id="eq-ice-badge">—</span>
+            <button class="btn btn-ghost btn-sm" onclick="abrirExportDash()" title="Relatório executivo em PDF, com filtros próprios">Exportar PDF</button>
           </div>
         </div>
         <div class="dash-equipsel">
@@ -104,6 +105,7 @@
           <div><div class="page-title">Índice de Desenvolvimento de Produto</div><div class="page-sub">6 revisões por equipamento · priorização Pareto/ABC (Classe A primeiro)</div></div>
           <div class="page-actions" style="display:flex;gap:10px;align-items:center">
             <span class="docs-count-badge" id="dev-idp-badge">—</span>
+            <button class="btn btn-ghost btn-sm" onclick="abrirExportDev()" title="Relatório do IDP em PDF, com filtros próprios">Exportar PDF</button>
             <button class="btn btn-ghost btn-sm" id="btn-import-pareto" onclick="abrirImportPareto()" style="display:none">Importar Pareto</button>
           </div>
         </div>
@@ -311,6 +313,91 @@
   </div>
 </div>
 
+<!-- MODAL: exportar o relatório do Dashboard (ICE) ------------------------------
+     Os grupos abrem marcados conforme os filtros da tela; daqui em diante é este
+     modal que define o recorte do PDF. As grades de categoria são montadas em
+     equipamentos-pdf.js, a partir da taxonomia carregada. -->
+<div class="modal-overlay" id="modal-export-dash" role="dialog" aria-modal="true" aria-labelledby="expd-title" aria-hidden="true">
+  <div class="modal" style="width:640px;max-width:96vw" tabindex="-1">
+    <div class="modal-title" id="expd-title">Exportar relatório do Dashboard</div>
+    <div class="modal-sub">KPIs, gráficos e a worklist completa — só com o que você marcar aqui</div>
+
+    <div class="exp-sec">Categorias <button type="button" class="exp-todas" onclick="expToggleGrupo('dash-cat')">marcar/desmarcar todas</button></div>
+    <div class="exp-grid" id="exp-dash-cats"></div>
+
+    <div class="exp-sec">Faixa de ICE</div>
+    <div class="exp-grid" id="exp-dash-faixas"></div>
+
+    <div class="exp-sec">Situação do registro ANVISA</div>
+    <div class="exp-grid" id="exp-dash-anvisa"></div>
+
+    <div class="exp-sec">Recortes adicionais</div>
+    <div class="exp-grid">
+      <label class="exp-chk"><input type="checkbox" id="exp-dash-atrasados"> só com documento atrasado</label>
+      <label class="exp-chk"><input type="checkbox" id="exp-dash-semdono"> só sem responsável</label>
+      <label class="exp-chk"><input type="checkbox" id="exp-dash-bloq"> incluir obsoletos/bloqueados</label>
+    </div>
+
+    <div class="exp-ordem">
+      <label class="form-label" for="exp-dash-ordem" style="margin:0;white-space:nowrap">Ordem da worklist</label>
+      <select class="form-input" id="exp-dash-ordem">
+        <option value="criticos">Mais críticos primeiro (atrasos, depois menor ICE)</option>
+        <option value="ice">Menor ICE primeiro</option>
+        <option value="ice-desc">Maior ICE primeiro</option>
+        <option value="nome">Nome</option>
+      </select>
+    </div>
+
+    <div class="exp-preview" id="exp-dash-preview">—</div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('export-dash')">Cancelar</button>
+      <button class="btn btn-primary" id="exp-dash-gerar" onclick="exportarDashboardPDF()">Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: exportar o relatório do IDP (aba Desenvolvimento) -->
+<div class="modal-overlay" id="modal-export-dev" role="dialog" aria-modal="true" aria-labelledby="expv-title" aria-hidden="true">
+  <div class="modal" style="width:640px;max-width:96vw" tabindex="-1">
+    <div class="modal-title" id="expv-title">Exportar relatório do IDP</div>
+    <div class="modal-sub">Índices, revisões e a matriz priorizada — só com o que você marcar aqui</div>
+
+    <div class="exp-sec">Classe ABC (Pareto)</div>
+    <div class="exp-grid" id="exp-dev-classes"></div>
+
+    <div class="exp-sec">Categorias <button type="button" class="exp-todas" onclick="expToggleGrupo('dev-cat')">marcar/desmarcar todas</button></div>
+    <div class="exp-grid" id="exp-dev-cats"></div>
+
+    <div class="exp-sec">Faixa de IDP</div>
+    <div class="exp-grid" id="exp-dev-faixas"></div>
+
+    <div class="exp-sec">Somente com revisão pendente em</div>
+    <p class="exp-hint">Nada marcado = não restringe. Conta "Pendente" e "Em revisão".</p>
+    <div class="exp-grid" id="exp-dev-itens"></div>
+
+    <div class="exp-sec">Recortes adicionais</div>
+    <div class="exp-grid">
+      <label class="exp-chk"><input type="checkbox" id="exp-dev-bloq"> incluir obsoletos/bloqueados</label>
+    </div>
+
+    <div class="exp-ordem">
+      <label class="form-label" for="exp-dev-ordem" style="margin:0;white-space:nowrap">Ordem da matriz</label>
+      <select class="form-input" id="exp-dev-ordem">
+        <option value="pareto">Prioridade Pareto (classe, depois saídas)</option>
+        <option value="idp">Menor IDP primeiro</option>
+        <option value="saidas">Mais saídas primeiro</option>
+        <option value="nome">Nome</option>
+      </select>
+    </div>
+
+    <div class="exp-preview" id="exp-dev-preview">—</div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('export-dev')">Cancelar</button>
+      <button class="btn btn-primary" id="exp-dev-gerar" onclick="exportarDevPDF()">Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: ficha do consumível (leitura + abas) -->
 <div class="modal-overlay" id="modal-consview" role="dialog" aria-modal="true" aria-label="Ficha do consumível" aria-hidden="true">
   <div class="modal" style="width:720px;max-width:96vw">
@@ -416,6 +503,12 @@
 <script src="/static/socket-client.js?v={{ asset_v }}"></script>
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
+<!-- jsPDF só é usado nos botões "Exportar PDF" do Dashboard e do
+     Desenvolvimento; se não carregar, o resto da tela segue funcionando
+     (equipamentos-pdf.js checa PDFRep.temJsPDF() antes de gerar). -->
+<script src="/static/vendor/jspdf.umd.min.js?v={{ asset_v }}"></script>
+<script src="/static/pdf-report.js?v={{ asset_v }}"></script>
 <script src="/static/equipamentos.js?v={{ asset_v }}"></script>
 <script src="/static/consumiveis.js?v={{ asset_v }}"></script>
+<script src="/static/equipamentos-pdf.js?v={{ asset_v }}"></script>
 {%- endblock %}

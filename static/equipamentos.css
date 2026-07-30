@@ -132,3 +132,29 @@ button.eq-chip:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;}
 .abc-A{background:#10b981;} .abc-B{background:#f59e0b;} .abc-C{background:#64748b;}
 table.dev-matriz td,table.dev-matriz th{white-space:nowrap;}
 table.dev-matriz td.num,table.dev-matriz th.num{text-align:right;}
+
+/* ── Modais de exportação em PDF ───────────────────────────────────────────
+   Os grupos são caixas de seleção múltipla em pílula: cada relatório tem 3-4
+   grupos e um <select multiple> por grupo ocuparia a altura toda do modal. */
+.exp-sec{display:flex;align-items:baseline;gap:10px;font-size:10px;color:var(--cyan-lt);
+  letter-spacing:1px;text-transform:uppercase;margin:16px 0 8px;}
+.exp-sec:first-of-type{margin-top:6px;}
+.exp-sec .exp-todas{font-size:10px;letter-spacing:.3px;text-transform:none;color:var(--t3);
+  background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;}
+.exp-sec .exp-todas:hover{color:var(--cyan);}
+.exp-hint{font-size:11px;color:var(--t4);margin:-4px 0 8px;}
+.exp-grid{display:flex;flex-wrap:wrap;gap:6px;}
+.exp-chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);
+  background:var(--bg-elevated);border:1px solid var(--border-soft);border-radius:var(--r-pill);
+  padding:5px 11px;cursor:pointer;user-select:none;}
+.exp-chk:hover{border-color:var(--border-hi);}
+.exp-chk:focus-within{outline:2px solid var(--cyan);outline-offset:1px;}
+.exp-chk input{margin:0;cursor:pointer;accent-color:var(--cyan);}
+.exp-chk .exp-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.exp-ordem{display:flex;align-items:center;gap:10px;margin-top:16px;}
+.exp-ordem .form-input{padding:8px 11px;font-size:13px;}
+.exp-preview{font-family:var(--font-mono);font-size:12px;color:var(--cyan-brand-lt);
+  background:rgba(6,182,212,.10);border:1px solid rgba(6,182,212,.22);border-radius:var(--r);
+  padding:9px 12px;margin-top:18px;}
+.exp-preview.vazio{color:var(--amber,#f59e0b);background:rgba(245,158,11,.10);
+  border-color:rgba(245,158,11,.25);}
