@@ -96,6 +96,15 @@ levar ICE ou IDP para uma reunião significava tirar print de tela.
 - `riscoLinhas()` saiu de dentro de `renderRisco()` para o relatório imprimir as
   mesmas quatro linhas de risco que a tela.
 
+### Cache-busting dos estáticos ignorava os JS/CSS dos módulos
+- **Corrigido** `_static_version()`, que calculava o token a partir de uma
+  **lista fixa de seis arquivos** (`app.js`, `auth.js`, `common.js`,
+  `style.css`, `socket-client.js`, `app-realtime.js`). Nenhum módulo estava na
+  lista: uma correção em `equipamentos.js`, `missoes.js`, `entregaveis.js`,
+  `config.js` ou nos CSS deles saía com o mesmo `?v=`, e o navegador continuava
+  servindo a versão antiga do cache até alguém dar Ctrl+F5. Agora varre
+  `static/` (primeiro nível — `vendor/` é de terceiros e muda com o deploy).
+
 ### Diagnóstico de documentos — reescrito
 O diagnóstico nasceu quando o arquivo só podia estar na rede e verificava uma
 única coisa: se a string de caminho batia com algum diretório. Depois que os
