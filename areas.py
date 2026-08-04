@@ -37,13 +37,17 @@ _IC_EQUIP_MOD = ('<rect x="4" y="4" width="16" height="16" rx="2"/>'
 _IC_MISSOES = ('<rect x="3" y="4" width="5" height="16" rx="1.5"/>'
                '<rect x="10" y="4" width="5" height="10" rx="1.5"/>'
                '<rect x="17" y="4" width="4" height="13" rx="1.5"/>')
+_IC_CUSTOS = ('<circle cx="12" cy="12" r="9"/>'
+              '<path d="M15 8.5a3.5 3.5 0 0 0-3-1.5c-1.9 0-3 1-3 2.3 0 3 6 1.7 6 4.7 '
+              '0 1.3-1.1 2.3-3 2.3a3.5 3.5 0 0 1-3-1.5"/>'
+              '<path d="M12 5.5v13"/>')
 
 
 AREAS = [
     {
         "slug": "pde",
         "nome": "P&D Equipamentos",
-        "sub": "DOCUMENTOS · PROJETOS · MISSÕES",
+        "sub": "DOCUMENTOS · PROJETOS · MISSÕES · CUSTOS",
         "accent": "#22d3ee",
         "home": "/hub/pde",
         "icon": _IC_EQUIP,
@@ -52,6 +56,7 @@ AREAS = [
             {"label": "Documentos", "url": "/", "role": None, "module": "docs", "icon": _IC_DOCS},
             {"label": "Projetos", "url": "/projetos", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
             {"label": "Missões", "url": "/missoes", "role": "tecnico", "module": "missoes", "icon": _IC_MISSOES},
+            {"label": "Custos", "url": "/custos/", "role": "gestor", "module": "custos", "icon": _IC_CUSTOS},
         ],
     },
     {

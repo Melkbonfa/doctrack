@@ -1,0 +1,1759 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocTrack · Custos</title>
+<style>
+:root{
+  --bg-void:#13152a; --bg-base:#191c37; --bg-surface:#212545;
+  --bg-card:#1d2141; --bg-elev:#282d54; --bg-hover:#2e3460;
+  --bd-dim:rgba(34,211,238,.09); --bd-soft:rgba(34,211,238,.16);
+  --bd-mid:rgba(34,211,238,.28); --bd-hi:rgba(34,211,238,.5);
+  --cyan-b:#06b6d4; --cyan:#22d3ee; --cyan-l:#67e8f9; --pink:#ec4899;
+  --teal:#14b8a6; --blue:#3b82f6; --violet:#8b5cf6; --indigo:#6366f1;
+  --green:#10b981; --amber:#f59e0b; --red:#f43f5e;
+  --grad-b:linear-gradient(135deg,#06b6d4 0%,#ec4899 100%);
+  --t1:#f4f7fb; --t2:#c9d4f5; --t3:#8f9dd6; --t4:#6f7cb5;
+  --f:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif;
+  --fm:'JetBrains Mono','Cascadia Mono',Consolas,'Courier New',monospace;
+  --r:10px; --r2:14px; --r3:20px; --rp:999px;
+  --sh:0 1px 2px rgba(0,0,0,.2),0 8px 28px rgba(8,10,30,.4);
+  --sh-l:0 24px 60px rgba(5,7,22,.6);
+  --s1:6px; --s2:10px; --s3:14px; --s4:20px; --s5:28px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg-void); color:var(--t1); font-family:var(--f);
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  display:flex; min-height:100vh;
+}
+::selection{background:rgba(6,182,212,.32)}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(143,157,214,.22);border-radius:8px;border:3px solid var(--bg-void)}
+::-webkit-scrollbar-thumb:hover{background:rgba(143,157,214,.4)}
+
+/* ══ bandeiras ══ */
+.fl{width:22px;height:16px;border-radius:3px;display:block;flex:none;
+  box-shadow:0 0 0 1px rgba(255,255,255,.16),0 1px 3px rgba(0,0,0,.4)}
+.fl.sm{width:17px;height:12px;border-radius:2px}
+.fl.lg{width:30px;height:21px;border-radius:4px}
+
+/* ══ sidebar ══ */
+aside{
+  width:240px;flex:none;background:linear-gradient(180deg,var(--bg-base),#151831);
+  border-right:1px solid var(--bd-dim);display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;z-index:30
+}
+.brand{display:flex;align-items:center;gap:11px;padding:var(--s4) 18px var(--s3);
+  border-bottom:1px solid var(--bd-dim)}
+.brand .dot{width:32px;height:32px;border-radius:10px;background:var(--grad-b);
+  display:grid;place-items:center;font-size:16px;font-weight:800;color:#06202a;
+  box-shadow:0 4px 16px rgba(6,182,212,.4);flex:none}
+.brand b{font-size:15.5px;letter-spacing:-.015em;display:block;line-height:1.25}
+.brand small{font-size:10px;color:var(--t4);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.who{display:flex;align-items:center;gap:10px;padding:var(--s3) 18px;border-bottom:1px solid var(--bd-dim)}
+.who .av{width:32px;height:32px;border-radius:50%;background:var(--bg-elev);display:grid;place-items:center;
+  font-size:12px;font-weight:700;color:var(--cyan-l);border:1px solid var(--bd-soft);flex:none}
+.who b{font-size:12.5px;display:block;line-height:1.3}
+.who span{font-size:10px;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+nav{padding:var(--s2) var(--s2);flex:1;overflow:auto}
+nav .grp{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--t4);padding:var(--s3) 11px var(--s1)}
+nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;
+  color:var(--t2);text-decoration:none;font-size:13px;font-weight:500;cursor:pointer;
+  transition:background .15s,color .15s;margin-bottom:2px;position:relative}
+nav a:hover{background:rgba(255,255,255,.05);color:var(--t1)}
+nav a.on{background:linear-gradient(90deg,rgba(6,182,212,.2),rgba(6,182,212,.05));
+  color:var(--cyan-l);font-weight:650}
+nav a.on::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;
+  background:var(--cyan);border-radius:0 3px 3px 0}
+nav a .ic{width:17px;text-align:center;font-size:14px;opacity:.9;flex:none}
+nav a .cnt{margin-left:auto;font-size:10px;font-family:var(--fm);color:var(--t4);
+  background:rgba(255,255,255,.06);padding:1px 6px;border-radius:var(--rp)}
+.side-foot{padding:var(--s3) 18px;border-top:1px solid var(--bd-dim);font-size:10.5px;
+  color:var(--t4);line-height:1.6}
+
+/* ══ main ══ */
+main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s5);
+  border-bottom:1px solid var(--bd-dim);background:rgba(25,28,55,.82);
+  backdrop-filter:blur(16px) saturate(1.4);position:sticky;top:0;z-index:25;flex-wrap:wrap}
+.crumb{font-size:12.5px;color:var(--t3);display:flex;align-items:center;gap:2px}
+.crumb b{color:var(--t1);font-weight:650}
+.crumb .lk{cursor:pointer;transition:color .15s}
+.crumb .lk:hover{color:var(--cyan-l)}
+.crumb .sep{margin:0 7px;opacity:.35}
+.tb-act{margin-left:auto;display:flex;gap:var(--s1);align-items:center;flex-wrap:wrap}
+.btn{background:var(--bg-elev);border:1px solid var(--bd-soft);border-radius:9px;
+  color:var(--t2);font:inherit;font-size:12.5px;font-weight:600;padding:8px 14px;
+  cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.btn:hover{background:var(--bg-hover);color:var(--t1);border-color:var(--bd-mid);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.pri{background:linear-gradient(135deg,#06b6d4,#0891b2);border-color:transparent;
+  color:#04212b;box-shadow:0 3px 12px rgba(6,182,212,.3)}
+.btn.pri:hover{box-shadow:0 5px 18px rgba(6,182,212,.45)}
+.btn.gh{background:transparent}
+.btn.sm{padding:5px 10px;font-size:11.5px}
+.btn.dgr{color:#fda4af;border-color:rgba(244,63,94,.3)}
+.btn.dgr:hover{background:rgba(244,63,94,.14);border-color:rgba(244,63,94,.5)}
+.content{padding:var(--s4) var(--s5) 80px;max-width:1560px;width:100%}
+
+/* ══ cards ══ */
+.card{background:linear-gradient(168deg,var(--bg-card),#1b1f3d);
+  border:1px solid var(--bd-dim);border-radius:var(--r2);padding:var(--s4);
+  margin-bottom:var(--s3);box-shadow:var(--sh)}
+.card > h2{font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--cyan-l);margin-bottom:5px;display:flex;align-items:center;gap:9px}
+.card > h2 .r{margin-left:auto;font-size:11px;letter-spacing:.01em;text-transform:none;
+  color:var(--t4);font-weight:500;display:flex;align-items:center;gap:8px}
+.card > h2 + .sub{font-size:12.5px;color:var(--t3);margin-bottom:var(--s3);max-width:82ch;line-height:1.6}
+.grid{display:grid;gap:var(--s3)}
+.g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(192px,1fr))}
+
+/* ══ hero do detalhe ══ */
+.hero{background:linear-gradient(135deg,rgba(6,182,212,.14),rgba(236,72,153,.08) 60%,transparent),
+  linear-gradient(168deg,var(--bg-card),#1b1f3d);
+  border:1px solid var(--bd-soft);border-radius:var(--r3);padding:var(--s4) var(--s5);
+  margin-bottom:var(--s3);box-shadow:var(--sh);position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;top:-70px;right:-70px;width:220px;height:220px;
+  background:radial-gradient(circle,rgba(6,182,212,.18),transparent 68%);pointer-events:none}
+.hero h1{font-size:25px;font-weight:750;letter-spacing:-.025em;line-height:1.2;margin-bottom:5px}
+.hero .meta{font-size:12.5px;color:var(--t3);display:flex;gap:var(--s3);flex-wrap:wrap;align-items:center}
+.hero .tags{display:flex;gap:6px;margin-top:var(--s3);flex-wrap:wrap}
+
+/* ══ KPI ══ */
+.kpi{border:1px solid var(--bd-dim);border-radius:var(--r);padding:var(--s3) var(--s3) var(--s3) 17px;
+  background:var(--bg-surface);position:relative;overflow:hidden;transition:.2s}
+.kpi:hover{border-color:var(--bd-soft);transform:translateY(-2px)}
+.kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--t4);opacity:.5}
+.kpi .lbl{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--t4);display:block;margin-bottom:9px;min-height:23px;line-height:1.3}
+.kpi .val{font-family:var(--fm);font-size:21px;font-weight:700;letter-spacing:-.025em;line-height:1.15}
+.kpi .foot{font-size:11px;color:var(--t3);margin-top:7px;line-height:1.5}
+.kpi.nre::before{background:var(--violet);opacity:1}
+.kpi.nre{background:linear-gradient(150deg,rgba(139,92,246,.13),var(--bg-surface) 62%)}
+.kpi.cogs::before{background:var(--cyan);opacity:1}
+.kpi.cogs{background:linear-gradient(150deg,rgba(6,182,212,.13),var(--bg-surface) 62%)}
+.kpi.good::before{background:var(--green);opacity:1}
+.kpi.good{background:linear-gradient(150deg,rgba(16,185,129,.13),var(--bg-surface) 62%)}
+.kpi.bad::before{background:var(--red);opacity:1}
+.kpi.bad{background:linear-gradient(150deg,rgba(244,63,94,.13),var(--bg-surface) 62%)}
+
+/* ══ câmbio ══ */
+.fx{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:var(--s3)}
+.fx-card{border:1px solid var(--bd-soft);border-radius:var(--r2);padding:var(--s3) var(--s4);
+  background:linear-gradient(155deg,rgba(255,255,255,.04),transparent);transition:.2s;position:relative}
+.fx-card:hover{border-color:var(--bd-mid);transform:translateY(-2px)}
+.fx-card.plan{border-color:rgba(6,182,212,.45);
+  background:linear-gradient(155deg,rgba(6,182,212,.16),transparent 70%);
+  box-shadow:0 0 0 1px rgba(6,182,212,.1),0 8px 26px rgba(6,182,212,.1)}
+.fx-head{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.fx-role{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.fx-card.plan .fx-role{color:var(--cyan-l)}
+.fx-val{font-family:var(--fm);font-size:27px;font-weight:750;letter-spacing:-.03em;line-height:1.05;
+  display:flex;align-items:baseline;gap:7px}
+.fx-val .cur{font-size:12px;font-weight:600;color:var(--t4);letter-spacing:0}
+.fx-meta{font-size:11px;color:var(--t4);margin-top:9px;line-height:1.55}
+.fx-trend{font-family:var(--fm);font-size:11px;font-weight:700;padding:2px 7px;border-radius:var(--rp);
+  margin-left:auto}
+.fx-trend.up{color:#fca5a5;background:rgba(244,63,94,.15)}
+.fx-trend.dn{color:#6ee7b7;background:rgba(16,185,129,.15)}
+
+/* ══ tabela ══ */
+.tw{overflow-x:auto;margin:0 calc(-1 * var(--s4));padding:0 var(--s4)}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:880px}
+th{text-align:left;font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--t4);padding:10px;border-bottom:1px solid var(--bd-soft);white-space:nowrap;
+  position:sticky;top:57px;background:#1c2040;z-index:5}
+td{padding:10px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+tbody tr{transition:background .13s}
+tbody tr:hover{background:rgba(255,255,255,.03)}
+tr.click{cursor:pointer}
+tr.click:hover{background:rgba(6,182,212,.09);box-shadow:inset 3px 0 0 var(--cyan)}
+tr.off td{opacity:.3}
+tr.grp td{background:rgba(255,255,255,.035);font-size:9.5px;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--t2);padding:11px 10px}
+tr.grp.nre td{border-left:3px solid var(--violet)}
+tr.grp.cogs td{border-left:3px solid var(--cyan)}
+tr.tot td{font-weight:750;border-top:1px solid var(--bd-soft);border-bottom:0;background:rgba(255,255,255,.04)}
+.num{text-align:right;font-family:var(--fm);white-space:nowrap;font-size:12.5px;font-variant-numeric:tabular-nums}
+.muted{color:var(--t4)}
+td .desc{font-size:10.5px;color:var(--t4);margin-top:2px;line-height:1.4}
+.rowact{display:flex;gap:4px;justify-content:flex-end;opacity:0;transition:.15s}
+tr:hover .rowact{opacity:1}
+.ib{background:transparent;border:1px solid transparent;border-radius:6px;color:var(--t3);
+  cursor:pointer;font-size:12px;padding:3px 7px;transition:.14s;line-height:1.4}
+.ib:hover{background:var(--bg-elev);color:var(--cyan-l);border-color:var(--bd-soft)}
+.ib.d:hover{color:#fda4af;border-color:rgba(244,63,94,.4);background:rgba(244,63,94,.12)}
+
+/* ══ selos ══ */
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:750;letter-spacing:.05em;
+  text-transform:uppercase;padding:3px 9px;border-radius:var(--rp);white-space:nowrap;border:1px solid}
+.tag.nre{color:#c4b5fd;border-color:rgba(139,92,246,.42);background:rgba(139,92,246,.14)}
+.tag.cogs{color:var(--cyan-l);border-color:rgba(6,182,212,.42);background:rgba(6,182,212,.14)}
+.tag.alta{color:#6ee7b7;border-color:rgba(16,185,129,.42);background:rgba(16,185,129,.13)}
+.tag.media{color:#fcd34d;border-color:rgba(245,158,11,.42);background:rgba(245,158,11,.13)}
+.tag.baixa{color:#fda4af;border-color:rgba(244,63,94,.42);background:rgba(244,63,94,.13)}
+.tag.vigente{color:#6ee7b7;border-color:rgba(16,185,129,.42);background:rgba(16,185,129,.13)}
+.tag.rascunho{color:#fcd34d;border-color:rgba(245,158,11,.42);background:rgba(245,158,11,.13)}
+.tag.oem{color:#f9a8d4;border-color:rgba(236,72,153,.42);background:rgba(236,72,153,.13)}
+.tag.revenda{color:#93c5fd;border-color:rgba(59,130,246,.42);background:rgba(59,130,246,.13)}
+.tag.neutro{color:var(--t3);border-color:var(--bd-soft);background:rgba(255,255,255,.05)}
+.tag.lg{font-size:10.5px;padding:5px 12px}
+
+/* ══ switch ══ */
+.sw{position:relative;display:inline-block;width:34px;height:19px;flex:none}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:rgba(255,255,255,.13);border-radius:999px;
+  cursor:pointer;transition:.2s}
+.sw span::before{content:"";position:absolute;height:14px;width:14px;left:2.5px;top:2.5px;
+  background:var(--t2);border-radius:50%;transition:.2s}
+.sw input:checked + span{background:var(--cyan-b)}
+.sw input:checked + span::before{transform:translateX(15px);background:#fff}
+.sw input:focus-visible + span{box-shadow:0 0 0 3px rgba(34,211,238,.28)}
+
+/* ══ alertas ══ */
+.alert{display:flex;gap:12px;align-items:flex-start;padding:13px 15px;border-radius:var(--r);
+  border:1px solid;font-size:12.5px;line-height:1.6;margin-bottom:9px}
+.alert b{display:block;margin-bottom:2px;font-weight:700}
+.alert.warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.075);color:#fde68a}
+.alert.bad{border-color:rgba(244,63,94,.35);background:rgba(244,63,94,.075);color:#fecdd3}
+.alert.ok{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.075);color:#a7f3d0}
+.alert.info{border-color:var(--bd-soft);background:rgba(34,211,238,.055);color:var(--t2)}
+.alert .ic{font-size:15px;flex:none;line-height:1.4}
+.alert .go{margin-left:auto;font-size:11px;font-weight:750;color:inherit;opacity:.7;
+  cursor:pointer;text-decoration:underline;white-space:nowrap;flex:none;align-self:center}
+.alert .go:hover{opacity:1}
+
+/* ══ inputs ══ */
+.ctl{display:flex;flex-direction:column;gap:5px}
+.ctl label{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--t4)}
+.ctl input,.ctl select,.ctl textarea{
+  background:rgba(0,0,0,.24);border:1px solid var(--bd-soft);border-radius:9px;color:var(--t1);
+  font-family:var(--fm);font-size:13.5px;font-weight:600;padding:9px 11px;width:100%;transition:.15s}
+.ctl textarea{font-family:var(--f);font-weight:400;resize:vertical;min-height:62px;line-height:1.5}
+.ctl select{font-family:var(--f);cursor:pointer}
+.ctl input:focus,.ctl select:focus,.ctl textarea:focus{outline:none;border-color:var(--bd-hi);
+  box-shadow:0 0 0 3px rgba(34,211,238,.14);background:rgba(0,0,0,.34)}
+.ctl .hint{font-size:10px;color:var(--t4);line-height:1.45}
+input.aliq{width:58px;background:rgba(0,0,0,.28);border:1px solid var(--bd-soft);border-radius:6px;
+  color:var(--cyan-l);font-family:var(--fm);font-size:12.5px;font-weight:700;padding:3px 6px;text-align:right}
+input.aliq:focus{outline:none;border-color:var(--bd-hi);box-shadow:0 0 0 2px rgba(34,211,238,.16)}
+
+/* ══ identidade ══ */
+.ident{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:var(--s3) 24px}
+.ident dt{font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--t4);margin-bottom:4px}
+.ident dd{font-size:13.5px;font-weight:600}
+.ident dd.mono{font-family:var(--fm);font-size:12.5px}
+
+/* ══ barras ══ */
+.bars{display:flex;flex-direction:column;gap:var(--s2)}
+.bar-row{display:grid;grid-template-columns:210px 1fr 132px;gap:var(--s3);align-items:center;font-size:12.5px}
+.bar-track{height:26px;background:rgba(0,0,0,.26);border-radius:7px;overflow:hidden;display:flex}
+.bar-fill{height:100%;transition:width .45s cubic-bezier(.4,0,.2,1)}
+.lg{display:flex;gap:var(--s4);flex-wrap:wrap;font-size:11px;color:var(--t3);margin-top:var(--s3)}
+.lg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* ══ waterfall ══ */
+.wf{display:flex;flex-direction:column;gap:6px}
+.wf-row{display:grid;grid-template-columns:200px 1fr 132px;gap:var(--s3);align-items:center;font-size:12.5px}
+.wf-track{height:24px;position:relative;background:rgba(0,0,0,.2);border-radius:6px}
+.wf-zero{position:absolute;top:0;bottom:0;width:1px;background:var(--bd-mid)}
+.wf-bar{position:absolute;top:4px;bottom:4px;border-radius:4px;transition:.4s cubic-bezier(.4,0,.2,1)}
+.wf-row.base{font-weight:750;border-top:1px solid var(--bd-soft);padding-top:9px;margin-top:5px}
+.pos{color:#fca5a5}.neg{color:#6ee7b7}
+
+/* ══ série ══ */
+.spark{width:100%;height:172px;display:block}
+.spark .ln{fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.spark .gl{stroke:rgba(255,255,255,.06);stroke-width:1}
+.spark text{font-family:var(--fm);font-size:9.5px;fill:var(--t4)}
+.spark .plan{stroke:var(--amber);stroke-width:1.5;stroke-dasharray:5 4}
+
+/* ══ modal ══ */
+.ov{position:fixed;inset:0;background:rgba(9,11,26,.76);backdrop-filter:blur(5px);
+  display:none;align-items:flex-start;justify-content:center;z-index:100;padding:40px 20px;overflow:auto}
+.ov.on{display:flex}
+.modal{background:linear-gradient(168deg,#232848,#1b1f3d);border:1px solid var(--bd-soft);
+  border-radius:var(--r3);width:100%;max-width:660px;box-shadow:var(--sh-l);
+  animation:pop .2s cubic-bezier(.2,.9,.3,1)}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+.modal header{display:flex;align-items:center;gap:var(--s3);padding:var(--s4) var(--s4) var(--s3);
+  border-bottom:1px solid var(--bd-dim)}
+.modal header h3{font-size:16px;font-weight:700;letter-spacing:-.015em;flex:1}
+.modal .body{padding:var(--s4);display:grid;gap:var(--s3);
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.modal .body .full{grid-column:1/-1}
+.modal footer{display:flex;gap:var(--s2);padding:var(--s3) var(--s4) var(--s4);justify-content:flex-end;
+  border-top:1px solid var(--bd-dim)}
+.x{background:transparent;border:0;color:var(--t3);font-size:20px;cursor:pointer;line-height:1;
+  padding:4px 8px;border-radius:7px;transition:.14s}
+.x:hover{background:var(--bg-elev);color:var(--t1)}
+
+/* ══ toast ══ */
+.toast{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column;gap:9px}
+.tst{background:linear-gradient(150deg,#252b4f,#1c2142);border:1px solid var(--bd-mid);
+  border-radius:var(--r);padding:12px 17px;font-size:12.5px;color:var(--t1);box-shadow:var(--sh-l);
+  display:flex;align-items:center;gap:10px;animation:sl .25s cubic-bezier(.2,.9,.3,1);max-width:380px}
+@keyframes sl{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:none}}
+.tst .i{font-size:15px}
+.tst.ok{border-color:rgba(16,185,129,.45)}
+.tst.ok .i{color:var(--green)}
+
+/* ══ saúde ══ */
+.hstrip{display:flex;align-items:center;gap:var(--s4);padding:var(--s3) var(--s4);
+  cursor:pointer;transition:.2s}
+.hstrip:hover{border-color:var(--bd-soft);transform:translateY(-1px)}
+.ring{width:54px;height:54px;flex:none}
+.ring .bg{fill:none;stroke:rgba(255,255,255,.08);stroke-width:5}
+.ring .fg{fill:none;stroke-width:5;stroke-linecap:round;transform:rotate(-90deg);
+  transform-origin:50% 50%;transition:stroke-dasharray .6s cubic-bezier(.4,0,.2,1)}
+.ring text{font-family:var(--fm);font-size:15px;font-weight:750;text-anchor:middle;fill:var(--t1)}
+.hs-b{flex:1;min-width:0}
+.hs-t{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--t4);margin-bottom:7px}
+.hs-p{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--t2);
+  background:rgba(255,255,255,.045);border:1px solid var(--bd-dim);border-radius:var(--rp);padding:3px 11px}
+.pill i{width:7px;height:7px;border-radius:50%;flex:none}
+.hs-go{font-size:12px;font-weight:700;color:var(--cyan-l);white-space:nowrap;flex:none}
+.chk{display:flex;align-items:center;gap:12px;padding:12px 15px;border-radius:var(--r);
+  border:1px solid var(--bd-dim);background:var(--bg-surface);margin-bottom:6px;transition:.15s}
+.chk:hover{border-color:var(--bd-soft)}
+.chk > .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.chk .tx{flex:1;min-width:0}
+.chk .tx b{font-size:13px;font-weight:650;display:block;line-height:1.4}
+.chk .tx span{font-size:11.5px;color:var(--t3);line-height:1.55}
+.chk .qt{font-family:var(--fm);font-size:12px;font-weight:700;color:var(--t3);flex:none;
+  background:rgba(255,255,255,.05);border-radius:var(--rp);padding:2px 9px}
+.chk .act{font-size:11px;font-weight:700;color:var(--cyan-l);cursor:pointer;white-space:nowrap;
+  flex:none;text-decoration:underline;opacity:.8}
+.chk .act:hover{opacity:1}
+.chk.ok{opacity:.55;background:transparent}
+.chk.ok:hover{opacity:.85}
+.sgrp{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--t4);margin:var(--s4) 0 var(--s2);display:flex;align-items:center;gap:9px}
+.sgrp:first-child{margin-top:0}
+.sgrp::after{content:"";flex:1;height:1px;background:var(--bd-dim)}
+
+/* ══ automações ══ */
+.auto{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+.acard{border:1px solid var(--bd-dim);border-radius:var(--r2);padding:var(--s4);
+  background:var(--bg-surface);position:relative;transition:.2s;display:flex;flex-direction:column;gap:9px}
+.acard:hover{border-color:var(--bd-soft);transform:translateY(-2px);box-shadow:var(--sh)}
+.acard .h{display:flex;align-items:flex-start;gap:11px}
+.acard .n{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;
+  font-family:var(--fm);font-size:12px;font-weight:750;background:rgba(255,255,255,.06);color:var(--t3)}
+.acard.j .n{background:rgba(16,185,129,.16);color:#6ee7b7}
+.acard.m .n{background:rgba(245,158,11,.16);color:#fcd34d}
+.acard.d .n{background:rgba(139,92,246,.16);color:#c4b5fd}
+.acard h4{font-size:14px;font-weight:700;letter-spacing:-.012em;line-height:1.35}
+.acard p{font-size:12.5px;color:var(--t3);line-height:1.6}
+.acard .kv{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:auto;padding-top:var(--s2);
+  border-top:1px solid rgba(255,255,255,.05)}
+.acard .kv div{font-size:10.5px}
+.acard .kv b{display:block;font-size:8.5px;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--t4);margin-bottom:2px}
+.acard code{font-family:var(--fm);font-size:11px;color:var(--cyan-l);background:rgba(0,0,0,.3);
+  padding:1px 5px;border-radius:4px}
+
+.fn{font-size:11px;color:var(--t4);line-height:1.65;margin-top:var(--s3);
+  border-top:1px solid var(--bd-dim);padding-top:var(--s3)}
+.fn code{font-family:var(--fm);font-size:10.5px;color:var(--t3);background:rgba(0,0,0,.28);
+  padding:1px 5px;border-radius:4px}
+.page{display:none}.page.on{display:block;animation:fi .22s ease}
+@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.ver{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.ver:last-child{border:0}
+.ver .n{font-family:var(--fm);font-size:10.5px;font-weight:750;color:var(--cyan-l);
+  border:1px solid var(--bd-soft);border-radius:7px;padding:3px 9px;flex:none}
+.ver .b{font-size:12.5px;font-weight:600}
+.ver .m{font-size:11px;color:var(--t4);margin-top:3px;line-height:1.55}
+
+@media(max-width:1040px){
+  body{flex-direction:column}
+  aside{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center}
+  .brand,.who{border-bottom:0;border-right:1px solid var(--bd-dim)}
+  nav{display:flex;flex-wrap:wrap;padding:8px;flex:1 1 100%;border-top:1px solid var(--bd-dim)}
+  nav .grp,.side-foot{display:none}
+  th{position:static}
+  .bar-row,.wf-row{grid-template-columns:120px 1fr 104px;font-size:11.5px}
+  .content{padding:var(--s3) var(--s3) 70px}
+}
+
+/* ══ impressão ══ */
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body{background:#fff;color:#111;display:block;font-size:10pt}
+  aside,.topbar,.tb-act,.toast,.ov,.rowact,.sw,.ib,nav{display:none !important}
+  .content{padding:0;max-width:none}
+  .page{display:none !important}
+  .page.on{display:block !important}
+  .card,.hero,.kpi,.acard,.fx-card{background:#fff !important;border:1px solid #ccc !important;
+    box-shadow:none !important;color:#111 !important;break-inside:avoid}
+  .card > h2{color:#0b6b7d !important}
+  .card > h2 + .sub,.fn,.kpi .foot,.acard p,td .desc{color:#555 !important}
+  .hero h1{color:#111 !important}
+  .kpi .val,.fx-val,.num,.ident dd{color:#111 !important}
+  .kpi .lbl,.ident dt,th{color:#666 !important}
+  th{background:#eee !important;position:static}
+  td{border-bottom:1px solid #ddd !important}
+  .tag{color:#333 !important;border-color:#999 !important;background:#f2f2f2 !important}
+  .pos{color:#b00 !important}.neg{color:#070 !important}
+  table{min-width:0;font-size:8.5pt}
+  .print-only{display:block !important}
+}
+.print-only{display:none}
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <span class="dot">₵</span>
+    <span><b>Custos</b><small>P&amp;D Equipamentos</small></span>
+  </div>
+  <div class="who">
+    <span class="av">MO</span>
+    <div><b>Melk Oliveira</b><span>gestor</span></div>
+  </div>
+  <nav>
+    <div class="grp">Módulo</div>
+    <a data-p="visao" class="on"><span class="ic">◈</span> Visão geral</a>
+    <a data-p="comps"><span class="ic">▤</span> Composições <span class="cnt" id="n-comps"></span></a>
+    <a data-p="comparativo"><span class="ic">⇄</span> Comparativo</a>
+    <a data-p="cotacoes"><span class="ic">◷</span> Cotações</a>
+    <a data-p="saude"><span class="ic">♥</span> Saúde <span class="cnt" id="n-saude"></span></a>
+    <div class="grp">Evolução</div>
+    <a data-p="auto"><span class="ic">⚙</span> Automações <span class="cnt" id="n-auto"></span></a>
+    <div class="grp">Navegação</div>
+    <a><span class="ic">←</span> Voltar aos módulos</a>
+  </nav>
+  <div class="side-foot">v0.1 · protótipo<br>invoice Allsheng · DI 07/2026</div>
+</aside>
+
+<main>
+  <div class="topbar">
+    <div class="crumb" id="crumb"><b>Visão geral</b></div>
+    <div class="tb-act" id="tb-act"></div>
+  </div>
+  <div class="content">
+
+    <!-- VISÃO GERAL -->
+    <section class="page on" id="p-visao">
+      <div class="print-only" style="margin-bottom:16px">
+        <h1 style="font-size:16pt">DocTrack · Custos — Visão geral</h1>
+        <div style="font-size:9pt;color:#555" id="pr-1"></div>
+      </div>
+      <div class="grid g4" id="v-kpis" style="margin-bottom:var(--s3)"></div>
+      <div class="card">
+        <h2>Câmbio de hoje <span class="r" id="fx-stamp"></span></h2>
+        <p class="sub">Cada composição orça na sua própria <b>taxa de planejamento</b>, travada na abertura.
+          A referência do Banco Central alerta desvio; a taxa realizada vem da DI no fechamento.</p>
+        <div class="fx" id="v-fx"></div>
+      </div>
+      <div class="card hstrip" id="v-saude" data-go="saude"></div>
+      <div class="card">
+        <h2>Composições vigentes</h2>
+        <div class="tw"><table>
+          <thead><tr><th>Composição</th><th>Tipo</th><th>Fornecedor</th><th class="num">Taxa plan.</th>
+            <th class="num">NRE</th><th class="num">COGS orçado</th><th class="num">COGS realizado</th>
+            <th class="num">Desvio</th><th class="num">Margem</th></tr></thead>
+          <tbody id="v-tab"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- COMPOSIÇÕES -->
+    <section class="page" id="p-comps">
+      <div class="card">
+        <h2>Composições de custo <span class="r">clique numa linha para abrir</span></h2>
+        <p class="sub"><b>OEM</b> tem custo de desenvolvimento (NRE) além da mercadoria;
+          <b>Revenda</b> só tem o custo aterrissado.</p>
+        <div class="tw"><table>
+          <thead><tr><th>Produto</th><th>SKU</th><th>Projeto</th><th>Tipo</th><th>Status</th>
+            <th class="num">Ver.</th><th class="num">Custo unit.</th><th class="num">Preço</th>
+            <th class="num">Margem</th></tr></thead>
+          <tbody id="c-tab"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- DETALHE -->
+    <section class="page" id="p-det">
+      <div class="hero" id="d-hero"></div>
+      <div class="card"><h2>Identidade</h2><dl class="ident" id="d-ident"></dl></div>
+      <div class="card">
+        <h2>Câmbio da composição</h2>
+        <div class="fx" id="d-fx"></div>
+        <div id="d-fx-alert" style="margin-top:var(--s3)"></div>
+      </div>
+      <div class="card"><h2>Parâmetros</h2><div class="grid g4" id="d-params"></div></div>
+      <div class="card">
+        <h2>Lançamentos
+          <span class="r"><button class="btn sm pri" id="b-novo">+ Novo lançamento</button></span></h2>
+        <p class="sub">Cada linha registra <b>natureza</b>, <b>procedência</b> e <b>confiança</b>, e congela
+          a taxa com que foi convertida. Passe o mouse na linha para editar ou excluir.</p>
+        <div class="tw"><table>
+          <thead><tr><th style="width:44px">Aplic.</th><th>Categoria / Subcategoria</th>
+            <th>Procedência</th><th>Confiança</th><th class="num">Base</th>
+            <th class="num">Orçado (R$)</th><th class="num">Realizado (R$)</th><th class="num">Δ</th>
+            <th style="width:72px"></th></tr></thead>
+          <tbody id="d-lanc"></tbody>
+        </table></div>
+      </div>
+      <div class="card"><h2>Resultado</h2><div class="grid g4" id="d-kpis"></div></div>
+      <div class="grid g2">
+        <div class="card" style="margin:0">
+          <h2>Orçado → realizado</h2>
+          <div class="wf" id="d-wf"></div>
+          <div class="lg"><span><i style="background:#f43f5e"></i>acima do orçado</span>
+            <span><i style="background:#10b981"></i>abaixo do orçado</span>
+            <span><i style="background:#8b5cf6"></i>total</span></div>
+        </div>
+        <div class="card" style="margin:0">
+          <h2>Versões</h2><div id="d-vers"></div>
+          <div class="fn">A v1 é o baseline: é contra ela que o realizado é medido. Alterar taxa de
+            planejamento, preço ou volume abre uma nova versão.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARATIVO -->
+    <section class="page" id="p-comparativo">
+      <div class="card">
+        <h2>Custo aterrissado por unidade</h2>
+        <p class="sub">Todas as composições na mesma escala, na taxa realizada de cada uma.</p>
+        <div class="bars" id="k-bars"></div>
+        <div class="lg"><span><i style="background:#06b6d4"></i>Mercadoria (FOB)</span>
+          <span><i style="background:#f59e0b"></i>Tributos de importação</span>
+          <span><i style="background:#8b5cf6"></i>Frete, Siscomex e despachante</span></div>
+      </div>
+      <div class="card">
+        <h2>Detalhamento</h2>
+        <div class="tw"><table>
+          <thead><tr><th>Produto</th><th>Tipo</th><th class="num">Qtd</th><th class="num">FOB (USD)</th>
+            <th class="num">Tributos</th><th class="num">Despesas</th><th class="num">NRE/un</th>
+            <th class="num">Custo unit.</th><th class="num">Preço</th><th class="num">Margem</th></tr></thead>
+          <tbody id="k-tab"></tbody>
+        </table></div>
+      </div>
+      <div class="card"><h2>Onde o dinheiro está — por categoria</h2><div class="bars" id="k-cat"></div></div>
+    </section>
+
+    <!-- COTAÇÕES -->
+    <section class="page" id="p-cotacoes">
+      <div class="card">
+        <h2>Série PTAX <span class="r" id="s-stamp"></span></h2>
+        <p class="sub">Buscada diariamente do Banco Central e guardada no banco — uma linha por moeda,
+          data e tipo. Serve de referência e de histórico; nunca substitui a taxa travada de uma composição.</p>
+        <svg class="spark" id="spark" viewBox="0 0 900 172" preserveAspectRatio="none"></svg>
+        <div class="lg" id="s-lg"></div>
+      </div>
+      <div class="card">
+        <h2>Registro de cotações</h2>
+        <div class="tw"><table>
+          <thead><tr><th>Data</th><th>Moeda</th><th>Tipo</th><th class="num">Valor</th>
+            <th>Fonte</th><th>Obtido em</th></tr></thead>
+          <tbody id="s-tab"></tbody>
+        </table></div>
+        <div class="fn" id="s-note"></div>
+      </div>
+    </section>
+
+    <!-- SAÚDE -->
+    <section class="page" id="p-saude">
+      <div class="card">
+        <h2>Saúde do módulo <span class="r" id="sd-stamp"></span></h2>
+        <p class="sub">Verificações contínuas sobre o que torna um custo confiável: câmbio dentro da
+          política, procedência registrada, esforço interno precificado e ciclo fechado contra a DI.</p>
+        <div class="grid g4" id="sd-kpis"></div>
+      </div>
+      <div class="card"><div id="sd-lista"></div>
+        <div class="fn">O índice pondera cada verificação pela gravidade — falha vale 3, aviso 2,
+          observação 1. Não é nota de qualidade do produto: é o quanto o número pode ser defendido
+          numa reunião.</div>
+      </div>
+    </section>
+
+    <!-- AUTOMAÇÕES -->
+    <section class="page" id="p-auto">
+      <div class="card">
+        <h2>O que dá para automatizar</h2>
+        <p class="sub">Levantado a partir do que o módulo faz à mão hoje e do que já existe pronto no
+          DocTrack. Ordenado por relação ganho/esforço.</p>
+        <div class="grid g4" style="margin-bottom:var(--s4)" id="a-kpis"></div>
+        <div class="auto" id="a-cards"></div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<div class="ov" id="ov"><div class="modal">
+  <header><h3 id="m-tit">Lançamento</h3><button class="x" id="m-x">×</button></header>
+  <div class="body" id="m-body"></div>
+  <footer>
+    <button class="btn dgr" id="m-del">Excluir</button>
+    <button class="btn gh" id="m-cancel">Cancelar</button>
+    <button class="btn pri" id="m-save">Salvar</button>
+  </footer>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ════════════════ bandeiras (SVG — emoji de bandeira não renderiza no Windows) ════════════════ */
+function flagUS(){
+  var s='';
+  for(var i=0;i<6;i++) s+='<rect y="'+(1.54+i*3.08).toFixed(2)+'" width="28" height="1.54" fill="#fff"/>';
+  var st='';
+  for(var r=0;r<4;r++) for(var c=0;c<5;c++)
+    st+='<circle cx="'+(1.3+c*2.15+(r%2?1.07:0)).toFixed(2)+'" cy="'+(1.5+r*2.6).toFixed(2)+'" r=".55" fill="#fff"/>';
+  return '<svg class="fl" viewBox="0 0 28 20"><rect width="28" height="20" fill="#b22234"/>'+s+
+    '<rect width="11.2" height="10.8" fill="#3c3b6e"/>'+st+'</svg>';
+}
+function flagEU(){
+  var st='';
+  for(var k=0;k<12;k++){
+    var a=k*Math.PI/6;
+    st+='<circle cx="'+(14+6*Math.sin(a)).toFixed(2)+'" cy="'+(10-6*Math.cos(a)).toFixed(2)+'" r=".95" fill="#fc0"/>';
+  }
+  return '<svg class="fl" viewBox="0 0 28 20"><rect width="28" height="20" fill="#039"/>'+st+'</svg>';
+}
+function flagBR(){
+  return '<svg class="fl" viewBox="0 0 28 20"><defs><clipPath id="brc">'+
+    '<circle cx="14" cy="10" r="4.5"/></clipPath></defs>'+
+    '<rect width="28" height="20" fill="#009b3a"/>'+
+    '<polygon points="14,2.6 25.4,10 14,17.4 2.6,10" fill="#fedf00"/>'+
+    '<circle cx="14" cy="10" r="4.5" fill="#002776"/>'+
+    '<path d="M8 9.2 A 7.5 7.5 0 0 1 20.4 11.4 L20.4 14 L8 14 Z" fill="#fff" clip-path="url(#brc)"/>'+
+    '<path d="M8 9.2 A 7.5 7.5 0 0 1 20.4 11.4" stroke="#fff" stroke-width="1.3" fill="none" clip-path="url(#brc)"/>'+
+    '</svg>';
+}
+var FLAG = {USD:flagUS(), EUR:flagEU(), BRL:flagBR()};
+var fl = function(m, cls){
+  return (FLAG[m]||'').replace('class="fl"','class="fl '+(cls||'')+'"');
+};
+
+/* ════════════════ dados: invoice Allsheng, DI 07/2026 ════════════════ */
+var COMPS = [
+{
+  id:'CC-2026-001', produto:'LMR Multimodal — Feyond A300', sku:'01.000422',
+  projeto:'Extracta Station 1600', fornecedor:'Allsheng', tipo:'OEM', incoterm:'FOB',
+  moeda:'USD', status:'vigente', versao:1, qtd:3, volume:10, preco:332800,
+  taxaPlan:6.0000, planData:'12/05/2026', planAutor:'M. Oliveira',
+  planJust:'Teto conservador aprovado para o ciclo 2026.',
+  taxaReal:5.4500, di:'26/0891234-5', diData:'08/07/2026',
+  hEng:0, cEng:0, hProd:0, cProd:0, reserva:10,
+  fob:13500, freteUSD:27.78, siscomexEst:18.41, despEst:4800,
+  aliq:{ii:16, ipi:0, pis:2.1, cofins:10.45, icms:18},
+  real:{frete:166.65, siscomex:18.41, ii:14332.14, ipi:0, pis:1504.87, cofins:7345.22, icms:12938.70, desp:4851.43},
+  nre:[
+    {cat:'Integração Local', sub:'Pintura', desc:'Pintura automotiva do protótipo',
+     tipo:'montante', moeda:'BRL', v:300, proc:'nf', conf:'alta', real:300, ap:true, obs:'Terceirizado'},
+    {cat:'Integração Local', sub:'Custo P&D equipamentos', desc:'Engenharia interna',
+     tipo:'horas', perfil:'eng', proc:'estimativa', conf:'baixa', ap:true},
+    {cat:'Integração Local', sub:'Peças mecânicas (protótipo)', desc:'Usinagem para customização local',
+     tipo:'horas', perfil:'prod', proc:'estimativa', conf:'baixa', ap:true},
+    {cat:'Parceiro OEM', sub:'Ferramental exclusivo', desc:'Moldes e ajustes físicos',
+     tipo:'montante', moeda:'USD', v:0, proc:null, conf:null, ap:false},
+    {cat:'Parceiro OEM', sub:'Licenciamento de uso', desc:'Taxas de uso da tecnologia do parceiro',
+     tipo:'montante', moeda:'USD', v:0, proc:null, conf:null, ap:false, obs:'Pode ser fixo ou por volume'},
+    {cat:'Regulatório', sub:'Ensaios laboratoriais', desc:'IEC 61010, 61326',
+     tipo:'montante', moeda:'BRL', v:0, proc:null, conf:null, ap:false},
+    {cat:'Comercial', sub:'Marketing e posicionamento', desc:'Landing page, folders',
+     tipo:'montante', moeda:'BRL', v:0, proc:null, conf:null, ap:false}
+  ]
+},
+{
+  id:'CC-2026-002', produto:'LMR-96I', sku:'01.000418', projeto:'— (revenda)',
+  fornecedor:'Allsheng', tipo:'Revenda', incoterm:'FOB', moeda:'USD', status:'vigente',
+  versao:1, qtd:10, volume:10, preco:null,
+  taxaPlan:6.0000, planData:'12/05/2026', planAutor:'M. Oliveira',
+  planJust:'Mesma política de câmbio da importação conjunta.',
+  taxaReal:5.4500, di:'26/0891234-5', diData:'08/07/2026',
+  hEng:0, cEng:0, hProd:0, cProd:0, reserva:10,
+  fob:1995, freteUSD:4.10, siscomexEst:2.72, despEst:700,
+  aliq:{ii:16, ipi:0, pis:2.1, cofins:10.45, icms:18},
+  real:{frete:24.63, siscomex:2.72, ii:2117.97, ipi:0, pis:222.39, cofins:1085.46, icms:1912.05, desp:716.93},
+  nre:[]
+},
+{
+  id:'CC-2026-003', produto:'LMR-96 (lote B)', sku:'01.000404', projeto:'— (revenda)',
+  fornecedor:'Allsheng', tipo:'Revenda', incoterm:'FOB', moeda:'USD', status:'vigente',
+  versao:1, qtd:15, volume:15, preco:null,
+  taxaPlan:6.0000, planData:'12/05/2026', planAutor:'M. Oliveira',
+  planJust:'Mesma política de câmbio da importação conjunta.',
+  taxaReal:5.4500, di:'26/0891234-5', diData:'08/07/2026',
+  hEng:0, cEng:0, hProd:0, cProd:0, reserva:10,
+  fob:1785, freteUSD:3.67, siscomexEst:2.43, despEst:620,
+  aliq:{ii:16, ipi:0, pis:2.1, cofins:10.45, icms:18},
+  real:{frete:22.04, siscomex:2.43, ii:1895.03, ipi:0, pis:198.98, cofins:971.20, icms:1710.78, desp:641.47},
+  nre:[]
+},
+{
+  id:'CC-2026-004', produto:'LMR-96 (lote A)', sku:'01.000404', projeto:'— (revenda)',
+  fornecedor:'Allsheng', tipo:'Revenda', incoterm:'FOB', moeda:'USD', status:'rascunho',
+  versao:1, qtd:5, volume:5, preco:null,
+  taxaPlan:6.0000, planData:'12/05/2026', planAutor:'M. Oliveira',
+  planJust:'Mesma política de câmbio da importação conjunta.',
+  taxaReal:5.4500, di:'26/0891234-5', diData:'08/07/2026',
+  hEng:0, cEng:0, hProd:0, cProd:0, reserva:10,
+  fob:1785, freteUSD:3.67, siscomexEst:2.43, despEst:620,
+  aliq:{ii:16, ipi:0, pis:2.1, cofins:10.45, icms:18},
+  real:{frete:22.04, siscomex:2.43, ii:1895.03, ipi:0, pis:198.98, cofins:971.20, icms:1710.78, desp:641.47},
+  nre:[]
+}
+];
+
+function cogsDe(c){
+  var t = function(k, sub, desc){
+    return {cat:'Logística e Tributos', sub:sub, desc:desc, tipo:'percentual',
+            aliqKey:k, proc:'di', conf:'alta', real:c.real[k], ap:true, fixo:true};
+  };
+  return [
+    {cat:'Parceiro OEM', sub:'Mercadoria (FOB unitário)', desc:'Preço unitário acordado com o fornecedor',
+     tipo:'fob', moeda:'USD', v:c.fob, proc:'cotacao', conf:'alta', fx:true, ap:true, fixo:true},
+    {cat:'Logística e Tributos', sub:'Frete internacional', desc:'Frete, seguro e transporte marítimo',
+     tipo:'montante', moeda:'USD', v:c.freteUSD, proc:'di', conf:'alta', real:c.real.frete, ap:true},
+    {cat:'Logística e Tributos', sub:'Taxa Siscomex', desc:'Registro da declaração de importação',
+     tipo:'montante', moeda:'BRL', v:c.siscomexEst, proc:'di', conf:'alta', real:c.real.siscomex, ap:true},
+    t('ii','II — Imposto de Importação','Sobre o valor aduaneiro'),
+    t('ipi','IPI','Sobre o valor aduaneiro + II'),
+    t('pis','PIS/Pasep — Importação','Contribuição sobre importação'),
+    t('cofins','Cofins — Importação','Contribuição sobre importação'),
+    t('icms','ICMS','Alíquota interna do estado'),
+    {cat:'Logística e Tributos', sub:'Despachante aduaneiro', desc:'Liberação alfandegária e armazenagem',
+     tipo:'montante', moeda:'BRL', v:c.despEst, proc:'cotacao', conf:'media', real:c.real.desp, ap:true},
+    {cat:'Logística e Tributos', sub:'Reserva cambial', desc:'Percentual sobre a exposição em moeda estrangeira',
+     tipo:'reserva', proc:'politica', conf:'media', real:null, ap:true, fixo:true}
+  ];
+}
+COMPS.forEach(function(c){ c.cogs = cogsDe(c); });
+
+var CATS = ['Parceiro OEM','Integração Local','Regulatório','Logística e Tributos','Comercial'];
+var PROC = {estimativa:'estimativa', cotacao:'cotação forn.', invoice:'invoice',
+            di:'DI', nf:'nota fiscal', politica:'política'};
+var REF_USD = 5.1125, REF_EUR = 5.8496, REF_DATA = null, REF_PREV = null;
+
+/* ════════════════ util ════════════════ */
+var brl = function(v){ return v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+var pct = function(v){ return v==null?'—':(v*100).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%'; };
+var el  = function(id){ return document.getElementById(id); };
+var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(m){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]; }); };
+var hoje = function(){ var d=new Date();
+  return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); };
+var stamp = function(){ var d=new Date();
+  return d.getFullYear()+('0'+(d.getMonth()+1)).slice(-2)+('0'+d.getDate()).slice(-2); };
+
+function toast(msg, ic){
+  var t = document.createElement('div');
+  t.className = 'tst ok';
+  t.innerHTML = '<span class="i">'+(ic||'✓')+'</span><span>'+msg+'</span>';
+  el('toast').appendChild(t);
+  setTimeout(function(){ t.style.transition='opacity .3s,transform .3s';
+    t.style.opacity=0; t.style.transform='translateX(20px)';
+    setTimeout(function(){ t.remove(); }, 320); }, 3400);
+}
+
+/* ════════════════ cálculo ════════════════ */
+function orcado(l, c){
+  if(!l.ap) return 0;
+  var fobBRL = c.fob * c.taxaPlan;
+  switch(l.tipo){
+    case 'fob':        return fobBRL;
+    case 'montante':   return l.moeda==='BRL' ? (l.v||0) : (l.v||0) * c.taxaPlan;
+    case 'percentual': return (c.aliq[l.aliqKey]/100) * fobBRL;
+    case 'reserva':    return (c.reserva/100) * (c.fob + c.freteUSD) * c.taxaPlan;
+    case 'horas':      return l.perfil==='eng' ? c.hEng*c.cEng : c.hProd*c.cProd;
+  }
+  return 0;
+}
+function realiz(l, c){
+  if(l.fx) return c.fob * c.taxaReal;
+  return (l.real === undefined || l.real === null) ? null : l.real;
+}
+function calc(c){
+  var r = {c:c, nre:[], cogs:[], nreOrc:0, nreReal:0, cogsOrc:0, cogsReal:0};
+  (c.nre||[]).forEach(function(l){
+    var o=orcado(l,c), z=realiz(l,c);
+    r.nre.push({l:l,o:o,r:z}); r.nreOrc+=o; r.nreReal+=(z==null?o:z);
+  });
+  c.cogs.forEach(function(l){
+    var o=orcado(l,c), z=realiz(l,c);
+    r.cogs.push({l:l,o:o,r:z}); r.cogsOrc+=o; r.cogsReal+=z||0;
+  });
+  r.nreUnit = r.nreReal/Math.max(1,c.volume);
+  r.unit    = r.cogsReal + r.nreUnit;
+  r.margemR = c.preco ? c.preco - r.unit : null;
+  r.margemP = c.preco ? r.margemR/c.preco : null;
+  r.desvio  = r.cogsReal - r.cogsOrc;
+  r.payback = (r.margemR && r.margemR>0) ? r.nreReal/r.margemR : null;
+  r.expUSD  = c.fob + c.freteUSD;
+  r.fobBRL  = c.fob * c.taxaReal;
+  r.trib    = c.real.ii+c.real.ipi+c.real.pis+c.real.cofins+c.real.icms;
+  r.desp    = c.real.frete+c.real.siscomex+c.real.desp;
+  return r;
+}
+var ALL = function(){ return COMPS.map(calc); };
+
+/* ════════════════ câmbio: cartões ════════════════ */
+function fxCard(o){
+  var tr = '';
+  if(o.trend != null && Math.abs(o.trend) > 1e-6)
+    tr = '<span class="fx-trend '+(o.trend>0?'up':'dn')+'">'+(o.trend>0?'▲':'▼')+' '+
+         pct(Math.abs(o.trend))+'</span>';
+  return '<div class="fx-card'+(o.plan?' plan':'')+'">'+
+    '<div class="fx-head">'+fl(o.moeda)+'<span class="fx-role">'+o.role+'</span>'+
+      (o.plan?'<span class="tag cogs" style="margin-left:auto">orça</span>':tr)+'</div>'+
+    '<div class="fx-val">'+o.val.toFixed(4)+'<span class="cur">'+o.moeda+' → BRL</span></div>'+
+    '<div class="fx-meta">'+o.meta+'</div></div>';
+}
+
+/* ════════════════ visão geral ════════════════ */
+function renderVisao(){
+  var rs = ALL(), vig = rs.filter(function(r){return r.c.status==='vigente';});
+  var soma = vig.reduce(function(a,r){return a+r.unit;},0);
+  var desv = vig.reduce(function(a,r){return a+r.desvio/(r.cogsOrc||1);},0)/(vig.length||1);
+  var nreT = rs.reduce(function(a,r){return a+r.nreReal;},0);
+
+  el('v-kpis').innerHTML = [
+    {c:'', l:'Composições vigentes', v:vig.length+' de '+rs.length,
+     f:rs.filter(function(r){return r.c.status==='rascunho';}).length+' em rascunho'},
+    {c:'cogs', l:'Custo aterrissado — soma', v:'R$ '+brl(soma), f:'por unidade, todas as vigentes'},
+    {c:'nre', l:'NRE registrado no portfólio', v:'R$ '+brl(nreT),
+     f: nreT<1000 ? 'horas internas ainda não precificadas' : 'custo de desenvolvimento'},
+    {c: desv<0?'good':'bad', l:'Desvio médio orçado → realizado', v:(desv>0?'+':'')+pct(desv),
+     f: desv<0?'o portfólio fechou abaixo do orçado':'acima do orçado'}
+  ].map(function(k){
+    return '<div class="kpi '+k.c+'"><span class="lbl">'+k.l+'</span><div class="val">'+k.v+
+      '</div><div class="foot">'+k.f+'</div></div>';
+  }).join('');
+
+  var mAte = REF_DATA
+    ? '<span style="color:var(--green)">● ao vivo</span> · PTAX venda de '+REF_DATA+' · Banco Central'
+    : '<span style="color:var(--amber)">● sem conexão</span> · último valor conhecido';
+  el('v-fx').innerHTML =
+    fxCard({moeda:'USD', role:'Referência · PTAX', val:REF_USD, meta:mAte,
+            trend: REF_PREV ? (REF_USD-REF_PREV)/REF_PREV : null}) +
+    fxCard({moeda:'EUR', role:'Referência · PTAX', val:REF_EUR, meta:mAte}) +
+    fxCard({moeda:'USD', role:'Planejamento em uso', val:6.0000, plan:true,
+            meta:'Travada em 12/05/2026 por M. Oliveira<br>4 composições orçam nesta taxa'}) +
+    fxCard({moeda:'BRL', role:'Realizada · DI 26/0891234-5', val:5.4500,
+            meta:'Fechamento de 08/07/2026<br>Aplicada à mercadoria no realizado'});
+  el('fx-stamp').textContent = REF_DATA ? 'atualizado em '+REF_DATA : 'valores em cache';
+
+  renderStrip();
+
+  el('v-tab').innerHTML = vig.map(function(r){
+    return '<tr class="click" data-id="'+r.c.id+'">'+
+      '<td><div style="font-weight:650">'+esc(r.c.produto)+'</div><div class="desc">'+r.c.id+' · '+esc(r.c.projeto)+'</div></td>'+
+      '<td><span class="tag '+r.c.tipo.toLowerCase()+'">'+r.c.tipo+'</span></td>'+
+      '<td>'+esc(r.c.fornecedor)+'</td>'+
+      '<td class="num">'+r.c.taxaPlan.toFixed(4)+'</td>'+
+      '<td class="num">'+(r.nreReal?brl(r.nreReal):'<span class="muted">—</span>')+'</td>'+
+      '<td class="num">'+brl(r.cogsOrc)+'</td>'+
+      '<td class="num" style="color:var(--cyan-l);font-weight:700">'+brl(r.cogsReal)+'</td>'+
+      '<td class="num '+(r.desvio>0?'pos':'neg')+'">'+(r.desvio>0?'+':'')+brl(r.desvio)+'</td>'+
+      '<td class="num" style="font-weight:650;color:'+(r.margemP?'var(--green)':'var(--t4)')+'">'+
+        (r.margemP?pct(r.margemP):'<span class="tag media">sem preço</span>')+'</td></tr>';
+  }).join('');
+  el('pr-1').textContent = 'Emitido em '+hoje()+' · '+vig.length+' composições vigentes';
+}
+
+/* ════════════════ saúde ════════════════ */
+var SEV = {falha:{p:3,c:'#f43f5e',n:'falha'}, aviso:{p:2,c:'#f59e0b',n:'aviso'},
+           obs:{p:1,c:'#8f9dd6',n:'observação'}};
+
+function checks(){
+  var rs = ALL(), k = [];
+  /* frac = proporção do que passa. Crédito proporcional em vez de tudo-ou-nada:
+     "3 de 4 sem preço" não pode pesar igual a "tudo quebrado". */
+  var add = function(id, sev, tit, qt, det, frac, go){
+    k.push({id:id, sev:sev, tit:tit, qt:qt, det:det, frac:frac, ok:!qt, go:go});
+  };
+  var raz = function(bons, total){ return total ? bons/total : 1; };
+
+  var fora = rs.filter(function(r){ return Math.abs((r.c.taxaPlan-REF_USD)/REF_USD) > .03; });
+  add('cambio','aviso','Câmbio dentro da política', fora.length,
+    fora.length ? fora.length+' de '+rs.length+' composições orçam a '+fora[0].c.taxaPlan.toFixed(4)+', '+
+      pct(Math.abs((fora[0].c.taxaPlan-REF_USD)/REF_USD))+' da PTAX. Folga é legítima como política — o aviso pede revisão a cada ciclo.'
+    : 'Todas as taxas travadas estão a menos de 3% da referência de mercado.',
+    raz(rs.length-fora.length, rs.length), 'cotacoes');
+
+  var semP = rs.filter(function(r){ return !r.c.preco; });
+  add('preco','aviso','Preço de venda cadastrado', semP.length,
+    semP.length ? semP.length+' de '+rs.length+' composições sem preço — ficam de fora do comparativo de rentabilidade.'
+                : 'Todas as composições têm preço de venda.',
+    raz(rs.length-semP.length, rs.length), 'comps');
+
+  var comHora = rs.filter(function(r){
+    return (r.c.nre||[]).some(function(l){ return l.ap && l.tipo==='horas'; });
+  });
+  var semH = comHora.filter(function(r){ return !r.c.cEng && !r.c.cProd; });
+  add('hora','falha','Esforço interno precificado', semH.length,
+    semH.length ? semH.length+' de '+comHora.length+' composições com lançamento por hora estão com custo/hora zerado — o esforço da equipe não entra no NRE.'
+                : 'Custo/hora definido em todas as composições que lançam horas.',
+    raz(comHora.length-semH.length, comHora.length), 'comps');
+
+  var bx = 0, semProc = 0, tot = 0;
+  rs.forEach(function(r){
+    r.nre.concat(r.cogs).forEach(function(x){
+      if(!x.l.ap) return;
+      tot++;
+      if(x.l.conf === 'baixa') bx++;
+      if(!x.l.proc) semProc++;
+    });
+  });
+  add('conf','obs','Confiança dos lançamentos', bx,
+    bx ? bx+' de '+tot+' lançamentos aplicáveis são estimativa de confiança baixa. Revisar antes de congelar a próxima versão.'
+       : 'Nenhum lançamento aplicável está em confiança baixa.',
+    raz(tot-bx, tot), 'comps');
+  add('proc','obs','Procedência registrada', semProc,
+    semProc ? semProc+' de '+tot+' lançamentos aplicáveis sem procedência — não dá para dizer de onde veio o número.'
+            : 'Todos os '+tot+' lançamentos aplicáveis têm procedência.',
+    raz(tot-semProc, tot), 'comps');
+
+  var semR = rs.filter(function(r){ return !r.cogs.some(function(x){ return x.r != null; }); });
+  add('realizado','aviso','Ciclo fechado contra a DI', semR.length,
+    semR.length ? semR.length+' de '+rs.length+' composições ainda sem realizado lançado — o desvio não pode ser medido.'
+                : 'Todas as composições têm realizado lançado.',
+    raz(rs.length-semR.length, rs.length), 'comps');
+
+  var rasc = rs.filter(function(r){ return r.c.status === 'rascunho'; });
+  add('rascunho','obs','Composições publicadas', rasc.length,
+    rasc.length ? rasc.length+' de '+rs.length+' composições em rascunho — não entram nos totais do portfólio.'
+                : 'Nenhuma composição pendente de publicação.',
+    raz(rs.length-rasc.length, rs.length), 'comps');
+
+  var sinc = REF_DATA === hoje();
+  add('cotacao','obs','Cotação sincronizada hoje', sinc?0:1,
+    sinc ? 'PTAX de '+REF_DATA+' já no banco.'
+         : (REF_DATA ? 'Última sincronização em '+REF_DATA+'. A PTAX publica em dia útil, no fim da tarde.'
+                     : 'Sem conexão com o Banco Central — o registro manual segue disponível.'),
+    sinc?1:0, 'cotacoes');
+
+  return k;
+}
+function score(k){
+  var t = k.reduce(function(a,x){ return a+SEV[x.sev].p; }, 0);
+  var g = k.reduce(function(a,x){ return a+SEV[x.sev].p*x.frac; }, 0);
+  return t ? Math.round(g/t*100) : 100;
+}
+function corScore(s){ return s>=85?'#10b981':(s>=60?'#f59e0b':'#f43f5e'); }
+function ringSvg(s){
+  var r=22, C=2*Math.PI*r, on=C*s/100;
+  return '<svg class="ring" viewBox="0 0 54 54"><circle class="bg" cx="27" cy="27" r="'+r+'"/>'+
+    '<circle class="fg" cx="27" cy="27" r="'+r+'" stroke="'+corScore(s)+
+    '" stroke-dasharray="'+on.toFixed(1)+' '+C.toFixed(1)+'"/>'+
+    '<text x="27" y="32.5">'+s+'</text></svg>';
+}
+function renderStrip(){
+  var k = checks(), s = score(k);
+  var n = function(sev){ return k.filter(function(x){ return !x.ok && x.sev===sev; }).length; };
+  var ok = k.filter(function(x){ return x.ok; }).length;
+  var pill = function(q, sev, lbl){
+    return q ? '<span class="pill"><i style="background:'+SEV[sev].c+'"></i>'+q+' '+lbl+'</span>' : '';
+  };
+  el('v-saude').innerHTML = ringSvg(s)+
+    '<div class="hs-b"><div class="hs-t">Saúde do módulo</div><div class="hs-p">'+
+      (pill(n('falha'),'falha',n('falha')===1?'falha':'falhas')+
+       pill(n('aviso'),'aviso',n('aviso')===1?'aviso':'avisos')+
+       pill(n('obs'),'obs',n('obs')===1?'observação':'observações') ||
+       '<span class="pill"><i style="background:#10b981"></i>tudo em ordem</span>')+
+      '<span class="pill"><i style="background:#10b981"></i>'+ok+' de '+k.length+' verificações ok</span>'+
+    '</div></div><span class="hs-go">ver detalhes →</span>';
+  el('n-saude').textContent = k.filter(function(x){ return !x.ok; }).length || '';
+}
+function renderSaude(){
+  var k = checks(), s = score(k);
+  var n = function(sev){ return k.filter(function(x){ return !x.ok && x.sev===sev; }).length; };
+  el('sd-kpis').innerHTML = [
+    {c:'', l:'Índice de saúde', v:s+'%',
+     f:s>=85?'número defensável':(s>=60?'revisar os avisos antes de apresentar':'há lacunas materiais')},
+    {c:n('falha')?'bad':'good', l:'Falhas', v:n('falha'), f:'comprometem o número'},
+    {c:n('aviso')?'':'good', l:'Avisos', v:n('aviso'), f:'pedem decisão ou cadastro'},
+    {c:'', l:'Observações', v:n('obs'), f:'melhoram a rastreabilidade'}
+  ].map(function(x){
+    return '<div class="kpi '+x.c+'"><span class="lbl">'+x.l+'</span><div class="val"'+
+      (x.l==='Índice de saúde'?' style="color:'+corScore(s)+'"':'')+'>'+x.v+
+      '</div><div class="foot">'+x.f+'</div></div>';
+  }).join('');
+  el('sd-stamp').textContent = 'avaliado em '+hoje();
+
+  var linha = function(x){
+    return '<div class="chk'+(x.ok?' ok':'')+'">'+
+      '<span class="dot" style="background:'+(x.ok?'#10b981':SEV[x.sev].c)+'"></span>'+
+      '<div class="tx"><b>'+x.tit+'</b><span>'+x.det+'</span></div>'+
+      (x.qt?'<span class="qt">'+x.qt+'</span>':'')+
+      (x.ok?'':'<span class="act" data-go="'+x.go+'">resolver →</span>')+'</div>';
+  };
+  var bloco = function(tit, arr){
+    return arr.length ? '<div class="sgrp">'+tit+'</div>'+arr.map(linha).join('') : '';
+  };
+  el('sd-lista').innerHTML =
+    bloco('Falhas', k.filter(function(x){return !x.ok && x.sev==='falha';})) +
+    bloco('Avisos', k.filter(function(x){return !x.ok && x.sev==='aviso';})) +
+    bloco('Observações', k.filter(function(x){return !x.ok && x.sev==='obs';})) +
+    bloco('Em ordem', k.filter(function(x){return x.ok;}));
+}
+
+/* ════════════════ lista ════════════════ */
+function renderLista(){
+  var rs = ALL();
+  el('n-comps').textContent = rs.length;
+  el('c-tab').innerHTML = rs.map(function(r){
+    return '<tr class="click" data-id="'+r.c.id+'">'+
+      '<td><div style="font-weight:650">'+esc(r.c.produto)+'</div>'+
+        '<div class="desc">'+esc(r.c.fornecedor)+' · '+r.c.incoterm+'</div></td>'+
+      '<td class="num muted">'+r.c.sku+'</td><td>'+esc(r.c.projeto)+'</td>'+
+      '<td><span class="tag '+r.c.tipo.toLowerCase()+'">'+r.c.tipo+'</span></td>'+
+      '<td><span class="tag '+r.c.status+'">'+r.c.status+'</span></td>'+
+      '<td class="num">v'+r.c.versao+'</td>'+
+      '<td class="num" style="font-weight:700;color:var(--cyan-l)">'+brl(r.unit)+'</td>'+
+      '<td class="num">'+(r.c.preco?brl(r.c.preco):'<span class="tag media">não cadastrado</span>')+'</td>'+
+      '<td class="num" style="font-weight:650;color:'+(r.margemP?'var(--green)':'var(--t4)')+'">'+
+        (r.margemP?pct(r.margemP):'—')+'</td></tr>';
+  }).join('');
+}
+
+/* ════════════════ detalhe ════════════════ */
+var ATUAL = COMPS[0];
+function renderDet(){
+  var c = ATUAL, r = calc(c);
+
+  el('d-hero').innerHTML =
+    '<h1>'+esc(c.produto)+'</h1>'+
+    '<div class="meta"><span>'+c.id+'</span><span>·</span><span>'+esc(c.projeto)+'</span>'+
+      '<span>·</span><span>'+esc(c.fornecedor)+'</span><span>·</span>'+
+      '<span style="display:inline-flex;align-items:center;gap:6px">'+fl(c.moeda,'sm')+c.incoterm+'</span></div>'+
+    '<div class="tags"><span class="tag lg '+c.tipo.toLowerCase()+'">'+c.tipo+'</span>'+
+      '<span class="tag lg '+c.status+'">'+c.status+'</span>'+
+      '<span class="tag lg neutro">v'+c.versao+'</span>'+
+      '<span class="tag lg neutro">SKU '+c.sku+'</span>'+
+      '<span class="tag lg neutro">DI '+c.di+'</span></div>';
+
+  el('d-ident').innerHTML = [
+    ['Composição', c.id, 1],['Produto', esc(c.produto)],['SKU', c.sku, 1],
+    ['Projeto', esc(c.projeto)],['Fornecedor', esc(c.fornecedor)],['Incoterm', c.incoterm],
+    ['Moeda base','<span style="display:inline-flex;align-items:center;gap:7px">'+fl(c.moeda,'sm')+c.moeda+'</span>'],
+    ['Qtd. na invoice', c.qtd+' un', 1],['DI', c.di+' · '+c.diData, 1],
+    ['Preço de venda', c.preco?'R$ '+brl(c.preco):'<span class="tag media">não cadastrado</span>', 1]
+  ].map(function(f){
+    return '<div><dt>'+f[0]+'</dt><dd'+(f[2]?' class="mono"':'')+'>'+f[1]+'</dd></div>';
+  }).join('');
+
+  el('d-fx').innerHTML =
+    fxCard({moeda:'USD', role:'Referência · PTAX', val:REF_USD,
+      meta:(REF_DATA?'<span style="color:var(--green)">● ao vivo</span> · '+REF_DATA
+                    :'<span style="color:var(--amber)">● sem conexão</span>')+
+           '<br>Nunca entra no cálculo — serve para alertar.',
+      trend: REF_PREV ? (REF_USD-REF_PREV)/REF_PREV : null}) +
+    fxCard({moeda:c.moeda, role:'Planejamento', val:c.taxaPlan, plan:true,
+      meta:'Travada em '+c.planData+' por '+c.planAutor+'<br><i>"'+esc(c.planJust)+'"</i>'}) +
+    fxCard({moeda:'BRL', role:'Realizada · taxa da DI', val:c.taxaReal,
+      meta:'DI '+c.di+' · '+c.diData+'<br>Fecha o ciclo contra o baseline.'});
+
+  var dif = (c.taxaPlan-REF_USD)/REF_USD;
+  el('d-fx-alert').innerHTML = Math.abs(dif) < .03
+    ? '<div class="alert ok"><span class="ic">✓</span><div><b>Dentro da política.</b>'+
+      'A taxa travada está a '+pct(Math.abs(dif))+' da referência de mercado.</div></div>'
+    : '<div class="alert warn"><span class="ic">⚠</span><div><b>Taxa travada '+pct(Math.abs(dif))+' '+
+      (dif>0?'acima':'abaixo')+' da referência.</b>'+
+      (dif>0?'A folga embutida protege contra alta do dólar e aparece como economia no fechamento.'
+            :'Sem folga: qualquer alta do dólar consome a reserva cambial.')+'</div></div>';
+
+  el('d-params').innerHTML = [
+    ['p-heng','Horas de engenharia',c.hEng,10,'P&D, integração, validação'],
+    ['p-ceng','Custo hora engenharia',c.cEng,5,'R$/h'],
+    ['p-hprod','Horas de produção',c.hProd,10,'peças, montagem'],
+    ['p-cprod','Custo hora produção',c.cProd,5,'R$/h'],
+    ['p-vol','Volume projetado',c.volume,1,'unidades · amortiza o NRE'],
+    ['p-res','Reserva cambial',c.reserva,1,'% sobre exposição em moeda estrangeira']
+  ].map(function(f){
+    return '<div class="ctl"><label>'+f[1]+'</label><input id="'+f[0]+'" type="number" step="'+f[3]+
+      '" value="'+f[2]+'"><span class="hint">'+f[4]+'</span></div>';
+  }).join('');
+  var bind = {'p-heng':'hEng','p-ceng':'cEng','p-hprod':'hProd','p-cprod':'cProd','p-vol':'volume','p-res':'reserva'};
+  Object.keys(bind).forEach(function(id){
+    el(id).addEventListener('input', function(){
+      ATUAL[bind[id]] = parseFloat(this.value)||0;
+      var f = this.id, pos = this.selectionStart;
+      redraw();
+      var n = el(f); if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(e){} }
+    });
+  });
+
+  var html = '';
+  if(r.nre.length){
+    html += '<tr class="grp nre"><td colspan="9">NRE · custo não recorrente do projeto — amortiza sobre o volume</td></tr>';
+    r.nre.forEach(function(x,i){ html += linha(x,c,'nre',i); });
+    html += totRow('Total NRE (projeto)', r.nreOrc, r.nreReal, null);
+  } else {
+    html += '<tr class="grp nre"><td colspan="9">NRE · sem lançamentos — produto de revenda</td></tr>';
+  }
+  html += '<tr class="grp cogs"><td colspan="9">COGS · custo recorrente por unidade — não amortiza</td></tr>';
+  r.cogs.forEach(function(x,i){ html += linha(x,c,'cogs',i); });
+  html += totRow('Total COGS (por unidade)', r.cogsOrc, r.cogsReal, r.desvio);
+  el('d-lanc').innerHTML = html;
+
+  el('d-kpis').innerHTML = [
+    {c:'nre', l:'NRE — desenvolvimento', v:'R$ '+brl(r.nreReal),
+     f: c.tipo==='Revenda' ? 'revenda não tem desenvolvimento'
+        : (r.nreReal<=300?'horas internas ainda a R$ 0':'R$ '+brl(r.nreUnit)+'/un em '+c.volume+' unidades')},
+    {c:'cogs', l:'COGS orçado — por unidade', v:'R$ '+brl(r.cogsOrc), f:'à taxa travada de '+c.taxaPlan.toFixed(4)},
+    {c:'cogs', l:'COGS realizado — por unidade', v:'R$ '+brl(r.cogsReal), f:'à taxa da DI de '+c.taxaReal.toFixed(4)},
+    {c:'', l:'Custo unitário total', v:'R$ '+brl(r.unit), f:'COGS realizado + NRE amortizado'},
+    {c:'good', l:'Margem bruta unitária', v:r.margemR!=null?'R$ '+brl(r.margemR):'—',
+     f:r.margemP!=null?pct(r.margemP)+' sobre R$ '+brl(c.preco):'preço de venda não cadastrado'},
+    {c:'', l:'Payback do desenvolvimento', v:r.payback==null?'—':(r.payback<1?'< 1 unidade':r.payback.toFixed(1)+' unidades'),
+     f:'NRE ÷ margem de contribuição'},
+    {c:r.desvio<0?'good':'bad', l:'Desvio orçado → realizado', v:(r.desvio>0?'+':'')+'R$ '+brl(r.desvio),
+     f:(r.desvio>0?'acima':'abaixo')+' do orçado · '+pct(Math.abs(r.desvio)/(r.cogsOrc||1))},
+    {c:'', l:'Exposição cambial', v:'USD '+brl(r.expUSD), f:'mercadoria + frete · base da reserva'}
+  ].map(function(k){
+    return '<div class="kpi '+k.c+'"><span class="lbl">'+k.l+'</span><div class="val">'+k.v+
+      '</div><div class="foot">'+k.f+'</div></div>';
+  }).join('');
+
+  renderWf(r);
+  el('d-vers').innerHTML =
+    '<div class="ver"><span class="n">v1</span><div><div class="b">Baseline de abertura</div>'+
+      '<div class="m">'+c.planData+' · '+c.planAutor+' — taxa travada em '+c.taxaPlan.toFixed(4)+
+      ', volume '+c.volume+' un'+(c.preco?', preço R$ '+brl(c.preco):'')+'</div></div></div>'+
+    '<div class="ver"><span class="n">DI</span><div><div class="b">Realizado lançado</div>'+
+      '<div class="m">'+c.diData+' — DI '+c.di+', taxa '+c.taxaReal.toFixed(4)+
+      '; 8 lançamentos passaram de estimativa para procedência «DI»</div></div></div>';
+
+  el('crumb').innerHTML = '<span class="lk" data-go="comps">Composições</span>'+
+    '<span class="sep">/</span><b>'+esc(c.produto)+'</b>';
+}
+
+function linha(x, c, grp, i){
+  var l = x.l;
+  var d = (x.o!=null && x.r!=null) ? x.r-x.o : null;
+  var dc = d==null?'muted':(d>.5?'pos':(d<-.5?'neg':'muted'));
+  var base;
+  if(l.tipo==='percentual'){
+    base = '<input class="aliq" type="number" step="0.5" data-k="'+l.aliqKey+'" value="'+c.aliq[l.aliqKey]+
+      '"><span class="muted" style="margin-left:5px">%</span>';
+  } else if(l.tipo==='fob' || (l.moeda==='USD' && l.v)){
+    base = '<span style="display:inline-flex;align-items:center;gap:6px;justify-content:flex-end">'+
+      fl('USD','sm')+brl(l.v)+'</span>';
+  } else if(l.tipo==='reserva'){ base = c.reserva+'% s/ exposição'; }
+  else if(l.tipo==='horas'){ base = (l.perfil==='eng'?c.hEng:c.hProd)+'h × R$ '+(l.perfil==='eng'?c.cEng:c.cProd); }
+  else if(l.moeda==='BRL' && l.v){
+    base = '<span style="display:inline-flex;align-items:center;gap:6px;justify-content:flex-end">'+
+      fl('BRL','sm')+brl(l.v)+'</span>';
+  } else { base = '—'; }
+
+  return '<tr class="'+(l.ap?'':'off')+'">'+
+    '<td><label class="sw"><input type="checkbox" data-g="'+grp+'" data-i="'+i+'"'+(l.ap?' checked':'')+
+      ' aria-label="aplicável"><span></span></label></td>'+
+    '<td><div style="font-weight:650">'+esc(l.sub)+'</div><div class="desc">'+esc(l.cat)+
+      (l.desc?' · '+esc(l.desc):'')+(l.obs?' <i>· '+esc(l.obs)+'</i>':'')+'</div></td>'+
+    '<td>'+(l.proc?'<span class="tag neutro">'+PROC[l.proc]+'</span>':'<span class="muted">—</span>')+'</td>'+
+    '<td>'+(l.conf?'<span class="tag '+l.conf+'">'+l.conf+'</span>':'<span class="muted">—</span>')+'</td>'+
+    '<td class="num muted">'+base+'</td>'+
+    '<td class="num">'+brl(x.o)+'</td>'+
+    '<td class="num">'+(x.r==null?'<span class="muted">—</span>':brl(x.r))+'</td>'+
+    '<td class="num '+dc+'">'+(d==null?'—':(d>0?'+':'')+brl(d))+'</td>'+
+    '<td><div class="rowact"><button class="ib" data-ed="'+grp+':'+i+'" title="Editar">✎</button>'+
+      (l.fixo?'':'<button class="ib d" data-rm="'+grp+':'+i+'" title="Excluir">🗑</button>')+'</div></td></tr>';
+}
+function totRow(lbl,o,r,d){
+  return '<tr class="tot"><td></td><td>'+lbl+'</td><td colspan="3"></td><td class="num">'+brl(o)+
+    '</td><td class="num">'+brl(r)+'</td><td class="num '+(d==null?'':(d>0?'pos':'neg'))+'">'+
+    (d==null?'':(d>0?'+':'')+brl(d))+'</td><td></td></tr>';
+}
+function renderWf(r){
+  var it = r.cogs.filter(function(x){return x.o||x.r;})
+    .map(function(x){return {n:x.l.sub, d:(x.r||0)-(x.o||0)};})
+    .filter(function(x){return Math.abs(x.d)>.5;})
+    .sort(function(a,b){return Math.abs(b.d)-Math.abs(a.d);});
+  var max = Math.max.apply(null, it.map(function(i){return Math.abs(i.d);}).concat([Math.abs(r.desvio),1]));
+  var row = function(n,d,cor,base){
+    var w = Math.abs(d)/max*50, p = d>0;
+    return '<div class="wf-row'+(base?' base':'')+'"><div>'+esc(n)+'</div>'+
+      '<div class="wf-track"><div class="wf-zero" style="left:50%"></div>'+
+      '<div class="wf-bar" style="'+(p?'left:50%':'right:50%')+';width:'+w+'%;background:'+
+      (cor||(p?'#f43f5e':'#10b981'))+'"></div></div>'+
+      '<div class="num '+(p?'pos':'neg')+'">'+(p?'+':'')+brl(d)+'</div></div>';
+  };
+  el('d-wf').innerHTML = it.map(function(i){return row(i.n,i.d);}).join('') +
+    row('Desvio total', r.desvio, '#8b5cf6', true);
+}
+
+/* ════════════════ editor de lançamentos ════════════════ */
+var EDIT = null;
+function abrirEditor(grp, i){
+  var c = ATUAL;
+  var novo = (i == null);
+  var l = novo ? {cat:'Integração Local', sub:'', desc:'', tipo:'montante', moeda:'BRL',
+                  v:0, proc:'estimativa', conf:'media', ap:true, obs:''}
+               : (grp==='nre' ? c.nre : c.cogs)[i];
+  EDIT = {grp:grp, i:i, novo:novo, l:JSON.parse(JSON.stringify(l))};
+  el('m-tit').textContent = novo ? 'Novo lançamento' : 'Editar lançamento';
+  el('m-del').style.display = (novo || l.fixo) ? 'none' : '';
+
+  var sel = function(id, lbl, opts, val, hint){
+    return '<div class="ctl"><label>'+lbl+'</label><select id="'+id+'">'+
+      opts.map(function(o){
+        var v = o[0], t = o[1];
+        return '<option value="'+v+'"'+(String(val)===String(v)?' selected':'')+'>'+t+'</option>';
+      }).join('')+'</select>'+(hint?'<span class="hint">'+hint+'</span>':'')+'</div>';
+  };
+  var inp = function(id, lbl, val, tipo, hint, full){
+    return '<div class="ctl'+(full?' full':'')+'"><label>'+lbl+'</label>'+
+      '<input id="'+id+'" type="'+(tipo||'text')+'"'+(tipo==='number'?' step="0.01"':'')+
+      ' value="'+esc(val==null?'':val)+'">'+(hint?'<span class="hint">'+hint+'</span>':'')+'</div>';
+  };
+
+  var b = '';
+  b += sel('m-grp','Natureza',[['nre','NRE — desenvolvimento (amortiza)'],['cogs','COGS — por unidade']],
+       EDIT.grp, 'Define se o custo amortiza sobre o volume');
+  b += sel('m-cat','Categoria', CATS.map(function(x){return [x,x];}), l.cat);
+  b += inp('m-sub','Subcategoria', l.sub, 'text', 'Nome que aparece na linha', true);
+  b += inp('m-desc','Descrição', l.desc, 'text', '', true);
+  b += sel('m-tipo','Forma de cálculo',[
+        ['montante','Montante fixo'],['horas','Horas × custo/hora'],
+        ['percentual','% sobre o FOB'],['reserva','% sobre a exposição cambial']], l.tipo);
+  b += sel('m-moeda','Moeda',[['BRL','BRL — Real'],['USD','USD — Dólar'],['EUR','EUR — Euro']], l.moeda||'BRL');
+  b += inp('m-v','Valor na moeda', l.v, 'number', 'Convertido pela taxa de planejamento');
+  b += sel('m-perfil','Perfil de hora',[['eng','Engenharia'],['prod','Produção']], l.perfil||'eng');
+  b += sel('m-proc','Procedência', Object.keys(PROC).map(function(k){return [k,PROC[k]];}), l.proc||'estimativa',
+       'De onde veio o número');
+  b += sel('m-conf','Confiança',[['alta','Alta'],['media','Média'],['baixa','Baixa']], l.conf||'media');
+  b += inp('m-real','Realizado (R$)', l.real, 'number', 'Preencher quando a DI ou a nota chegar');
+  b += '<div class="ctl full"><label>Observação</label><textarea id="m-obs">'+esc(l.obs||'')+'</textarea></div>';
+  el('m-body').innerHTML = b;
+
+  var visib = function(){
+    var t = el('m-tipo').value;
+    el('m-v').closest('.ctl').style.display    = (t==='montante')?'':'none';
+    el('m-moeda').closest('.ctl').style.display= (t==='montante')?'':'none';
+    el('m-perfil').closest('.ctl').style.display=(t==='horas')?'':'none';
+  };
+  el('m-tipo').addEventListener('change', visib); visib();
+  el('ov').classList.add('on');
+  setTimeout(function(){ el('m-sub').focus(); }, 60);
+}
+function salvarEditor(){
+  var g = el('m-grp').value;
+  var l = {
+    cat:  el('m-cat').value,
+    sub:  el('m-sub').value.trim() || 'Sem título',
+    desc: el('m-desc').value.trim(),
+    tipo: el('m-tipo').value,
+    proc: el('m-proc').value,
+    conf: el('m-conf').value,
+    obs:  el('m-obs').value.trim(),
+    ap:   EDIT.l.ap !== false
+  };
+  if(l.tipo==='montante'){ l.moeda = el('m-moeda').value; l.v = parseFloat(el('m-v').value)||0; }
+  if(l.tipo==='horas')    l.perfil = el('m-perfil').value;
+  if(l.tipo==='percentual') l.aliqKey = EDIT.l.aliqKey || 'ii';
+  var rv = el('m-real').value;
+  if(rv !== '') l.real = parseFloat(rv)||0;
+  if(EDIT.l.fx) l.fx = true;
+  if(EDIT.l.fixo) l.fixo = true;
+
+  var alvo = function(k){ return k==='nre' ? ATUAL.nre : ATUAL.cogs; };
+  if(EDIT.novo){ alvo(g).push(l); toast('Lançamento «'+l.sub+'» criado.'); }
+  else if(g !== EDIT.grp){
+    alvo(EDIT.grp).splice(EDIT.i,1); alvo(g).push(l);
+    toast('«'+l.sub+'» movido para '+g.toUpperCase()+'.');
+  } else { alvo(g)[EDIT.i] = l; toast('Lançamento «'+l.sub+'» atualizado.'); }
+  fecharEditor(); redraw();
+}
+function excluirEditor(){
+  var arr = EDIT.grp==='nre' ? ATUAL.nre : ATUAL.cogs;
+  var nome = arr[EDIT.i].sub;
+  arr.splice(EDIT.i,1);
+  fecharEditor(); redraw(); toast('Lançamento «'+nome+'» excluído.','🗑');
+}
+function fecharEditor(){ el('ov').classList.remove('on'); EDIT = null; }
+el('m-save').addEventListener('click', salvarEditor);
+el('m-del').addEventListener('click', excluirEditor);
+el('m-x').addEventListener('click', fecharEditor);
+el('m-cancel').addEventListener('click', fecharEditor);
+el('ov').addEventListener('click', function(e){ if(e.target === el('ov')) fecharEditor(); });
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape' && el('ov').classList.contains('on')) fecharEditor();
+});
+el('b-novo').addEventListener('click', function(){ abrirEditor('cogs', null); });
+
+/* ════════════════ comparativo ════════════════ */
+function renderComp(){
+  var rs = ALL().sort(function(a,b){return b.unit-a.unit;});
+  var max = rs[0].unit;
+  el('k-bars').innerHTML = rs.map(function(r){
+    var seg = function(v,cor){ return '<div class="bar-fill" style="width:'+(v/max*100)+'%;background:'+cor+'"></div>'; };
+    return '<div class="bar-row"><div><div style="font-weight:650">'+esc(r.c.produto)+'</div>'+
+      '<div class="desc">'+r.c.tipo+' · '+r.c.qtd+' un · FOB USD '+brl(r.c.fob)+'</div></div>'+
+      '<div class="bar-track">'+seg(r.fobBRL,'#06b6d4')+seg(r.trib,'#f59e0b')+seg(r.desp,'#8b5cf6')+'</div>'+
+      '<div class="num">R$ '+brl(r.unit)+'</div></div>';
+  }).join('');
+  el('k-tab').innerHTML = rs.map(function(r){
+    return '<tr class="click" data-id="'+r.c.id+'"><td style="font-weight:650">'+esc(r.c.produto)+
+      '<div class="desc">'+r.c.sku+'</div></td>'+
+      '<td><span class="tag '+r.c.tipo.toLowerCase()+'">'+r.c.tipo+'</span></td>'+
+      '<td class="num">'+r.c.qtd+'</td><td class="num">'+brl(r.c.fob)+'</td>'+
+      '<td class="num">'+brl(r.trib)+'</td><td class="num">'+brl(r.desp)+'</td>'+
+      '<td class="num">'+(r.nreUnit?brl(r.nreUnit):'<span class="muted">—</span>')+'</td>'+
+      '<td class="num" style="font-weight:700;color:var(--cyan-l)">'+brl(r.unit)+'</td>'+
+      '<td class="num">'+(r.c.preco?brl(r.c.preco):'<span class="tag media">não cadastrado</span>')+'</td>'+
+      '<td class="num" style="font-weight:650;color:'+(r.margemP?'var(--green)':'var(--t4)')+'">'+
+        (r.margemP?pct(r.margemP):'—')+'</td></tr>';
+  }).join('');
+
+  var cat = {};
+  ALL().forEach(function(r){
+    r.nre.concat(r.cogs).forEach(function(x){
+      if(!x.l.ap) return;
+      var v = (x.r==null?x.o:x.r)||0;
+      if(v) cat[x.l.cat] = (cat[x.l.cat]||0)+v;
+    });
+  });
+  var ks = Object.keys(cat).sort(function(a,b){return cat[b]-cat[a];});
+  var mx = ks.length?cat[ks[0]]:1, tot = ks.reduce(function(a,k){return a+cat[k];},0);
+  var cores = ['#06b6d4','#f59e0b','#8b5cf6','#ec4899','#14b8a6'];
+  el('k-cat').innerHTML = ks.map(function(k,i){
+    return '<div class="bar-row"><div style="font-weight:650">'+esc(k)+'</div>'+
+      '<div class="bar-track"><div class="bar-fill" style="width:'+(cat[k]/mx*100)+'%;background:'+
+      cores[i%cores.length]+'"></div></div>'+
+      '<div class="num">R$ '+brl(cat[k])+'<div class="desc">'+pct(cat[k]/tot)+'</div></div></div>';
+  }).join('');
+}
+
+/* ════════════════ cotações ════════════════ */
+var SERIE = {USD:[], EUR:[]};
+function renderCot(){
+  var u = SERIE.USD, e = SERIE.EUR;
+  el('s-lg').innerHTML =
+    '<span>'+fl('USD','sm')+' <i style="background:#22d3ee"></i>USD — PTAX venda</span>'+
+    '<span>'+fl('EUR','sm')+' <i style="background:#ec4899"></i>EUR — PTAX venda</span>'+
+    '<span><i style="background:#f59e0b"></i>Taxa de planejamento em uso (6,0000)</span>';
+  el('s-lg').querySelectorAll('span').forEach(function(s){
+    s.style.display='inline-flex'; s.style.alignItems='center'; s.style.gap='6px';
+  });
+
+  if(!u.length){
+    el('spark').innerHTML = '<text x="450" y="86" text-anchor="middle" fill="#6f7cb5">'+
+      'Sem conexão com o Banco Central — o registro manual segue disponível.</text>';
+    el('s-tab').innerHTML = '<tr><td colspan="6" class="muted" style="padding:18px">'+
+      'Nenhuma cotação sincronizada. O módulo continua utilizável: cada composição já tem sua taxa travada.</td></tr>';
+    el('s-note').innerHTML = '<b style="color:var(--amber)">A busca automática falhou e nada parou.</b> '+
+      'É a regra do módulo: a cotação é conveniência, nunca dependência.';
+    return;
+  }
+  var W=900,H=172,P=28;
+  var todos = u.concat(e).map(function(p){return p.v;}).concat([6.0]);
+  var lo = Math.min.apply(null,todos)*.985, hi = Math.max.apply(null,todos)*1.015;
+  var X = function(i,n){ return P + i*(W-2*P)/Math.max(1,n-1); };
+  var Y = function(v){ return H-20 - (v-lo)/(hi-lo)*(H-40); };
+  var path = function(a){ return a.map(function(p,i){ return (i?'L':'M')+X(i,a.length).toFixed(1)+' '+Y(p.v).toFixed(1); }).join(' '); };
+  var area = function(a){ return path(a)+' L'+X(a.length-1,a.length).toFixed(1)+' '+(H-20)+' L'+X(0,a.length)+' '+(H-20)+' Z'; };
+
+  var g = '<defs>'+
+    '<linearGradient id="gu" x1="0" y1="0" x2="0" y2="1">'+
+      '<stop offset="0" stop-color="#22d3ee" stop-opacity=".3"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient>'+
+    '<linearGradient id="ge" x1="0" y1="0" x2="0" y2="1">'+
+      '<stop offset="0" stop-color="#ec4899" stop-opacity=".26"/><stop offset="1" stop-color="#ec4899" stop-opacity="0"/></linearGradient></defs>';
+  [0,.25,.5,.75,1].forEach(function(f){
+    var y = 18+f*(H-40);
+    g += '<line class="gl" x1="'+P+'" y1="'+y.toFixed(1)+'" x2="'+(W-P)+'" y2="'+y.toFixed(1)+'"/>';
+  });
+  var yP = Y(6.0);
+  g += '<line class="plan" x1="'+P+'" y1="'+yP.toFixed(1)+'" x2="'+(W-P)+'" y2="'+yP.toFixed(1)+'"/>'+
+       '<text x="'+(W-P-2)+'" y="'+(yP-6).toFixed(1)+'" text-anchor="end" fill="#f59e0b">planejamento 6,0000</text>';
+  g += '<path d="'+area(u)+'" fill="url(#gu)"/><path class="ln" d="'+path(u)+'" stroke="#22d3ee"/>';
+  g += '<path d="'+area(e)+'" fill="url(#ge)"/><path class="ln" d="'+path(e)+'" stroke="#ec4899"/>';
+  var lu = u[u.length-1], le = e[e.length-1];
+  g += '<circle cx="'+X(u.length-1,u.length).toFixed(1)+'" cy="'+Y(lu.v).toFixed(1)+'" r="4" fill="#22d3ee" stroke="#13152a" stroke-width="2"/>';
+  g += '<circle cx="'+X(e.length-1,e.length).toFixed(1)+'" cy="'+Y(le.v).toFixed(1)+'" r="4" fill="#ec4899" stroke="#13152a" stroke-width="2"/>';
+  g += '<text x="'+P+'" y="'+(H-4)+'">'+u[0].d+'</text>'+
+       '<text x="'+(W-P)+'" y="'+(H-4)+'" text-anchor="end">'+lu.d+'</text>';
+  el('spark').innerHTML = g;
+  el('s-stamp').textContent = u.length+' dias úteis · fonte bcb_olinda';
+
+  var eIdx = {}; e.forEach(function(p){ eIdx[p.d] = p.v; });
+  var ls = [];
+  for(var i=u.length-1; i>=0 && ls.length<16; i--){
+    ls.push({d:u[i].d, m:'USD', v:u[i].v});
+    if(eIdx[u[i].d] != null) ls.push({d:u[i].d, m:'EUR', v:eIdx[u[i].d]});
+  }
+  el('s-tab').innerHTML = ls.map(function(l,i){
+    return '<tr><td class="num">'+l.d+'</td>'+
+      '<td><span style="display:inline-flex;align-items:center;gap:8px">'+fl(l.m,'sm')+'<b>'+l.m+'</b></span></td>'+
+      '<td><span class="tag neutro">ptax_venda</span></td>'+
+      '<td class="num" style="font-weight:700;color:var(--cyan-l)">'+l.v.toFixed(4)+'</td>'+
+      '<td><span class="tag neutro">bcb_olinda</span></td>'+
+      '<td class="muted">'+(i<2?'agora':l.d+' 18:05')+'</td></tr>';
+  }).join('');
+  el('s-note').innerHTML = 'A PTAX publica só em dia útil, no fim da tarde. Por isso a sincronização busca '+
+    'uma <b>janela</b> de dias e faz upsert por (moeda, data, tipo) — rodar duas vezes no mesmo dia não duplica nada.';
+}
+
+/* ════════════════ automações ════════════════ */
+var AUTOS = [
+ {n:1, cls:'j', t:'Sincronizar a PTAX diariamente', ganho:'Alto', esf:'Baixo', st:'pronto para fazer',
+  p:'Um job na tupla de tarefas diárias busca uma janela dos últimos dias no Olinda e faz upsert por (moeda, data, tipo). Já validado: esta tela puxa a série ao vivo do BCB, sem chave de API.',
+  dep:'<code>rodar_tarefas_diarias()</code> · <code>requests</code>'},
+ {n:2, cls:'j', t:'Importar o extrato do despachante', ganho:'Muito alto', esf:'Médio', st:'pronto para fazer',
+  p:'O despachante manda a planilha de rateio da DI. Um importador no molde do equipamentos_importer preenche todos os campos «realizado» de uma vez, com prévia antes de aplicar. Hoje isso é digitação linha a linha.',
+  dep:'<code>equipamentos_importer.py</code> · pandas · dry-run'},
+ {n:3, cls:'j', t:'Ratear a DI automaticamente', ganho:'Alto', esf:'Baixo', st:'pronto para fazer',
+  p:'Dados os totais da DI e as linhas da invoice, o rateio proporcional por valor e a divisão pela quantidade são puro cálculo. Elimina a planilha auxiliar inteira e o risco de constante colada.',
+  dep:'nenhuma — cálculo interno'},
+ {n:4, cls:'j', t:'Tabela de alíquotas por NCM', ganho:'Alto', esf:'Baixo', st:'pronto para fazer',
+  p:'Cadastrar o NCM uma vez e as alíquotas de II, IPI, PIS, Cofins e ICMS vêm sozinhas para toda composição daquele produto. Hoje são cinco campos digitados por composição.',
+  dep:'tabela <code>custo_ncm</code> mantida internamente'},
+ {n:5, cls:'j', t:'Herdar o custo/hora do cadastro', ganho:'Alto', esf:'Baixo', st:'pronto para fazer',
+  p:'Custo/hora por perfil (engenharia, produção, regulatório) com vigência datada. A composição puxa o valor vigente na data de abertura em vez de alguém digitar — e é isso que hoje deixa o NRE em zero.',
+  dep:'tabela <code>custo_hora_perfis</code>'},
+ {n:6, cls:'j', t:'Vincular ao equipamento pelo SKU', ganho:'Médio', esf:'Baixo', st:'pronto para fazer',
+  p:'O SKU já é a chave de junção do importador mestre e do Pareto. Ao criar a composição, achar o equipamento e herdar fabricante, categoria e NCM — sem redigitação e sem divergir do cadastro.',
+  dep:'<code>Equipamento.sku</code> · <code>utils.norm_sku</code>'},
+ {n:7, cls:'j', t:'Abrir versão sozinha quando o baseline muda', ganho:'Médio', esf:'Baixo', st:'pronto para fazer',
+  p:'Mexeu em taxa de planejamento, preço ou volume, congela a versão anterior automaticamente. O módulo Projetos já faz exatamente isso com CAMPOS_BASELINE — é copiar o padrão.',
+  dep:'<code>entregaveis.py</code> · <code>ProjetoBaseline</code>'},
+ {n:8, cls:'j', t:'Alertar desvio de câmbio em tempo real', ganho:'Médio', esf:'Baixo', st:'pronto para fazer',
+  p:'Quando a PTAX se afasta da taxa travada além do limite, emitir evento no barramento e acender o aviso na tela de quem estiver com o módulo aberto. A infraestrutura de tempo real já existe e é usada pelos outros módulos.',
+  dep:'<code>event_bus.py</code> · Socket.IO'},
+ {n:9, cls:'m', t:'Alimentar o orçamento do projeto no PMO', ganho:'Alto', esf:'Médio', st:'decidir antes',
+  p:'A composição calcula o NRE; o PMO tem Projeto.orcamento digitado à mão. Empurrar um para o outro evita redigitação e divergência — mas exige decidir quem é dono do número quando os dois discordam.',
+  dep:'<code>Projeto.orcamento</code> · decisão de governança'},
+ {n:10, cls:'m', t:'Snapshot diário do custo', ganho:'Médio', esf:'Baixo', st:'decidir antes',
+  p:'Uma foto por dia de cada composição, no molde do ProjetoSnapshot, dá série temporal: como o custo de um produto se moveu ao longo do ciclo. Barato de fazer; a dúvida é se alguém vai olhar.',
+  dep:'<code>ProjetoSnapshot</code> · agendador'},
+ {n:11, cls:'d', t:'Calibrar a reserva cambial com histórico próprio', ganho:'Alto', esf:'Baixo', st:'depende de dados',
+  p:'Depois de alguns ciclos fechados, sugerir o percentual de reserva a partir do desvio real observado, por fornecedor e rota. Deixa de ser 10% herdado e vira medida da própria operação. Precisa de histórico antes de existir.',
+  dep:'3+ ciclos de estimado × realizado'},
+ {n:12, cls:'d', t:'Puxar o preço de venda do cadastro', ganho:'Médio', esf:'—', st:'depende de origem',
+  p:'Três das quatro composições estão sem preço porque esse dado não vive no DocTrack. Automatizar exige antes definir onde o preço de venda é canônico — ERP, planilha comercial ou cadastro do equipamento.',
+  dep:'definir a fonte canônica de preço'}
+];
+function renderAuto(){
+  el('n-auto').textContent = AUTOS.length;
+  var por = function(s){ return AUTOS.filter(function(a){return a.st===s;}).length; };
+  el('a-kpis').innerHTML = [
+    {c:'good', l:'Prontas para fazer', v:por('pronto para fazer'), f:'sem dependência externa nova'},
+    {c:'', l:'Exigem decisão antes', v:por('decidir antes'), f:'governança ou escopo'},
+    {c:'nre', l:'Dependem de dados', v:por('depende de dados')+por('depende de origem'), f:'histórico ou fonte canônica'},
+    {c:'cogs', l:'Reaproveitam código existente', v:'7', f:'padrões já testados no DocTrack'}
+  ].map(function(k){
+    return '<div class="kpi '+k.c+'"><span class="lbl">'+k.l+'</span><div class="val">'+k.v+
+      '</div><div class="foot">'+k.f+'</div></div>';
+  }).join('');
+  el('a-cards').innerHTML = AUTOS.map(function(a){
+    return '<div class="acard '+a.cls+'"><div class="h"><span class="n">'+a.n+'</span>'+
+      '<h4>'+esc(a.t)+'</h4></div><p>'+a.p+'</p>'+
+      '<div class="kv"><div><b>Ganho</b>'+a.ganho+'</div><div><b>Esforço</b>'+a.esf+'</div>'+
+      '<div><b>Situação</b>'+a.st+'</div><div style="flex:1 1 100%"><b>Depende de</b>'+a.dep+'</div></div></div>';
+  }).join('');
+}
+
+/* ════════════════ exportação ════════════════ */
+function baixar(blob, nome){
+  var u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = nome; document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(u); a.remove(); }, 200);
+}
+
+/* ---- CSV (convenção DocTrack: ";" + BOM utf-8) ---- */
+function csvEsc(v){
+  var s = v==null?'':String(v);
+  return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function exportCSV(){
+  var L = [['Composicao','Produto','SKU','Projeto','Tipo','Status','Fornecedor','Incoterm',
+            'Moeda','Taxa planejamento','Taxa realizada','Qtd invoice','Volume',
+            'NRE (R$)','COGS orcado (R$)','COGS realizado (R$)','Desvio (R$)',
+            'NRE unitario (R$)','Custo unitario (R$)','Preco venda (R$)','Margem (%)']];
+  ALL().forEach(function(r){
+    L.push([r.c.id, r.c.produto, r.c.sku, r.c.projeto, r.c.tipo, r.c.status, r.c.fornecedor,
+      r.c.incoterm, r.c.moeda, r.c.taxaPlan.toFixed(4).replace('.',','),
+      r.c.taxaReal.toFixed(4).replace('.',','), r.c.qtd, r.c.volume,
+      brl(r.nreReal), brl(r.cogsOrc), brl(r.cogsReal), brl(r.desvio),
+      brl(r.nreUnit), brl(r.unit), r.c.preco?brl(r.c.preco):'',
+      r.margemP!=null?(r.margemP*100).toFixed(1).replace('.',','):'']);
+  });
+  var txt = L.map(function(l){ return l.map(csvEsc).join(';'); }).join('\r\n');
+  baixar(new Blob(['﻿'+txt], {type:'text/csv;charset=utf-8'}), 'custos_composicoes_'+stamp()+'.csv');
+  toast('CSV exportado — separador ";" e BOM, abre direto no Excel pt-BR.','⭳');
+}
+
+/* ---- XLSX real: ZIP com entradas "stored" + CRC32, sem biblioteca ---- */
+var CRCT = (function(){
+  var t = new Uint32Array(256);
+  for(var n=0;n<256;n++){ var c=n;
+    for(var k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1);
+    t[n]=c>>>0; }
+  return t;
+})();
+function crc32(b){
+  var c = 0xFFFFFFFF;
+  for(var i=0;i<b.length;i++) c = CRCT[(c ^ b[i]) & 0xFF] ^ (c>>>8);
+  return (c ^ 0xFFFFFFFF)>>>0;
+}
+function zipStored(files){
+  var enc = new TextEncoder(), parts = [], cen = [], off = 0;
+  var u16=function(v){return [v&255,(v>>8)&255];};
+  var u32=function(v){return [v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255];};
+  files.forEach(function(f){
+    var name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    var lh = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0),
+              u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0));
+    parts.push(new Uint8Array(lh), name, data);
+    cen.push(new Uint8Array([].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0),
+      u16(0), u16(0), u32(crc), u32(data.length), u32(data.length),
+      u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(off))), name);
+    off += lh.length + name.length + data.length;
+  });
+  var cenLen = cen.reduce(function(a,p){return a+p.length;},0);
+  var eocd = new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0),
+    u16(files.length), u16(files.length), u32(cenLen), u32(off), u16(0)));
+  return new Blob(parts.concat(cen, [eocd]), {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function colName(n){
+  var s='';
+  while(n>0){ var m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26; }
+  return s;
+}
+function xEsc(s){ return String(s).replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m];}); }
+function sheetXml(rows, larguras){
+  var cols = larguras ? '<cols>'+larguras.map(function(w,i){
+    return '<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>'; }).join('')+'</cols>' : '';
+  var body = rows.map(function(row, ri){
+    var cs = row.map(function(v, ci){
+      var ref = colName(ci+1)+(ri+1);
+      if(ri === 0) return '<c r="'+ref+'" s="1" t="inlineStr"><is><t>'+xEsc(v)+'</t></is></c>';
+      if(typeof v === 'number' && isFinite(v)) return '<c r="'+ref+'" s="2"><v>'+v+'</v></c>';
+      if(v == null || v === '') return '';
+      return '<c r="'+ref+'" t="inlineStr"><is><t>'+xEsc(v)+'</t></is></c>';
+    }).join('');
+    return '<row r="'+(ri+1)+'">'+cs+'</row>';
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+    cols+'<sheetData>'+body+'</sheetData></worksheet>';
+}
+function exportXLSX(){
+  var abas = [];
+
+  var a1 = [['Composicao','Produto','SKU','Projeto','Tipo','Status','Fornecedor','Incoterm','Moeda',
+             'Taxa planejamento','Taxa realizada','Qtd invoice','Volume','NRE (R$)','COGS orcado (R$)',
+             'COGS realizado (R$)','Desvio (R$)','Custo unitario (R$)','Preco venda (R$)','Margem (%)']];
+  ALL().forEach(function(r){
+    a1.push([r.c.id, r.c.produto, r.c.sku, r.c.projeto, r.c.tipo, r.c.status, r.c.fornecedor,
+      r.c.incoterm, r.c.moeda, r.c.taxaPlan, r.c.taxaReal, r.c.qtd, r.c.volume,
+      +r.nreReal.toFixed(2), +r.cogsOrc.toFixed(2), +r.cogsReal.toFixed(2), +r.desvio.toFixed(2),
+      +r.unit.toFixed(2), r.c.preco||'', r.margemP!=null?+(r.margemP*100).toFixed(1):'']);
+  });
+  abas.push({nome:'Composicoes', rows:a1,
+    larguras:[15,32,12,26,11,11,14,10,8,17,15,12,10,14,17,19,14,18,17,11]});
+
+  var a2 = [['Composicao','Produto','Natureza','Categoria','Subcategoria','Descricao','Aplicavel',
+             'Forma','Moeda','Valor moeda','Procedencia','Confianca','Orcado (R$)','Realizado (R$)',
+             'Desvio (R$)','Observacao']];
+  ALL().forEach(function(r){
+    [['NRE', r.nre],['COGS', r.cogs]].forEach(function(par){
+      par[1].forEach(function(x){
+        var d = (x.o!=null && x.r!=null) ? +(x.r-x.o).toFixed(2) : '';
+        a2.push([r.c.id, r.c.produto, par[0], x.l.cat, x.l.sub, x.l.desc||'',
+          x.l.ap?'Sim':'Nao', x.l.tipo, x.l.moeda||'', x.l.v!=null?x.l.v:'',
+          x.l.proc?PROC[x.l.proc]:'', x.l.conf||'',
+          x.o!=null?+x.o.toFixed(2):'', x.r!=null?+x.r.toFixed(2):'', d, x.l.obs||'']);
+      });
+    });
+  });
+  abas.push({nome:'Lancamentos', rows:a2,
+    larguras:[15,30,10,20,32,34,10,13,8,13,15,11,15,16,14,32]});
+
+  var a3 = [['Data','Moeda','Tipo','Valor','Fonte']];
+  var eIdx = {}; SERIE.EUR.forEach(function(p){ eIdx[p.d]=p.v; });
+  SERIE.USD.slice().reverse().forEach(function(p){
+    a3.push([p.d,'USD','ptax_venda', p.v,'bcb_olinda']);
+    if(eIdx[p.d]!=null) a3.push([p.d,'EUR','ptax_venda', eIdx[p.d],'bcb_olinda']);
+  });
+  if(a3.length === 1) a3.push(['—','—','—','','sem sincronizacao']);
+  abas.push({nome:'Cotacoes', rows:a3, larguras:[14,9,14,12,15]});
+
+  var ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="xml" ContentType="application/xml"/>'+
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+
+    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'+
+    abas.map(function(a,i){ return '<Override PartName="/xl/worksheets/sheet'+(i+1)+
+      '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('')+
+    '</Types>';
+
+  var rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'+
+    '</Relationships>';
+
+  var wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '+
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+
+    abas.map(function(a,i){ return '<sheet name="'+a.nome+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>'; }).join('')+
+    '</sheets></workbook>';
+
+  var wbr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    abas.map(function(a,i){ return '<Relationship Id="rId'+(i+1)+
+      '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+
+      (i+1)+'.xml"/>'; }).join('')+
+    '<Relationship Id="rId'+(abas.length+1)+
+      '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'+
+    '</Relationships>';
+
+  var st = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+    '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'+
+    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'+
+      '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>'+
+    '<fills count="3"><fill><patternFill patternType="none"/></fill>'+
+      '<fill><patternFill patternType="gray125"/></fill>'+
+      '<fill><patternFill patternType="solid"><fgColor rgb="FF1F2444"/><bgColor indexed="64"/></patternFill></fill></fills>'+
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'+
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+    '<cellXfs count="3">'+
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'+
+      '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'+
+      '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+    '</cellXfs>'+
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+
+  var files = [
+    {name:'[Content_Types].xml', data:ct},
+    {name:'_rels/.rels', data:rels},
+    {name:'xl/workbook.xml', data:wb},
+    {name:'xl/_rels/workbook.xml.rels', data:wbr},
+    {name:'xl/styles.xml', data:st}
+  ];
+  abas.forEach(function(a,i){
+    files.push({name:'xl/worksheets/sheet'+(i+1)+'.xml', data:sheetXml(a.rows, a.larguras)});
+  });
+  baixar(zipStored(files), 'custos_'+stamp()+'.xlsx');
+  toast('XLSX exportado — 3 abas: Composições, Lançamentos e Cotações.','⭳');
+}
+
+function relatorio(){
+  toast('Abrindo o diálogo de impressão — escolha «Salvar como PDF».','🖨');
+  setTimeout(function(){ window.print(); }, 400);
+}
+
+/* ════════════════ PTAX ════════════════ */
+function ptax(moeda){
+  var f = function(d){ return ('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+'-'+d.getFullYear(); };
+  var h = new Date(), ini = new Date(h.getTime()-45*864e5);
+  var url = "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"+
+    "CotacaoMoedaPeriodo(moeda=@moeda,dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)"+
+    "?@moeda='"+moeda+"'&@dataInicial='"+f(ini)+"'&@dataFinalCotacao='"+f(h)+"'"+
+    "&$format=json&$select=cotacaoVenda,dataHoraCotacao&$orderby=dataHoraCotacao%20asc";
+  var ctl = new AbortController(), to = setTimeout(function(){ ctl.abort(); }, 6000);
+  return fetch(url,{signal:ctl.signal})
+    .then(function(r){ clearTimeout(to); if(!r.ok) throw 0; return r.json(); })
+    .then(function(j){
+      /* a PTAX publica vários boletins por dia; vale o fechamento.
+         Mesmo upsert por (moeda, data, tipo) que custo_cotacoes faria. */
+      var pd = {};
+      (j.value||[]).forEach(function(x){
+        var iso = x.dataHoraCotacao.slice(0,10);
+        if(!pd[iso] || x.dataHoraCotacao > pd[iso].h) pd[iso] = {h:x.dataHoraCotacao, v:x.cotacaoVenda};
+      });
+      return Object.keys(pd).sort().map(function(iso){
+        return {d:iso.split('-').reverse().join('/'), v:pd[iso].v};
+      });
+    })
+    .catch(function(){ clearTimeout(to); return []; });
+}
+Promise.all([ptax('USD'), ptax('EUR')]).then(function(res){
+  SERIE.USD = res[0]; SERIE.EUR = res[1];
+  if(res[0].length){
+    REF_USD  = res[0][res[0].length-1].v;
+    REF_DATA = res[0][res[0].length-1].d;
+    REF_PREV = res[0].length>1 ? res[0][res[0].length-2].v : null;
+  }
+  if(res[1].length) REF_EUR = res[1][res[1].length-1].v;
+  renderVisao(); renderDet(); renderCot(); renderSaude();
+});
+
+/* ════════════════ navegação e eventos ════════════════ */
+var TIT = {visao:'Visão geral', comps:'Composições', comparativo:'Comparativo',
+           cotacoes:'Cotações', saude:'Saúde', auto:'Automações'};
+var EXP = '<button class="btn" data-x="csv">⭳ CSV</button>'+
+          '<button class="btn" data-x="xlsx">⭳ XLSX</button>'+
+          '<button class="btn" data-x="pdf">🖨 Relatório</button>';
+var ACOES = {
+  visao: EXP+'<button class="btn pri">+ Nova composição</button>',
+  comps: EXP+'<button class="btn pri">+ Nova composição</button>',
+  det:   EXP+'<button class="btn">Nova versão</button><button class="btn pri">Lançar realizado</button>',
+  comparativo: EXP,
+  cotacoes: '<button class="btn" data-x="xlsx">⭳ XLSX</button>'+
+            '<button class="btn">Registrar manual</button><button class="btn pri">Sincronizar agora</button>',
+  saude: '<button class="btn" data-x="pdf">🖨 Relatório</button>',
+  auto: '<button class="btn" data-x="pdf">🖨 Relatório</button>'
+};
+function ir(p){
+  document.querySelectorAll('.page').forEach(function(s){ s.classList.remove('on'); });
+  el('p-'+p).classList.add('on');
+  document.querySelectorAll('nav a').forEach(function(a){ a.classList.toggle('on', a.dataset.p===p); });
+  el('tb-act').innerHTML = ACOES[p] || '';
+  if(p !== 'det') el('crumb').innerHTML = '<b>'+TIT[p]+'</b>';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+document.querySelectorAll('nav a[data-p]').forEach(function(a){
+  a.addEventListener('click', function(){ ir(a.dataset.p); });
+});
+function redraw(){ renderVisao(); renderLista(); renderDet(); renderComp(); renderSaude(); }
+
+document.addEventListener('click', function(ev){
+  var x = ev.target.closest('[data-x]');
+  if(x){ ({csv:exportCSV, xlsx:exportXLSX, pdf:relatorio})[x.dataset.x](); return; }
+  var go = ev.target.closest('[data-go]');
+  if(go){ ir(go.dataset.go); return; }
+  var ed = ev.target.closest('[data-ed]');
+  if(ed){ var a = ed.dataset.ed.split(':'); abrirEditor(a[0], +a[1]); return; }
+  var rm = ev.target.closest('[data-rm]');
+  if(rm){
+    var b = rm.dataset.rm.split(':'), arr = b[0]==='nre'?ATUAL.nre:ATUAL.cogs;
+    var nome = arr[+b[1]].sub;
+    arr.splice(+b[1],1); redraw(); toast('Lançamento «'+nome+'» excluído.','🗑');
+    return;
+  }
+  var tr = ev.target.closest('tr.click');
+  if(tr){
+    ATUAL = COMPS.filter(function(c){return c.id===tr.dataset.id;})[0] || COMPS[0];
+    renderDet(); ir('det'); el('tb-act').innerHTML = ACOES.det;
+  }
+});
+document.addEventListener('change', function(ev){
+  var cb = ev.target.closest('#d-lanc input[type=checkbox]');
+  if(cb){ (cb.dataset.g==='nre'?ATUAL.nre:ATUAL.cogs)[+cb.dataset.i].ap = cb.checked; redraw(); }
+});
+document.addEventListener('input', function(ev){
+  var a = ev.target.closest('#d-lanc input.aliq');
+  if(a){
+    ATUAL.aliq[a.dataset.k] = parseFloat(a.value)||0;
+    var k = a.dataset.k; redraw();
+    var n = el('d-lanc').querySelector('input.aliq[data-k="'+k+'"]');
+    if(n){ n.focus(); n.setSelectionRange(n.value.length, n.value.length); }
+  }
+});
+
+renderVisao(); renderLista(); renderDet(); renderComp(); renderCot(); renderSaude(); renderAuto(); ir('visao');
+</script>
+</body>
+</html>

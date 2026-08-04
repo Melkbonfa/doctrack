@@ -36,6 +36,11 @@ _SENTINELA_DB = os.path.join(tempfile.gettempdir(), "doctrack_pytest_sentinela.d
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_SENTINELA_DB}")
 # O agendador interno não tem o que fazer numa suíte de testes.
 os.environ.setdefault("DOCTRACK_AGENDADOR", "0")
+# Idem para a sincronização da PTAX: `rodar_tarefas_diarias()` é exercitada por
+# testes, e sem isto cada execução da suíte faria duas chamadas ao Banco Central
+# — lenta, instável e dependente de a máquina ter saída para a internet. Os
+# testes que cobrem o câmbio ligam a flag e injetam um `requests` de mentira.
+os.environ.setdefault("DOCTRACK_CAMBIO", "0")
 # Apelidos de unidade fixos: sem isto o módulo `caminhos` autodetecta o que a
 # máquina tem montado, e um teste que grava "P:\..." passaria ou falharia
 # conforme a estação ter ou não o P: mapeado.

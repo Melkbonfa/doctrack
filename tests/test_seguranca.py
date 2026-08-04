@@ -126,7 +126,8 @@ def test_tarefas_diarias_gravam_a_foto_do_dia(app):
         assert EquipamentoSnapshot.query.count() == 0
 
         resultado = rodar_tarefas_diarias()
-        assert set(resultado) == {"equipamentos", "missoes", "projetos", "auditoria"}
+        assert set(resultado) == {"equipamentos", "missoes", "projetos",
+                                  "cambio", "auditoria"}
         hoje = date.today().isoformat()
         assert EquipamentoSnapshot.query.filter_by(data=hoje).count() >= 1
 

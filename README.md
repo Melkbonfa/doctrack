@@ -14,6 +14,7 @@ templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
 | **Consumíveis** | Catálogo global com compatibilidade N:N por equipamento, tipos de consumível configuráveis e descritivo técnico com import/export por Word (.docx) |
 | **Entregáveis** | Acompanhamento de entregáveis de projetos por categoria, com visão mensal (PMO) |
 | **PDR** | Dashboard PDR integrado como blueprint interno (`/pdr`), acesso por flag de usuário |
+| **Custos** | Blueprint próprio (`/custos`): formação de custo de produto e projeto — NRE e COGS separados, câmbio com três papéis (referência PTAX, planejamento travada, realizada da DI), versionamento de baseline e comparativo de portfólio. Só admin/gestor |
 | **Auth/RBAC** | Autenticação JWT, papéis e permissões por área, convite com código no primeiro acesso |
 
 ## Como rodar (desenvolvimento)
@@ -47,6 +48,7 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── templates/                # Templates Jinja + audit_log_report.html
 ├── static/                   # CSS/JS do frontend (inclui socket-client.js e app-realtime.js)
 ├── pdr/                      # Módulo PDR (blueprint com templates/static próprios)
+├── custos/                   # Módulo Custos (models · core de cálculo · câmbio · routes)
 ├── migrations/               # Migrações de schema numeradas
 ├── tests/                    # Testes pytest
 ├── scripts/                  # Scripts operacionais (deploy, backup, build, importações)
