@@ -7,6 +7,10 @@ flask-socketio>=5.6.0
 pandas>=2.0.0
 openpyxl>=3.1.0
 python-dotenv>=1.0.0
+# Única dependência de rede externa do app: a sincronização da PTAX com o Banco
+# Central (custos/cambio.py). O import é tardio e a falha é tolerada — sem ela o
+# módulo de Custos segue utilizável com cotação registrada à mão.
+requests>=2.31.0
 # Servidor WSGI de produção. Era instalado à parte pelo deploy_windows.ps1, fora
 # do requirements — o que deixava a versão em produção fora de qualquer controle.
 waitress>=3.0.0

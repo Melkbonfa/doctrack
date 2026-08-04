@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+
+{% block title %}Custos — DocTrack{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/custos.css?v={{ asset_v }}">
+{%- endblock %}
+
+{% block brand_version %}CUSTOS · P&D EQUIPAMENTOS{% endblock %}
+
+{% block nav %}
+    <span class="nav-section-label">Módulo</span>
+    <button type="button" class="nav-item active" data-page="visao">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
+      Visão geral
+    </button>
+    <button type="button" class="nav-item" data-page="composicoes">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Composições <span class="nav-count" id="n-comps"></span>
+    </button>
+    <button type="button" class="nav-item" data-page="comparativo">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 16v-6M13 16v-9M18 16v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Comparativo
+    </button>
+    <button type="button" class="nav-item" data-page="cotacoes">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Cotações
+    </button>
+    <button type="button" class="nav-item" data-page="saude">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7l8-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Saúde <span class="nav-count" id="n-saude"></span>
+    </button>
+{%- endblock %}
+
+{% block refresh_fn %}carregarTudo(){% endblock %}
+
+{% block breadcrumb %}
+<span>DocTrack</span><span style="color:var(--t4)">/</span>
+<span>Custos</span><span style="color:var(--t4)">/</span>
+<span class="current" id="breadcrumb-current">Visão geral</span>
+{%- endblock %}
+
+{% block content %}
+
+<!-- ══════════ VISÃO GERAL ══════════ -->
+<section class="page active" id="page-visao">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Visão geral</div>
+      <div class="page-sub">Formação de custo de produto e projeto — NRE e COGS separados,
+        câmbio com papéis distintos e o ciclo fechado contra a DI.</div>
+    </div>
+    <div class="page-actions" id="acoes-visao"></div>
+  </div>
+
+  <div class="cs-kpis" id="v-kpis"></div>
+
+  <div class="card cs-strip" id="v-saude" role="button" tabindex="0"
+       aria-label="Abrir a aba de Saúde"></div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Câmbio de hoje <span class="cs-right" id="fx-stamp"></span></div>
+    <p class="cs-sub">Cada composição orça na sua própria <b>taxa de planejamento</b>, travada na
+      abertura. A referência do Banco Central alerta desvio; a taxa realizada vem da DI no fechamento.</p>
+    <div class="cs-fx" id="v-fx"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Composições vigentes</div>
+    <div class="cs-tw"><table class="cs-tab">
+      <thead><tr><th>Composição</th><th>Tipo</th><th>Fornecedor</th><th class="num">Taxa plan.</th>
+        <th class="num">NRE</th><th class="num">COGS orçado</th><th class="num">COGS realizado</th>
+        <th class="num">Desvio</th><th class="num">Margem</th></tr></thead>
+      <tbody id="v-tab"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ══════════ COMPOSIÇÕES ══════════ -->
+<section class="page" id="page-composicoes">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Composições de custo</div>
+      <div class="page-sub"><b>OEM</b> tem custo de desenvolvimento (NRE) além da mercadoria;
+        <b>Revenda</b> só tem o custo aterrissado.</div>
+    </div>
+    <div class="page-actions" id="acoes-comps"></div>
+  </div>
+
+  <div class="card cs-filtros">
+    <input type="search" class="form-input" id="f-busca" placeholder="Buscar por produto, SKU, código ou fornecedor…">
+    <select class="form-input" id="f-status"><option value="">Todos os status</option></select>
+    <select class="form-input" id="f-tipo"><option value="">Todos os tipos</option></select>
+  </div>
+
+  <div class="card">
+    <div class="cs-tw"><table class="cs-tab">
+      <thead><tr><th>Produto</th><th>SKU</th><th>Projeto</th><th>Tipo</th><th>Status</th>
+        <th class="num">Ver.</th><th class="num">Custo unit.</th><th class="num">Preço</th>
+        <th class="num">Margem</th></tr></thead>
+      <tbody id="c-tab"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ══════════ DETALHE ══════════ -->
+<section class="page" id="page-detalhe">
+  <div class="cs-hero" id="d-hero"></div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Identidade
+      <span class="cs-right"><button class="btn btn-ghost btn-sm" id="b-editar-comp">Editar</button></span>
+    </div>
+    <dl class="cs-ident" id="d-ident"></dl>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Câmbio da composição</div>
+    <div class="cs-fx" id="d-fx"></div>
+    <div id="d-fx-alert" style="margin-top:16px"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Lançamentos
+      <span class="cs-right"><button class="btn btn-primary btn-sm" id="b-novo-lanc">+ Novo lançamento</button></span>
+    </div>
+    <p class="cs-sub">Cada linha registra <b>natureza</b> (NRE ou COGS), <b>procedência</b> e
+      <b>confiança</b>, e congela a taxa com que foi convertida. O interruptor
+      <i>aplicável</i> exclui de fato do total.</p>
+    <div class="cs-tw"><table class="cs-tab">
+      <thead><tr><th style="width:46px">Aplic.</th><th>Categoria / Subcategoria</th>
+        <th>Procedência</th><th>Confiança</th><th class="num">Base</th>
+        <th class="num">Orçado (R$)</th><th class="num">Realizado (R$)</th><th class="num">Δ</th>
+        <th style="width:76px"></th></tr></thead>
+      <tbody id="d-lanc"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Resultado</div>
+    <div class="cs-kpis" id="d-kpis"></div>
+  </div>
+
+  <div class="cs-g2">
+    <div class="card">
+      <div class="card-title">Orçado → realizado</div>
+      <div class="cs-wf" id="d-wf"></div>
+      <div class="cs-lg">
+        <span><i style="background:var(--red)"></i>acima do orçado</span>
+        <span><i style="background:var(--green)"></i>abaixo do orçado</span>
+        <span><i style="background:#8b5cf6"></i>total</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Versões</div>
+      <div id="d-vers"></div>
+      <div class="cs-fn">A v1 é o baseline: é contra ela que o realizado é medido. Alterar taxa
+        de planejamento, preço ou volume abre uma versão nova automaticamente.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ COMPARATIVO ══════════ -->
+<section class="page" id="page-comparativo">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Comparativo</div>
+      <div class="page-sub">Todas as composições na mesma escala, cada uma na sua taxa realizada.</div>
+    </div>
+    <div class="page-actions" id="acoes-comparativo"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Custo aterrissado por unidade</div>
+    <div class="cs-bars" id="k-bars"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Detalhamento</div>
+    <div class="cs-tw"><table class="cs-tab">
+      <thead><tr><th>Produto</th><th>Tipo</th><th class="num">Qtd</th><th class="num">FOB</th>
+        <th class="num">COGS realiz.</th><th class="num">NRE/un</th><th class="num">Custo unit.</th>
+        <th class="num">Preço</th><th class="num">Margem</th></tr></thead>
+      <tbody id="k-tab"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Onde o dinheiro está — por categoria</div>
+    <div class="cs-bars" id="k-cat"></div>
+  </div>
+</section>
+
+<!-- ══════════ COTAÇÕES ══════════ -->
+<section class="page" id="page-cotacoes">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Cotações</div>
+      <div class="page-sub">PTAX do Banco Central, sincronizada com as tarefas diárias. Serve de
+        referência e histórico; nunca substitui a taxa travada de uma composição.</div>
+    </div>
+    <div class="page-actions" id="acoes-cotacoes"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">Série <span class="cs-right" id="s-stamp"></span></div>
+    <svg class="cs-spark" id="spark" viewBox="0 0 900 172" preserveAspectRatio="none"></svg>
+    <div class="cs-lg" id="s-lg"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Registro</div>
+    <div class="cs-tw"><table class="cs-tab">
+      <thead><tr><th>Data</th><th>Moeda</th><th>Tipo</th><th class="num">Valor</th>
+        <th>Fonte</th><th>Obtido em</th></tr></thead>
+      <tbody id="s-tab"></tbody>
+    </table></div>
+    <div class="cs-fn" id="s-note"></div>
+  </div>
+</section>
+
+<!-- ══════════ SAÚDE ══════════ -->
+<section class="page" id="page-saude">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Saúde do módulo</div>
+      <div class="page-sub">Verificações contínuas sobre o que torna um custo confiável: câmbio
+        dentro da política, procedência registrada, esforço interno precificado e ciclo fechado.</div>
+    </div>
+    <div class="page-actions" id="acoes-saude"></div>
+  </div>
+
+  <div class="cs-kpis" id="sd-kpis"></div>
+  <div class="card">
+    <div id="sd-lista"></div>
+    <div class="cs-fn">O índice pondera cada verificação pela gravidade — falha vale 3, aviso 2,
+      observação 1 — e por quanto dela passa. Não é nota de qualidade do produto: é o quanto o
+      número pode ser defendido numa reunião.</div>
+  </div>
+</section>
+
+{%- endblock %}
+
+{% block postmain %}
+<!-- Modal: lançamento -->
+<div class="modal-overlay" id="mo-lanc">
+  <div class="modal cs-modal">
+    <div class="modal-title" id="ml-tit">Lançamento</div>
+    <div class="modal-sub">Natureza define se o custo amortiza sobre o volume projetado.</div>
+    <div class="cs-form" id="ml-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-danger btn-sm" id="ml-del">Excluir</button>
+      <button class="btn btn-ghost btn-sm" data-fechar="mo-lanc">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="ml-save">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: composição -->
+<div class="modal-overlay" id="mo-comp">
+  <div class="modal cs-modal">
+    <div class="modal-title" id="mc-tit">Composição</div>
+    <div class="modal-sub">A taxa de planejamento é travada aqui — registre a justificativa.</div>
+    <div class="cs-form" id="mc-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" data-fechar="mo-comp">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="mc-save">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: cotação manual -->
+<div class="modal-overlay" id="mo-cot">
+  <div class="modal cs-modal" style="max-width:420px">
+    <div class="modal-title">Registrar cotação</div>
+    <div class="modal-sub">O caminho que mantém o módulo utilizável sem acesso ao BCB.</div>
+    <div class="cs-form" id="mt-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" data-fechar="mo-cot">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="mt-save">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><div class="toast-dot"></div><span id="toast-msg"></span></div>
+{%- endblock %}
+
+{% block scripts %}
+<script src="/static/common.js?v={{ asset_v }}"></script>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/custos.js?v={{ asset_v }}"></script>
+{%- endblock %}

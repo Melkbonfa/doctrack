@@ -140,6 +140,10 @@ app.register_blueprint(pdr_bp)
 from missoes import missoes_bp, init_realtime as missoes_init_realtime
 app.register_blueprint(missoes_bp)
 
+# Módulo Custos — formação de custo de produto/projeto, montado sob /custos.
+from custos import custos_bp, init_realtime as custos_init_realtime
+app.register_blueprint(custos_bp)
+
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
 socketio = SocketIO(
     app,
@@ -155,6 +159,7 @@ entregaveis_init_realtime(socketio, publish_event, AuditLog, EventType)
 documentos_init_realtime(socketio, publish_event, AuditLog, EventType)
 pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
 missoes_init_realtime(socketio, publish_event, AuditLog, EventType)
+custos_init_realtime(socketio, publish_event, AuditLog, EventType)
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -2989,9 +2994,14 @@ def rodar_tarefas_diarias():
     motivo para perder também a das missões.
     """
     resultado = {}
+    from custos.cambio import sincronizar as _sincronizar_cambio
     for nome, fn in (("equipamentos", _snapshot_do_dia),
                      ("missoes", _snapshot_missoes_do_dia),
                      ("projetos", _snapshot_projetos_do_dia),
+                     # Busca uma janela de dias, não "hoje": o agendador dispara
+                     # no primeiro tick após a virada, sempre antes de a PTAX
+                     # daquele dia existir. Falha vira [WARN] e não trava as demais.
+                     ("cambio", _sincronizar_cambio),
                      ("auditoria", _purgar_auditoria)):
         try:
             resultado[nome] = fn()
