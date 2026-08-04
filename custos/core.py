@@ -209,6 +209,17 @@ def diagnostico(composicoes, referencia=None, referencia_data=None, hoje_iso=Non
     """
     comps = list(composicoes)
     n = len(comps)
+
+    # Sem composições não há o que avaliar. Sem esta guarda, todas as razões dão
+    # 1.0 (nada falha porque nada existe) e um módulo vazio exibiria um índice
+    # alto — o oposto do que o número deveria comunicar.
+    if not n:
+        return {
+            "indice": None, "vazio": True, "verificacoes": [],
+            "total": 0, "ok": 0, "falhas": 0, "avisos": 0, "observacoes": 0,
+            "mensagem": "Nenhuma composição cadastrada — nada a avaliar ainda.",
+        }
+
     checks = []
 
     def add(cid, sev, titulo, qtd, detalhe, frac, alvo):
@@ -307,6 +318,7 @@ def diagnostico(composicoes, referencia=None, referencia_data=None, hoje_iso=Non
 
     return {
         "indice": indice,
+        "vazio": False,
         "verificacoes": checks,
         "total": len(checks),
         "ok": sum(1 for c in checks if c["ok"]),
