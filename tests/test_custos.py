@@ -347,8 +347,21 @@ def test_lancamento_em_moeda_congela_a_taxa(client, auth_headers, gestor_token):
 
 # ── saúde ─────────────────────────────────────────────────────────────────────
 
-def test_saude_sem_composicoes(client, auth_headers, gestor_token):
+def test_saude_sem_composicoes_nao_inventa_indice(client, auth_headers, gestor_token):
+    """Sem esta guarda todas as razões dariam 1.0 — nada falha porque nada
+    existe — e um módulo vazio exibiria um índice alto, o oposto do que o
+    número deveria comunicar."""
     d = client.get(f"{BASE}/saude", headers=auth_headers(gestor_token)).get_json()
+    assert d["vazio"] is True
+    assert d["indice"] is None
+    assert d["verificacoes"] == []
+    assert d["mensagem"]
+
+
+def test_saude_com_composicao_volta_a_pontuar(client, auth_headers, gestor_token):
+    _criar(client, auth_headers, gestor_token)
+    d = client.get(f"{BASE}/saude", headers=auth_headers(gestor_token)).get_json()
+    assert d["vazio"] is False
     assert d["total"] > 0
     assert 0 <= d["indice"] <= 100
 

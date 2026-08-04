@@ -116,7 +116,9 @@ function fxCard(o){
 function metaReferencia(){
   return REF.data
     ? '<span style="color:var(--green)">● sincronizada</span> · PTAX venda de ' + esc(REF.data)
-    : '<span style="color:var(--amber)">● sem sincronização</span> · registre uma cotação manual';
+    : '<span style="color:var(--amber)">● nenhuma cotação no banco</span> · a sincronização com o ' +
+      'Banco Central roda com as tarefas diárias; em <b>Cotações</b> dá para forçar agora ou ' +
+      'registrar à mão';
 }
 
 /* ═══════════ VISÃO GERAL ═══════════ */
@@ -142,6 +144,18 @@ function renderVisao(){
         : (desvio < 0 ? "o portfólio fechou abaixo do orçado" : "acima do orçado")}
   ].map(k => '<div class="cs-kpi ' + k.c + '"><span class="l">' + k.l + '</span>' +
              '<div class="v">' + k.v + '</div><div class="f">' + k.f + "</div></div>").join("");
+
+  // Módulo recém-instalado: KPIs zerados sem explicação parecem defeito.
+  el("v-inicio").innerHTML = COMPS.length ? "" :
+    '<div class="cs-alert info"><span class="i">◈</span><div>' +
+    "<b>Nenhuma composição cadastrada ainda.</b>" +
+    "Uma composição é a folha de custo de um produto: identidade, taxa de câmbio travada e " +
+    "os lançamentos separados em <b>NRE</b> (desenvolvimento, amortiza sobre o volume) e " +
+    "<b>COGS</b> (mercadoria e importação, por unidade). Ao criar, a estrutura de custo de " +
+    "importação já vem montada — mercadoria, frete, Siscomex, os cinco tributos, despachante " +
+    "e reserva cambial — bastando ajustar valores e alíquotas.<br><br>" +
+    '<button class="btn btn-primary btn-sm" data-nova="1">+ Criar a primeira composição</button>' +
+    "</div></div>";
 
   const planUsadas = [...new Set(COMPS.map(c => c.taxa_planejamento))];
   const comRealizada = COMPS.find(c => c.taxa_realizada);
@@ -530,6 +544,20 @@ function anelSvg(s){
 
 async function renderSaude(){
   const d = await api("/custos/api/saude");
+  if(d.vazio){
+    // Sem composições não há índice — mostrar um número aqui daria a impressão
+    // de que o módulo foi avaliado e passou.
+    el("v-saude").innerHTML =
+      '<svg class="cs-ring" viewBox="0 0 54 54"><circle class="bg" cx="27" cy="27" r="22"/>' +
+      '<text x="27" y="32.5" style="font-size:13px;fill:var(--t4)">—</text></svg>' +
+      '<div class="cs-sb"><div class="cs-st">Saúde do módulo</div>' +
+      '<div class="cs-sp"><span class="cs-pill">' + esc(d.mensagem) + "</span></div></div>";
+    el("n-saude").textContent = "";
+    el("sd-kpis").innerHTML = "";
+    el("sd-lista").innerHTML = '<div class="cs-vazio">' + esc(d.mensagem) +
+      "<br>As verificações aparecem assim que a primeira composição existir.</div>";
+    return;
+  }
   const pil = (q, sev, lbl) => q
     ? '<span class="cs-pill"><i style="background:' + COR_SEV[sev] + '"></i>' + q + " " + lbl + "</span>" : "";
   const pills = pil(d.falhas, "falha", d.falhas === 1 ? "falha" : "falhas") +
