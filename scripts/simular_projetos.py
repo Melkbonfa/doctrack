@@ -25,7 +25,8 @@ app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-from models import db, bcrypt, Projeto, Entregavel, ProjetoMensal  # noqa: E402
+from models import (db, bcrypt, Projeto, Entregavel, ProjetoMensal,  # noqa: E402
+                    ProjetoSnapshot, User)
 db.init_app(app)
 bcrypt.init_app(app)
 
@@ -41,8 +42,22 @@ def datas_por_prazo(pct_prev):
     return ini.isoformat(), fim.isoformat()
 
 
-def entregaveis_lista(n_concluidos, n_pendentes, ini_iso):
-    """Gera entregáveis: alguns concluídos (com data) e alguns pendentes."""
+# Peso relativo por entregável: homologação/validação custam muito mais que um
+# treinamento. Sem isso o avanço tratava tudo como equivalente.
+PESOS = {
+    "Especificação técnica": 2, "Projeto mecânico": 5, "Projeto elétrico": 5,
+    "Protótipo": 8, "Testes de bancada": 4, "Documentação": 2,
+    "Homologação": 8, "Treinamento": 1, "Validação de campo": 5,
+    "Liberação final": 3,
+}
+
+
+def entregaveis_lista(n_concluidos, n_pendentes, ini_iso, atrasar=0):
+    """Gera entregáveis com peso e plano por tarefa.
+
+    `atrasar` = quantos pendentes recebem término previsto já vencido (para
+    demonstrar os alertas de atraso).
+    """
     nomes = [
         "Especificação técnica", "Projeto mecânico", "Projeto elétrico",
         "Protótipo", "Testes de bancada", "Documentação", "Homologação",
@@ -51,13 +66,20 @@ def entregaveis_lista(n_concluidos, n_pendentes, ini_iso):
     itens = []
     # datas de conclusão espalhadas nos últimos meses
     for i in range(n_concluidos):
+        nome = nomes[i % len(nomes)]
         dt_concl = (HOJE - timedelta(days=120 - i * 18)).isoformat()
-        itens.append(dict(tipo=nomes[i % len(nomes)], categoria="Produto",
-                          status="concluido", percentual=100,
+        itens.append(dict(tipo=nome, categoria="Produto",
+                          status="concluido", percentual=100, peso=PESOS.get(nome, 1),
+                          data_inicio_prev=ini_iso, data_fim_prev=dt_concl,
                           data_inicio=ini_iso, data_conclusao=dt_concl))
     for i in range(n_pendentes):
-        itens.append(dict(tipo=nomes[(n_concluidos + i) % len(nomes)], categoria="Produto",
-                          status="pendente", percentual=0,
+        nome = nomes[(n_concluidos + i) % len(nomes)]
+        # os primeiros `atrasar` já venceram; os demais vencem no futuro
+        delta = -(10 + i * 7) if i < atrasar else (15 + i * 12)
+        itens.append(dict(tipo=nome, categoria="Produto",
+                          status="pendente", percentual=0, peso=PESOS.get(nome, 1),
+                          data_inicio_prev=ini_iso,
+                          data_fim_prev=(HOJE + timedelta(days=delta)).isoformat(),
                           data_inicio=ini_iso, data_conclusao=""))
     return itens
 
@@ -75,8 +97,41 @@ def mensais_lista(total_ac, competencias):
     return out
 
 
+def _equipe():
+    """Usuários que podem receber entregáveis (técnicos e gestores)."""
+    return User.query.filter(User.ativo.is_(True),
+                             User.role.in_(("gestor", "tecnico"))).order_by(User.id).all()
+
+
+def _semear_snapshots(p, dias=63, passo=7):
+    """Reconstrói a série de indicadores dos últimos meses.
+
+    Não é número inventado: cada ponto usa `realizado_em`/`previsto_em` na data
+    e o custo acumulado até ali. Serve para a aba de tendência já nascer com
+    história em vez de esperar semanas de uso.
+    """
+    custos = sorted((m.competencia, m.custo_mes or 0.0) for m in p.mensais)
+    bac = p.orcamento or 0.0
+    for d in range(dias, -1, -passo):
+        ref = HOJE - timedelta(days=d)
+        comp = f"{ref.year:04d}-{ref.month:02d}"
+        prev = p.previsto_em(comp)
+        real = p.realizado_em(ref)
+        ac = sum(v for c, v in custos if c <= comp)
+        spi = (real / prev) if prev else None
+        ev = bac * real / 100 if bac else None
+        cpi = (ev / ac) if (ev is not None and ac) else None
+        db.session.add(ProjetoSnapshot(
+            projeto_id=p.id, data=ref.isoformat(), avanco=real,
+            pct_previsto=prev,
+            spi=round(spi, 3) if spi is not None else None,
+            cpi=round(cpi, 3) if cpi is not None else None,
+            ac=round(ac, 2) if ac else None, bac=bac or None))
+
+
 def criar_projeto(nome, tipo, sku, descricao, orcamento, pct_prev,
-                  n_concluidos, n_pendentes, total_ac, competencias):
+                  n_concluidos, n_pendentes, total_ac, competencias,
+                  status="execucao", atrasar=0, replanejou=None):
     # remove projeto homônimo (recriação limpa)
     antigo = Projeto.query.filter_by(nome=nome).first()
     if antigo:
@@ -86,21 +141,36 @@ def criar_projeto(nome, tipo, sku, descricao, orcamento, pct_prev,
     ini_iso, fim_iso = datas_por_prazo(pct_prev)
     p = Projeto(
         nome=nome, tipo=tipo, sku=sku, descricao=descricao, ano=HOJE.year,
-        ativo=True, orcamento=float(orcamento),
+        ativo=True, status=status, orcamento=float(orcamento),
         data_inicio_prev=ini_iso, data_inicio_real=ini_iso, data_fim_prev=fim_iso,
         lancamento=str(HOJE.year),
     )
     db.session.add(p)
     db.session.flush()
 
-    for e in entregaveis_lista(n_concluidos, n_pendentes, ini_iso):
-        db.session.add(Entregavel(projeto_id=p.id, **e))
+    equipe = _equipe()
+    for i, e in enumerate(entregaveis_lista(n_concluidos, n_pendentes, ini_iso, atrasar)):
+        ent = Entregavel(projeto_id=p.id, **e)
+        p.entregaveis.append(ent)   # precisa estar na sessão ANTES do vínculo N:N
+        # distribui responsáveis reais (FK) — é o que alimenta a carga por pessoa
+        if equipe:
+            ent.responsaveis_users = [equipe[i % len(equipe)]]
+            ent.responsaveis = equipe[i % len(equipe)].nome.split(" ")[0]
 
     for comp, valor in mensais_lista(total_ac, competencias):
-        db.session.add(ProjetoMensal(projeto_id=p.id, competencia=comp, custo_mes=valor))
+        p.mensais.append(ProjetoMensal(competencia=comp, custo_mes=valor))
 
     db.session.flush()
     p.recompute_acumulados()
+
+    # Linha de base v1 (o plano original) e, se houve replanejamento, a v2.
+    p.registrar_baseline("simulacao@doctrack", motivo="Linha de base inicial")
+    if replanejou:
+        p.data_fim_prev = (date.fromisoformat(fim_iso)
+                           + timedelta(days=replanejou[0])).isoformat()
+        p.registrar_baseline("simulacao@doctrack", motivo=replanejou[1])
+
+    _semear_snapshots(p)
     db.session.commit()
     return p
 
@@ -116,6 +186,8 @@ with app.app_context():
         orcamento=100000, pct_prev=75,
         n_concluidos=3, n_pendentes=7,        # avanço = 30%
         total_ac=70000, competencias=comps,
+        atrasar=4,                            # 4 entregáveis já vencidos
+        replanejou=(60, "Atraso na homologação do fornecedor"),
     )
 
     # 🟡 ZONA DE ALERTA (amarelo): SPI ~0.90, CPI ~0.90
@@ -126,6 +198,7 @@ with app.app_context():
         orcamento=100000, pct_prev=69,
         n_concluidos=5, n_pendentes=3,        # avanço = 62%
         total_ac=69000, competencias=comps,
+        atrasar=1,
     )
 
     # 🟢 SAUDÁVEL (verde): SPI ~1.05, CPI ~1.05 (adiantado e dentro do orçamento)
