@@ -670,9 +670,13 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
   position:sticky;top:12px;
 }
 .equip-modal-body .equip-panels{flex:1;min-width:0;}
-.equip-rail-group{display:flex;flex-direction:column;gap:2px;}
-.equip-rail-group + .equip-rail-group{margin-top:14px;}
-.equip-rail-cap{
+/* Escopadas como o resto do rail, e não soltas: sem o container (processo
+   servindo template velho de um cache anterior ao deploy) elas montariam os
+   grupos em colunas lado a lado sobre a régua horizontal — um layout quebrado
+   em vez do layout antigo. Escopadas, a régua antiga sobrevive intacta. */
+.equip-modal-body .equip-rail-group{display:flex;flex-direction:column;gap:2px;}
+.equip-modal-body .equip-rail-group + .equip-rail-group{margin-top:14px;}
+.equip-modal-body .equip-rail-cap{
   font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
   color:var(--t4);padding:0 10px 5px;
 }
@@ -694,9 +698,9 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
     position:static;border-right:none;border-bottom:1px solid var(--border-soft);
     padding:0 0 10px;gap:14px;}
   .equip-modal-body .equip-panels{width:100%;}
-  .equip-rail-group{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;}
-  .equip-rail-group + .equip-rail-group{margin-top:0;}
-  .equip-rail-cap{padding:0 4px 0 0;}
+  .equip-modal-body .equip-rail-group{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;}
+  .equip-modal-body .equip-rail-group + .equip-rail-group{margin-top:0;}
+  .equip-modal-body .equip-rail-cap{padding:0 4px 0 0;}
   .equip-modal-body .equip-modal-tab{width:auto;border-left:none;
     border-bottom:2px solid transparent;border-radius:7px 7px 0 0;}
   .equip-modal-body .equip-modal-tab.active{border-left-color:transparent;
