@@ -13,6 +13,15 @@
 
 sessionStorage.setItem("dt_module", "custos");
 
+function userObj(){
+  try{ return JSON.parse(localStorage.getItem("doctrack_user") || "{}") || {}; }
+  catch(e){ return {}; }
+}
+const ROLE = userObj().role || "";
+// Mesmo corte do backend. O front não decide nada — só evita mostrar uma tela
+// inteira de 403 para quem já se sabe que não pode entrar.
+const PODE_USAR = ROLE === "admin" || ROLE === "gestor";
+
 let META = null;
 let COMPS = [];
 let ATUAL = null;
@@ -956,11 +965,27 @@ let _tf = null;
     _tf = setTimeout(() => carregarTudo(), 280);
   }));
 
-document.addEventListener("DOMContentLoaded", () => {
-  if(typeof initTheme === "function") initTheme();
-  carregarTudo();
-});
-if(document.readyState !== "loading"){
+/* ═══════════ BOOT ═══════════
+   style.css esconde #app por padrão e cada módulo o revela depois de conferir a
+   sessão — é o que impede a tela piscar antes de saber se há usuário. Sem esta
+   função a página carrega inteira e fica invisível. */
+function boot(){
+  if(!token()){ window.location.href = "/"; return; }
+  if(!PODE_USAR){ window.location.href = "/hub/pde"; return; }
+
+  document.getElementById("app").style.display = "block";
+
+  const u = userObj();
+  const nome = u.nome || "—";
+  el("nav-name").textContent = nome;
+  el("nav-role").textContent = (u.role || "").toUpperCase();
+  el("nav-avatar").textContent = nome.charAt(0).toUpperCase();
+  const topo = el("top-avatar");
+  if(topo) topo.textContent = nome.charAt(0).toUpperCase();
+
   if(typeof initTheme === "function") initTheme();
   carregarTudo();
 }
+
+if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+else boot();

@@ -543,3 +543,18 @@ def test_pagina_responde(client):
     res = client.get("/custos/")
     assert res.status_code == 200
     assert b"custos.js" in res.data
+
+
+def test_front_revela_o_container_do_app():
+    """`style.css` esconde `#app` por padrão e cada módulo o revela no boot,
+    depois de conferir a sessão. Sem isso a página carrega inteira e fica
+    invisível — foi exatamente o que aconteceu na primeira subida, e não dá
+    para pegar inspecionando o DOM, porque os elementos existem normalmente.
+    """
+    from pathlib import Path
+
+    js = Path(__file__).resolve().parent.parent / "static" / "custos.js"
+    fonte = js.read_text(encoding="utf-8")
+    assert 'getElementById("app").style.display = "block"' in fonte
+    assert "if(!token())" in fonte          # sem sessão, volta ao login
+    assert "if(!PODE_USAR)" in fonte        # sem perfil, volta ao hub

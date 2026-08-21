@@ -19,6 +19,15 @@ Rotas:
   GET    /api/documentos/arquivo         — serve um arquivo (preview/download)
   PUT    /api/documento/<id>/status      — troca de status com checagem de versão
 
+Anexos do EQUIPAMENTO (não de um tipo de documento) — docs agregados e o
+repositório de software/firmware. Ver `EquipamentoArquivo`:
+
+  GET    /api/equipamentos/<id>/anexos      — lista (?categoria= filtra)
+  POST   /api/equipamentos/<id>/anexos      — envia (admin/gestor)
+  PATCH  /api/equipamentos/anexos/<id>      — corrige metadados (admin/gestor)
+  GET    /api/equipamentos/anexos/<id>/conteudo — baixa/visualiza
+  DELETE /api/equipamentos/anexos/<id>      — soft delete (admin/gestor)
+
 Identidade (equipamento / SKU / fabricante) é canônica no Equipamento e imutável
 pelo documento — ver módulo Equipamentos. O caminho da pasta também: o documento
 só guarda override (ver Documento.armazenamento_efetivo).
@@ -34,7 +43,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from models import (
     db, Documento, DocumentoHistorico, DocumentoArquivo,
-    Equipamento, EquipamentoPasta, AuditLog, User,
+    Equipamento, EquipamentoPasta, EquipamentoArquivo, AuditLog, User,
     SETORES, SETORES_TODOS, STATUS_MAP,
     TIPOS_DOC_PRE, TIPOS_DOC_FABRICANTE, TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS,
     SETOR_DO_TIPO, TIPOS_DOC_LABELS, MOTIVOS_NA, MOTIVO_NA_LIVRE,
@@ -1171,17 +1180,28 @@ def servir_arquivo():
 # sistema já tem). Ler e baixar é de qualquer autenticado — quem acessa o
 # DocTrack já acessa as pastas da rede, então restringir download seria teatro.
 
-def _sha_orfao(sha, ignorar_id=None):
+def _sha_orfao(sha, ignorar_id=None, ignorar_anexo_id=None):
     """True se nenhuma linha ATIVA ainda aponta para este blob (dedup por conteúdo).
 
     Linha inativa não segura o blob: ela sobrevive só para o histórico (quem
     enviou, quando, com que nome) e o conteúdo é justamente o que se quis
     apagar. Quem tentar baixá-la recebe 404 em `servir_arquivo_doc`.
+
+    As DUAS tabelas contam. O blob é endereçado por conteúdo e compartilhado
+    entre elas: o mesmo PDF enviado como anexo de documento e como doc agregado
+    do equipamento ocupa um único arquivo em disco. Olhar só uma tabela faria a
+    remoção de um lado apagar o conteúdo que o outro ainda exibe.
     """
     q = DocumentoArquivo.query.filter_by(sha256=sha, ativo=True)
     if ignorar_id is not None:
         q = q.filter(DocumentoArquivo.id != ignorar_id)
-    return q.first() is None
+    if q.first() is not None:
+        return False
+
+    qa = EquipamentoArquivo.query.filter_by(sha256=sha, ativo=True)
+    if ignorar_anexo_id is not None:
+        qa = qa.filter(EquipamentoArquivo.id != ignorar_anexo_id)
+    return qa.first() is None
 
 
 @documentos_bp.route("/api/documentos/<int:doc_id>/arquivos", methods=["GET"])
@@ -1358,3 +1378,216 @@ def update_status(doc_id):
           caller)
     emitir_eventos_sync(eventos_sync, caller)
     return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200
+
+
+# ── API — ANEXOS DO EQUIPAMENTO (docs agregados + software/firmware) ─────────
+# Ficam aqui, e não no bloco de equipamentos do servidor.py, porque tudo que
+# torna estas rotas delicadas — allowlist de extensão, blob endereçado por
+# conteúdo, dedup, soft delete — já mora neste módulo. Separá-las significaria
+# manter duas cópias da mesma regra de arquivo.
+
+def _anexo_ordenavel(a):
+    """Chave de ordenação 'mais novo primeiro' (usada com reverse=True).
+
+    Para software/firmware o que vale é a data de liberação do FABRICANTE, não a
+    de upload: quem cadastra hoje a versão do ano passado não pode empurrá-la
+    para o topo do repositório. Sem data de release, a linha cai para o fim
+    (string vazia é menor que qualquer data ISO) e o desempate é o envio.
+    """
+    return (a.data_release or "", a.enviado_em or datetime.min)
+
+
+def _anexos_do(equip_id, categoria=None):
+    q = EquipamentoArquivo.query.filter_by(equipamento_id=equip_id, ativo=True)
+    if categoria:
+        q = q.filter_by(categoria=categoria)
+    return sorted(q.all(), key=_anexo_ordenavel, reverse=True)
+
+
+@documentos_bp.route("/api/equipamentos/<int:equip_id>/anexos", methods=["GET"])
+@jwt_required()
+def listar_anexos_equipamento(equip_id):
+    """Anexos do equipamento. `?categoria=` filtra; sem ele, vêm todos.
+
+    Uma chamada só devolve as duas abas (agregados e repositório) — o modal abre
+    com os dois painéis prontos em vez de disparar um fetch por aba.
+    """
+    equip = db.session.get(Equipamento, equip_id)
+    if not equip or not equip.ativo:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+
+    categoria = (request.args.get("categoria") or "").strip()
+    if categoria and categoria not in EquipamentoArquivo.CATEGORIAS:
+        return jsonify({"erro": "Categoria inválida"}), 400
+
+    itens = _anexos_do(equip.id, categoria or None)
+    return jsonify({"anexos": [a.to_dict() for a in itens]}), 200
+
+
+@documentos_bp.route("/api/equipamentos/<int:equip_id>/anexos", methods=["POST"])
+@require_role("admin", "gestor")
+def enviar_anexo_equipamento(equip_id):
+    """Envia um doc agregado ou uma versão de software/firmware (multipart).
+
+    A allowlist depende da categoria: 'agregado' aceita o mesmo que um documento
+    (PDF/Office/imagem) e nada mais; 'software' e 'firmware' aceitam TAMBÉM os
+    binários (ver `arquivos_store.EXT_BINARIAS`), com teto próprio de tamanho.
+    Aceitar binário em 'agregado' faria a categoria virar a porta larga por onde
+    tudo entra.
+    """
+    # ANTES de qualquer leitura do corpo (ler `request.form` já dispara o parse):
+    # esta é a única rota que aceita meio giga, e o teto do app segue em 80 MB.
+    # A categoria só se conhece depois do parse, então o corpo entra sob o teto
+    # grande e o teto certo é aplicado na gravação, em `guardar(limite=...)` —
+    # e a rota é de admin/gestor, não de qualquer autenticado.
+    request.max_content_length = arquivos_store.MAX_BIN_BYTES
+
+    caller = get_jwt_identity()
+    equip = db.session.get(Equipamento, equip_id)
+    if not equip or not equip.ativo:
+        return jsonify({"erro": "Equipamento não encontrado"}), 404
+
+    categoria = (request.form.get("categoria") or "agregado").strip()
+    if categoria not in EquipamentoArquivo.CATEGORIAS:
+        return jsonify({"erro": "Categoria inválida"}), 400
+
+    enviado = request.files.get("arquivo")
+    if not enviado or not (enviado.filename or "").strip():
+        return jsonify({"erro": "Nenhum arquivo enviado"}), 400
+
+    versionada = categoria in EquipamentoArquivo.CATEGORIAS_VERSIONADAS
+    permitidas = (arquivos_store.EXT_PERMITIDAS | arquivos_store.EXT_BINARIAS
+                  if versionada else arquivos_store.EXT_PERMITIDAS)
+    limite = arquivos_store.MAX_BIN_BYTES if versionada else arquivos_store.MAX_BYTES
+    limite_mb = arquivos_store.MAX_BIN_MB if versionada else arquivos_store.MAX_MB
+
+    nome = os.path.basename(enviado.filename.strip())
+    if not arquivos_store.extensao_ok(nome, permitidas):
+        aceitos = ", ".join(sorted(e.lstrip(".") for e in permitidas))
+        return jsonify({"erro": f"Formato não aceito. Aceitos: {aceitos}"}), 415
+
+    data_release = (request.form.get("data_release") or "").strip()
+    ok_data, _ = _parse_data(data_release)
+    if not ok_data:
+        return jsonify({"erro": "Data de liberação inválida (use AAAA-MM-DD)"}), 400
+
+    try:
+        sha, tamanho = arquivos_store.guardar(enviado.stream, nome,
+                                              permitidas=permitidas, limite=limite)
+    except arquivos_store.ArquivoGrandeDemais:
+        return jsonify({"erro": f"Arquivo maior que {limite_mb} MB"}), 413
+    except OSError as e:
+        return jsonify({"erro": f"Erro ao gravar o arquivo: {str(e)}"}), 500
+
+    anexo = EquipamentoArquivo(
+        equipamento_id=equip.id,
+        categoria=categoria,
+        titulo=(request.form.get("titulo") or "").strip()[:200],
+        versao_rotulo=(request.form.get("versao_rotulo") or "").strip()[:60] if versionada else "",
+        data_release=data_release if versionada else "",
+        notas=(request.form.get("notas") or "").strip(),
+        sha256=sha,
+        nome_original=nome,
+        ext=arquivos_store.ext_de(nome),
+        mime=arquivos_store.mime_de(nome),
+        tamanho=tamanho,
+        enviado_por=caller,
+    )
+    db.session.add(anexo)
+    db.session.flush()
+
+    log_action(caller, "UPLOAD", entidade=equip.nome, campo=f"anexo:{categoria}",
+               antigo="", novo=nome, ip=get_client_ip())
+    return jsonify({"anexo": anexo.to_dict()}), 201
+
+
+@documentos_bp.route("/api/equipamentos/anexos/<int:anexo_id>", methods=["PATCH"])
+@require_role("admin", "gestor")
+def editar_anexo_equipamento(anexo_id):
+    """Corrige os metadados (título, versão, data, notas) sem reenviar o arquivo.
+
+    O binário não muda: errar o rótulo da versão é o erro provável, e reenviar
+    300 MB por causa de um "v2.4.1" digitado como "v2.41" seria absurdo.
+    """
+    caller = get_jwt_identity()
+    anexo = db.session.get(EquipamentoArquivo, anexo_id)
+    if not anexo or not anexo.ativo:
+        return jsonify({"erro": "Anexo não encontrado"}), 404
+
+    data = request.get_json(silent=True) or {}
+    versionada = anexo.categoria in EquipamentoArquivo.CATEGORIAS_VERSIONADAS
+
+    if "data_release" in data and versionada:
+        valor = (data.get("data_release") or "").strip()
+        ok_data, _ = _parse_data(valor)
+        if not ok_data:
+            return jsonify({"erro": "Data de liberação inválida (use AAAA-MM-DD)"}), 400
+        anexo.data_release = valor
+    if "titulo" in data:
+        anexo.titulo = (data.get("titulo") or "").strip()[:200]
+    if "versao_rotulo" in data and versionada:
+        anexo.versao_rotulo = (data.get("versao_rotulo") or "").strip()[:60]
+    if "notas" in data:
+        anexo.notas = (data.get("notas") or "").strip()
+
+    log_action(caller, "UPDATE", entidade=(anexo.titulo or anexo.nome_original),
+               campo=f"anexo:{anexo.categoria}", ip=get_client_ip())
+    return jsonify({"anexo": anexo.to_dict()}), 200
+
+
+@documentos_bp.route("/api/equipamentos/anexos/<int:anexo_id>/conteudo", methods=["GET"])
+@jwt_required()
+def servir_anexo_equipamento(anexo_id):
+    """Serve o anexo. PDF/imagem podem abrir inline; binário, NUNCA.
+
+    O `as_attachment` forçado no binário não é detalhe de conforto: com mime
+    genérico e Content-Disposition de anexo, o navegador não tem como interpretar
+    o conteúdo — ele desce para o disco e a decisão de executá-lo é de quem
+    baixou, fora da plataforma.
+    """
+    anexo = db.session.get(EquipamentoArquivo, anexo_id)
+    if not anexo or not anexo.ativo:
+        return jsonify({"erro": "Anexo não encontrado"}), 404
+
+    real = arquivos_store.caminho_de(anexo.sha256)
+    if not os.path.isfile(real):
+        return jsonify({"erro": "Arquivo não está mais disponível no servidor"}), 404
+
+    binario = arquivos_store.ext_de(anexo.nome_original) in arquivos_store.EXT_BINARIAS
+    inline = (not binario
+              and arquivos_store.abre_inline(anexo.nome_original)
+              and request.args.get("download") != "1")
+    try:
+        return send_file(
+            real,
+            as_attachment=not inline,
+            download_name=anexo.nome_original or f"anexo{anexo.ext or ''}",
+            mimetype=("application/octet-stream" if binario else (anexo.mime or None)),
+            conditional=True,
+        )
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao abrir arquivo: {str(e)}"}), 500
+
+
+@documentos_bp.route("/api/equipamentos/anexos/<int:anexo_id>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def remover_anexo_equipamento(anexo_id):
+    """Remove o anexo. Soft delete primeiro; o blob só sai se ficar órfão —
+    mesma ordem (e mesmo motivo) do `remover_arquivo_doc`."""
+    caller = get_jwt_identity()
+    anexo = db.session.get(EquipamentoArquivo, anexo_id)
+    if not anexo:
+        return jsonify({"erro": "Anexo não encontrado"}), 404
+    if not anexo.ativo:
+        return jsonify({"erro": "Anexo já removido"}), 404
+
+    equip = db.session.get(Equipamento, anexo.equipamento_id)
+    nome, sha, categoria = anexo.nome_original, anexo.sha256, anexo.categoria
+    anexo.ativo = False
+
+    log_action(caller, "DELETE", entidade=(equip.nome if equip else ""),
+               campo=f"anexo:{categoria}", antigo=nome, novo="", ip=get_client_ip())
+    if _sha_orfao(sha, ignorar_anexo_id=anexo_id):
+        arquivos_store.remover(sha)
+
+    return jsonify({"ok": True}), 200

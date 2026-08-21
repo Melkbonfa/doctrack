@@ -91,6 +91,11 @@ app.config["BCRYPT_LOG_ROUNDS"]              = int(os.environ.get("BCRYPT_LOG_RO
 # Teto de corpo da requisição. Vale para TODO upload (planilha de import,
 # arquivo de documento). Antes disto não havia teto nenhum: encher o disco do
 # servidor era um POST. Ajuste por DOCTRACK_UPLOAD_MAX_MB.
+#
+# O teto do repositório de software/firmware é MAIOR (500 MB), e continua fora
+# daqui: a rota que o atende levanta o limite dela sozinha
+# (`request.max_content_length`, Flask 3.1+). Subir o teto global para acomodá-la
+# abriria 500 MB de corpo em TODA rota do sistema por causa de uma só.
 import arquivos_store
 app.config["MAX_CONTENT_LENGTH"]             = arquivos_store.MAX_BYTES
 
@@ -99,7 +104,9 @@ app.config["MAX_CONTENT_LENGTH"]             = arquivos_store.MAX_BYTES
 def _erro_arquivo_grande(_e):
     """O Flask aborta com HTML quando o corpo estoura MAX_CONTENT_LENGTH; o
     front faz res.json() em toda resposta, então precisa ser JSON."""
-    return jsonify({"erro": f"Arquivo maior que {arquivos_store.MAX_MB} MB"}), 413
+    from flask import request as _req
+    limite = (_req.max_content_length or arquivos_store.MAX_BYTES) // (1024 * 1024)
+    return jsonify({"erro": f"Arquivo maior que {limite} MB"}), 413
 
 
 from models import (
