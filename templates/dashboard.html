@@ -253,11 +253,14 @@
     <!-- Cabeçalho de identidade do equipamento (preenchido por renderEquipHeader) -->
     <div id="equip-header"></div>
 
-    <!-- Abas dos 9 tipos de documento -->
-    <div class="equip-modal-tabs" id="equip-tabs" role="tablist"></div>
-
-    <!-- Painéis dos tipos (um por tipo, preenchido por renderEquipModal) -->
-    <div class="equip-panels" id="equip-panels"></div>
+    <!-- Rail de abas à esquerda + painel à direita. A régua era horizontal e
+         rolava: com 12 tipos ligados mais as abas de anexo, os últimos itens
+         ficavam fora da tela. Na vertical nada transborda e os pontinhos de
+         status ficam numa coluna só, legíveis de uma vez. -->
+    <div class="equip-modal-body">
+      <div class="equip-modal-tabs" id="equip-tabs" role="tablist" aria-orientation="vertical"></div>
+      <div class="equip-panels" id="equip-panels"></div>
+    </div>
 
     <div class="modal-footer" style="justify-content:space-between">
       <button class="btn btn-danger btn-sm" id="btn-del-equip" type="button" onclick="deleteEquip()" style="display:none">Excluir equipamento</button>

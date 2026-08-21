@@ -638,7 +638,9 @@ body.theme-light .diag-aviso{color:#b45309}
 .audit-date-field input[type=date]{padding:7px 10px;color-scheme:dark}
 body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 
-/* ── MODAL DE EQUIPAMENTO (abas) ────────────────────────────────────────── */
+/* ── ABAS DE MODAL (base horizontal) ────────────────────────────────────── */
+/* Compartilhada por quatro modais: ficha do equipamento, consumível, projeto e
+   o card do equipamento — este último sobrescreve tudo abaixo, em .equip-modal-body. */
 .equip-modal-tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--border-soft);margin:4px 0 16px;}
 .equip-modal-tab{
   flex-shrink:0;text-align:center;padding:9px 13px;font-size:12px;cursor:pointer;background:none;border:none;
@@ -651,6 +653,56 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
 .equip-tab-panel.active{display:block;}
 .equip-modal-tab.tab-add{color:var(--t4);font-style:italic;}
 .equip-modal-tab.tab-add.active{color:var(--t2);border-bottom-color:var(--t3);}
+
+/* ── CARD DO EQUIPAMENTO: rail vertical ─────────────────────────────────── */
+/* Só aqui. A régua horizontal já rolava com 8 abas e ficou impraticável com 10;
+   em coluna cabem os 12 tipos mais as abas de anexo sem rolagem, e os pontinhos
+   de status viram uma coluna alinhada — dá para ler o estado do equipamento
+   inteiro de relance, o que a horizontal nunca permitiu. Os outros três modais
+   que usam estas classes têm 3 ou 4 abas e seguem na régua de cima. */
+.equip-modal-body{display:flex;gap:18px;align-items:flex-start;margin:4px 0 0;}
+.equip-modal-body .equip-modal-tabs{
+  flex-direction:column;gap:2px;width:210px;flex:none;overflow:visible;
+  border-bottom:none;border-right:1px solid var(--border-soft);
+  padding-right:12px;margin:0;
+  /* O overlay do modal é quem rola: com o rail grudado, trocar de aba a partir
+     do fim de um painel longo não obriga a subir a página inteira. */
+  position:sticky;top:12px;
+}
+.equip-modal-body .equip-panels{flex:1;min-width:0;}
+.equip-rail-group{display:flex;flex-direction:column;gap:2px;}
+.equip-rail-group + .equip-rail-group{margin-top:14px;}
+.equip-rail-cap{
+  font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+  color:var(--t4);padding:0 10px 5px;
+}
+.equip-modal-body .equip-modal-tab{
+  text-align:left;padding:8px 10px;width:100%;display:flex;gap:8px;
+  border-bottom:none;border-left:2px solid transparent;border-radius:0 7px 7px 0;
+}
+.equip-modal-body .equip-modal-tab:hover{color:var(--t2);background:var(--bg-elevated);}
+.equip-modal-body .equip-modal-tab.active{border-bottom-color:transparent;
+  border-left-color:var(--cyan-brand);background:var(--bg-elevated);}
+.equip-modal-body .equip-modal-tab.tab-add.active{border-left-color:var(--t3);}
+.equip-modal-tab .tab-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Tela estreita: o rail volta a ser horizontal, mas em linhas que quebram —
+   nunca com a barra de rolagem que motivou esta mudança. */
+@media (max-width:900px){
+  .equip-modal-body{flex-direction:column;gap:12px;}
+  .equip-modal-body .equip-modal-tabs{width:auto;flex-direction:row;flex-wrap:wrap;
+    position:static;border-right:none;border-bottom:1px solid var(--border-soft);
+    padding:0 0 10px;gap:14px;}
+  .equip-modal-body .equip-panels{width:100%;}
+  .equip-rail-group{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;}
+  .equip-rail-group + .equip-rail-group{margin-top:0;}
+  .equip-rail-cap{padding:0 4px 0 0;}
+  .equip-modal-body .equip-modal-tab{width:auto;border-left:none;
+    border-bottom:2px solid transparent;border-radius:7px 7px 0 0;}
+  .equip-modal-body .equip-modal-tab.active{border-left-color:transparent;
+    border-bottom-color:var(--cyan-brand);}
+  .equip-modal-body .equip-modal-tab.tab-add.active{border-bottom-color:var(--t3);}
+}
 .man-lang-toggle{display:flex;gap:6px;margin-bottom:12px;}
 
 /* Painel do documento: seções */
@@ -759,6 +811,20 @@ body.theme-light .audit-date-field input[type=date]{color-scheme:light}
   background:color-mix(in srgb, var(--red) 8%, transparent);}
 .arq-btn.arq-btn-add{border-style:dashed;color:var(--cyan);}
 .arq-btn.arq-btn-add:hover{border-style:solid;}
+
+/* Anexos do equipamento: docs agregados e repositório de software/firmware.
+   A versão corrente é a única informação que alguém procura com pressa — daí a
+   borda em cyan, que a separa do histórico sem precisar ler as datas. */
+.anexo-versao{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;
+  background:color-mix(in srgb, var(--cyan) 14%, transparent);color:var(--cyan);
+  font-size:10.5px;font-weight:700;letter-spacing:.2px;vertical-align:middle;}
+.anexo-release{color:var(--t3);}
+.anexo-notas{color:var(--t2);font-style:italic;}
+.arquivo-row.anexo-atual{border-color:var(--cyan);
+  background:color-mix(in srgb, var(--cyan) 5%, var(--bg-elevated));}
+.arquivo-row.anexo-atual:hover{border-color:var(--cyan);}
+.anexo-form{padding:12px;margin:8px 0;border:1px dashed var(--border-mid);border-radius:8px;
+  background:var(--bg-elevated);}
 
 /* Visualizador de documento (docx) */
 .docview-modal{width:min(940px,94vw)!important;max-width:min(940px,94vw)!important;height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden;}

@@ -14,6 +14,52 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Anexos do equipamento: docs agregados e repositório de software/firmware
+O card do equipamento só comportava os 12 tipos canônicos de documento. Um laudo
+de EMC, um certificado do fabricante ou o instalador do software não são nenhum
+deles — e forçá-los num tipo existente sujaria a completude, porque o denominador
+do ICE conta tipos, não arquivos. Na prática esses arquivos ficavam só na pasta de
+rede, sem nada na plataforma apontando para eles.
+
+- **Adicionado** a aba **Docs agregados** no card do equipamento (módulo
+  Documentos): documentos avulsos do equipamento, **fora** da completude. Guardar
+  um arquivo ali não mexe no índice de ninguém.
+- **Adicionado** a aba **Software e Firmware** — repositório das versões
+  liberadas pelo fabricante, para consulta e download. A ordem é pela **data de
+  liberação**, não pela do envio: cadastrar hoje a versão do ano passado não a
+  coloca no topo. A versão corrente de cada categoria fica destacada.
+- **Adicionado** allowlist de binários (`.zip`, `.7z`, `.bin`, `.hex`, `.img`,
+  `.dfu`, `.exe`, `.msi`) com teto próprio de 500 MB
+  (`DOCTRACK_UPLOAD_BIN_MAX_MB`). É **separada** da allowlist de documentos de
+  propósito: só o repositório de software/firmware aceita binário, e o campo
+  "Arquivos" de uma IT continua recusando executável. O binário nunca abre
+  inline — desce sempre como anexo, com mime genérico.
+- **Corrigido** a remoção de arquivo, que consultava só `documento_arquivos` ao
+  decidir se o blob virou órfão. Como o armazenamento é endereçado por conteúdo,
+  o mesmo PDF enviado nos dois lugares ocupa um arquivo só: remover de um lado
+  apagaria o conteúdo que o outro ainda exibe.
+- **Alterado** a régua de abas do card, que virou um **rail vertical** à esquerda,
+  agrupado em "Documentos" e "Equipamento". A régua horizontal já rolava com 8
+  abas e ficou impraticável com 10; em coluna cabem os 12 tipos mais as abas de
+  anexo sem rolagem nenhuma, e os pontinhos de status ficam numa coluna alinhada
+  — dá para ler o estado do equipamento inteiro de uma vez, o que a régua
+  horizontal nunca permitiu. Abaixo de 900px de largura ele volta a ser
+  horizontal, mas quebrando em linhas em vez de rolar. As classes são
+  compartilhadas com os modais de ficha do equipamento, consumível e projeto: o
+  rail é escopado em `.equip-modal-body`, e esses três seguem na régua horizontal.
+- **Adicionado** a migration `015_anexos_equipamento.py` e
+  `tests/test_equipamento_anexos.py` (19 testes).
+
+### "Código do Doc" virou "Versionamento" nos manuais
+Nos manuais o campo nunca guardou código de documento: guarda a versão do manual
+do fabricante ("Rev. C", "v2.1"). O rótulo antigo só descrevia o que o campo faz
+no setor PRE, onde IT e checklists têm código próprio.
+
+- **Alterado** o rótulo do campo para **Versionamento** em todos os tipos do setor
+  Manuais (Manual do Usuário PT/ES, Manual de Serviço, Spare Parts, Dossiê, Guia
+  de Instalação, QI/QO/QD). No PRE segue "Código do Doc". A coluna do banco
+  (`codigo_doc`) e a API não mudam — nenhum dado precisa ser migrado.
+
 ### Exportações — formato, filtros e permissão
 Cada módulo ganhou seu export em momento diferente e nenhum olhou para o
 anterior. O resultado eram três convenções de planilha, filtros que valiam em

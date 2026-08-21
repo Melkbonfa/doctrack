@@ -1318,7 +1318,11 @@ function switchEquipTab(tab){
     const primeira = btns.find(b=>b.dataset.tab!=='__escopo');
     tab = primeira ? primeira.dataset.tab : '__escopo';
   }
-  btns.forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  btns.forEach(b=>{
+    const sel = b.dataset.tab===tab;
+    b.classList.toggle('active', sel);
+    b.setAttribute('aria-selected', sel ? 'true' : 'false');
+  });
   document.querySelectorAll('#equip-panels .equip-tab-panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
   refreshHistSections();   // trilha é carregada sob demanda, só da aba visível
 }
@@ -1342,7 +1346,8 @@ function openEquipModal(key, opts){
                 // pastas (grupos) do equipamento: vêm no próprio to_dict dele,
                 // então o seletor do modal não custa uma ida extra ao servidor
                 pastas: (equip && equip.pastas) || [],
-                cartoesPorDoc: undefined };   // undefined=carregando, null=indisponível (403/erro)
+                cartoesPorDoc: undefined,   // undefined=carregando, null=indisponível (403/erro)
+                anexos: undefined };        // idem, para as abas de anexos do equipamento
   _escopoPendente = null;   // nenhum N/A a meio caminho no modal recém-aberto
 
   const delBtn = document.getElementById('btn-del-equip');
@@ -1356,6 +1361,7 @@ function openEquipModal(key, opts){
   switchEquipTab(opts.aba || _TODOS_TIPOS[0][0]);
   if(!opts.manterAberto) openBaseModal('equip');
   _loadCartoesVinculados();   // a trilha vem do switchEquipTab (só a aba ativa)
+  _loadAnexos();              // uma chamada só alimenta as duas abas de anexos
   carregarResponsaveis();
 }
 
@@ -1439,9 +1445,23 @@ function _visibleTabs(){
     .filter(([,,tipos]) => tipos.some(_aplicavel))   // aba some se todo o grupo é N/A
     .map(([id,label]) => [id,label]);
   _TIPOS_OPCIONAIS.forEach(t=>{ if(_aplicavel(t)) tabs.push([t,_tipoLabel(t)]); });
+  // As duas últimas não são tipo_doc: penduram no EQUIPAMENTO, não em um dos 12
+  // tipos, e por isso ficam SEMPRE visíveis (não há escopo a ligar) e fora da
+  // completude. Ids com "__" para nunca colidirem com um tipo.
+  tabs.push(['__agregados','Docs agregados']);
+  tabs.push(['__software','Software e Firmware']);
   return tabs;
 }
+function _isAbaAnexo(t){ return t==='__agregados' || t==='__software'; }
 function _tabDotColor(tipo){
+  // Anexos do equipamento não têm status nem entram na completude: verde quando
+  // há algo guardado, cinza quando não. Pintá-los de vermelho/âmbar sugeriria
+  // pendência onde não existe régua nenhuma.
+  if(_isAbaAnexo(tipo)){
+    const cat = tipo==='__agregados' ? ['agregado'] : ['software','firmware'];
+    const lista = (_equipCtx && _equipCtx.anexos) || [];
+    return lista.some(a=>cat.includes(a.categoria)) ? 'var(--green)' : 'var(--t4)';
+  }
   // abas agregadas (checklists / manuais PT+ES): pior status do grupo, só aplicáveis
   const grupo = (tipo==='Checklist_Conferencia') ? _CHK_TIPOS.map(x=>x[0])
               : (tipo==='Manual_Usuario') ? ['Manual_Usuario','Manual_ES']
@@ -1453,19 +1473,41 @@ function _tabDotColor(tipo){
   return 'var(--amber)';
 }
 
-// Abas + painéis
+// Rail de abas + painéis
+// O rail separa o que é DOCUMENTO (os tipos canônicos, que contam na completude)
+// do que é do EQUIPAMENTO (anexos, que não contam). Antes eram todas a mesma
+// fileira e a diferença só aparecia depois de clicar.
 function renderEquipModal(){
   const tabsEl = document.getElementById('equip-tabs');
   const panelsEl = document.getElementById('equip-panels');
   const tabs = _visibleTabs();
-  tabsEl.innerHTML = tabs.map(([tipo,label])=>
-    `<button type="button" class="equip-modal-tab" data-tab="${tipo}" onclick="switchEquipTab('${tipo}')"><span class="tab-dot" style="background:${_tabDotColor(tipo)}"></span>${esc(label)}</button>`
-  ).join('') +
-    `<button type="button" class="equip-modal-tab tab-add" data-tab="__escopo" onclick="switchEquipTab('__escopo')" title="Escolher quais documentos se aplicam a este equipamento">⚙ Escopo</button>`;
+  const botao = ([tipo,label], extra) =>
+    `<button type="button" class="equip-modal-tab${extra||''}" data-tab="${tipo}" role="tab"
+             aria-selected="false" onclick="switchEquipTab('${tipo}')">
+       <span class="tab-dot" style="background:${_tabDotColor(tipo)}"></span>
+       <span class="tab-label">${esc(label)}</span></button>`;
+  const grupo = (titulo, itens, extra) => itens.length
+    ? `<div class="equip-rail-group" role="presentation">
+         ${titulo?`<span class="equip-rail-cap">${esc(titulo)}</span>`:''}
+         ${itens.map(t=>botao(t, extra)).join('')}
+       </div>`
+    : '';
+
+  tabsEl.innerHTML =
+    grupo('Documentos', tabs.filter(([id])=>!_isAbaAnexo(id))) +
+    grupo('Equipamento', tabs.filter(([id])=>_isAbaAnexo(id))) +
+    `<div class="equip-rail-group" role="presentation">
+       <button type="button" class="equip-modal-tab tab-add" data-tab="__escopo" role="tab"
+               aria-selected="false" onclick="switchEquipTab('__escopo')"
+               title="Escolher quais documentos se aplicam a este equipamento">
+         <span class="tab-dot" style="background:transparent"></span>
+         <span class="tab-label">⚙ Escopo</span></button>
+     </div>`;
   panelsEl.innerHTML = tabs.map(([tipo])=>
     `<div class="equip-tab-panel" data-panel="${tipo}">${
       tipo==='Checklist_Conferencia'?renderChecklistPanel()
       : tipo==='Manual_Usuario'?renderManualPanel()
+      : _isAbaAnexo(tipo)?renderAnexosPanel(tipo)
       : renderTipoPanel(tipo)}</div>`
   ).join('') +
     `<div class="equip-tab-panel" data-panel="__escopo">${renderEscopoPanel()}</div>`;
@@ -1713,8 +1755,12 @@ function renderTipoPanel(tipo){
 
     <div class="doc-sec">
       <div class="doc-sec-title">Identificação</div>
+      <!-- Nos MANUAIS o campo não guarda um código de documento: guarda a versão
+           do manual do fabricante ("Rev. C", "v2.1"). O rótulo "Código do Doc" só
+           descreve o que o campo faz no setor PRE (IT e checklists, que têm
+           código próprio). Mesma coluna no banco (codigo_doc) — muda o rótulo. -->
       <div class="g2">
-        <div class="form-group"><label class="form-label">Código do Doc</label><input class="form-input" id="et-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
+        <div class="form-group"><label class="form-label">${isPre?'Código do Doc':'Versionamento'}</label><input class="form-input" id="et-cod-${tipo}" value="${esc(d.codigo_doc)}"></div>
         <div class="form-group"><label class="form-label">Responsável</label>
           <input class="form-input" id="et-resp-${tipo}" list="lista-responsaveis" value="${esc(d.responsavel)}" placeholder="Escolha ou digite">
         </div>
@@ -1855,11 +1901,12 @@ function enviarArquivoDoc(tipo){
 // Visualiza dentro da plataforma: PDF/imagem em iframe (visualizador nativo do
 // navegador) e .docx renderizado client-side. O token vai na querystring porque
 // JWT_TOKEN_LOCATION inclui "query_string" — o iframe não manda cabeçalho.
-async function visualizarArquivoDoc(arqId, nome, ext){
+// A rota é parâmetro porque o visualizador é o mesmo para o arquivo de um
+// documento e para o anexo de um equipamento — só o endpoint muda.
+async function _visualizarRota(rota, nome, ext, baixar){
   const body = document.getElementById('docview-body');
-  const rota = `/documentos/arquivos/${arqId}/conteudo`;
   document.getElementById('docview-title').textContent = nome || 'Documento';
-  document.getElementById('docview-download').onclick = ()=>baixarArquivoDoc(arqId);
+  document.getElementById('docview-download').onclick = baixar;
   openModal('docview');
   ext = (ext||'').toLowerCase();
 
@@ -1871,7 +1918,7 @@ async function visualizarArquivoDoc(arqId, nome, ext){
   if(typeof docx === 'undefined' || !docx.renderAsync){
     closeModal('docview');
     showToast('Visualizador indisponível — baixando o arquivo','error');
-    baixarArquivoDoc(arqId);
+    baixar();
     return;
   }
   body.innerHTML = '<div class="loading-state"><div class="spinner"></div>Renderizando documento...</div>';
@@ -1893,12 +1940,20 @@ async function visualizarArquivoDoc(arqId, nome, ext){
   }
 }
 
-function baixarArquivoDoc(arqId){
+function _baixarRota(rota){
   const a = document.createElement('a');
-  a.href = API + `/documentos/arquivos/${arqId}/conteudo?download=1&token=`
-           + encodeURIComponent(getToken());
+  a.href = API + rota + '?download=1&token=' + encodeURIComponent(getToken());
   a.style.display = 'none';
   document.body.appendChild(a); a.click(); a.remove();
+}
+
+function visualizarArquivoDoc(arqId, nome, ext){
+  return _visualizarRota(`/documentos/arquivos/${arqId}/conteudo`, nome, ext,
+                         ()=>baixarArquivoDoc(arqId));
+}
+
+function baixarArquivoDoc(arqId){
+  _baixarRota(`/documentos/arquivos/${arqId}/conteudo`);
 }
 
 async function removerArquivoDoc(arqId, tipo){
@@ -1917,6 +1972,223 @@ async function removerArquivoDoc(arqId, tipo){
       renderDashboard(); renderDocs();
     }
     showToast('Arquivo removido','success');
+  }catch(e){ showToast('Erro de rede','error'); }
+}
+
+// ── Anexos do EQUIPAMENTO (docs agregados + software/firmware) ───────────────
+// Não são tipo_doc: penduram no equipamento, ficam fora da completude e por isso
+// não têm status, stepper nem escopo. As duas abas leem a MESMA lista
+// (_equipCtx.anexos), separada por categoria.
+
+const _EXT_DOC_ACEITAS = '.pdf,.docx,.doc,.xlsx,.xls,.pptx,.png,.jpg,.jpeg';
+const _EXT_BIN_ACEITAS = _EXT_DOC_ACEITAS + ',.zip,.7z,.bin,.hex,.img,.dfu,.exe,.msi';
+const _CAT_LABEL = {agregado:'Documento agregado', software:'Software', firmware:'Firmware'};
+
+function _anexosDe(cats){
+  const lista = (_equipCtx && _equipCtx.anexos) || [];
+  return lista.filter(a=>cats.includes(a.categoria));
+}
+
+async function _loadAnexos(){
+  const ctx = _equipCtx;
+  if(!ctx || !ctx.equip_id){ ctx.anexos = []; _repintarAnexos(); return; }
+  try{
+    const res = await apiFetch(`/equipamentos/${ctx.equip_id}/anexos`);
+    if(_equipCtx!==ctx) return;             // modal reaberto com outro equipamento
+    ctx.anexos = (res && res.ok) ? ((await res.json()).anexos||[]) : null;
+  }catch(e){ ctx.anexos = null; }
+  _repintarAnexos();
+}
+
+// Repinta só os painéis de anexo (e os pontinhos das duas abas) — repintar o
+// modal inteiro descartaria o que o usuário digitou nos painéis de documento.
+function _repintarAnexos(){
+  ['__agregados','__software'].forEach(tab=>{
+    const p = document.querySelector(`#equip-panels [data-panel="${tab}"]`);
+    if(p) p.innerHTML = renderAnexosPanel(tab);
+    const b = document.querySelector(`#equip-tabs [data-tab="${tab}"] .tab-dot`);
+    if(b) b.style.background = _tabDotColor(tab);
+  });
+}
+
+function renderAnexosPanel(tab){
+  if(_equipCtx && _equipCtx.anexos === undefined)
+    return '<div class="loading-state"><div class="spinner"></div>Carregando…</div>';
+  if(_equipCtx && _equipCtx.anexos === null)
+    return '<div class="arq-plat-vazio"><span>Não foi possível carregar os anexos deste equipamento.</span></div>';
+  if(_equipCtx && !_equipCtx.equip_id)
+    return `<div style="text-align:center;padding:24px;color:var(--t3)">
+      <p>Este equipamento ainda não existe como cadastro no módulo <b>Equipamentos</b> — sem ele não há onde pendurar os anexos.</p></div>`;
+  return tab==='__agregados' ? renderAgregadosPanel() : renderSoftwarePanel();
+}
+
+// Uma linha de anexo. `destaque` marca a versão corrente do repositório.
+function _anexoLinha(a, destaque){
+  const cor = _ICON_ARQUIVO[a.ext] || 'var(--t3)';
+  const pode = _podeGerenciarArquivo();
+  const nomeEsc = (a.nome||'').replace(/'/g,"\\'");
+  const meta = [_fmtTamanho(a.tamanho), a.enviado_por, a.enviado_em].filter(Boolean).join(' · ');
+  const versao = a.versao_rotulo
+    ? `<span class="anexo-versao">${esc(a.versao_rotulo)}</span>` : '';
+  const release = a.data_release
+    ? `<span class="anexo-release">liberada em ${esc(a.data_release.split('-').reverse().join('/'))}</span>` : '';
+  const tagAtual = destaque ? '<span class="equip-tag">versão atual</span>' : '';
+  const acoes = [
+    a.pode_visualizar
+      ? `<button type="button" class="arq-btn" title="Visualizar na plataforma" onclick="visualizarAnexo(${a.id}, '${nomeEsc}', '${a.ext}')">Visualizar</button>`
+      : '',
+    `<button type="button" class="arq-btn" title="Baixar o arquivo" onclick="baixarAnexo(${a.id})">Baixar</button>`,
+    pode ? `<button type="button" class="arq-btn danger" title="Remover da plataforma" onclick="removerAnexo(${a.id})">Remover</button>` : ''
+  ].filter(Boolean).join('');
+  return `<div class="arquivo-row arq-plat${destaque?' anexo-atual':''}">
+    <span class="arquivo-ext" style="background:${cor}">${esc((a.ext||'?').toUpperCase().slice(0,4))}</span>
+    <span class="arquivo-info">
+      <span class="arquivo-nome">${esc(a.titulo||a.nome)} ${versao} ${tagAtual}</span>
+      <span class="arquivo-meta">${esc(a.nome)} · ${esc(meta)}${release?' · ':''}${release}</span>
+      ${a.notas?`<span class="arquivo-meta anexo-notas">${esc(a.notas)}</span>`:''}
+    </span>
+    <span class="arq-plat-acoes">${acoes}</span>
+  </div>`;
+}
+
+function _btnNovoAnexo(cat, texto){
+  if(!_podeGerenciarArquivo()) return '';
+  return `<button type="button" class="arq-btn arq-btn-add" onclick="abrirFormAnexo('${cat}')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+    ${esc(texto)}</button>`;
+}
+
+function renderAgregadosPanel(){
+  const itens = _anexosDe(['agregado']);
+  const corpo = itens.length
+    ? itens.map(a=>_anexoLinha(a, false)).join('')
+    : '<div class="arq-plat-vazio"><span>Nenhum documento agregado neste equipamento.</span></div>';
+  return `
+    <div class="equip-panel-head">
+      <span class="equip-panel-title">Docs agregados</span>
+      <span class="equip-tag">${itens.length} arquivo(s)</span>
+    </div>
+    <p class="muted" style="font-size:12px;margin-bottom:8px">Documentos do equipamento que não são nenhum dos 12 tipos canônicos — laudo, certificado, datasheet, ficha técnica. Ficam <b>fora</b> da completude: guardar um aqui não muda o índice do equipamento.</p>
+    <div class="doc-sec">${corpo}</div>
+    <div class="anexo-form" id="anexo-form-agregado" style="display:none"></div>
+    <div class="arq-plat-footer">${_btnNovoAnexo('agregado','Adicionar documento')}</div>`;
+}
+
+function renderSoftwarePanel(){
+  // Bloco por categoria: a mais nova (a lista já vem ordenada pelo servidor,
+  // por data de liberação) ganha destaque e o resto vira histórico.
+  const bloco = (cat, titulo)=>{
+    const itens = _anexosDe([cat]);
+    const corpo = itens.length
+      ? itens.map((a,i)=>_anexoLinha(a, i===0)).join('')
+      : `<div class="arq-plat-vazio"><span>Nenhuma versão de ${esc(titulo.toLowerCase())} cadastrada.</span></div>`;
+    return `<div class="doc-sec">
+      <div class="doc-sec-title">${esc(titulo)}</div>
+      ${corpo}
+      <div class="anexo-form" id="anexo-form-${cat}" style="display:none"></div>
+      <div class="arq-plat-footer">${_btnNovoAnexo(cat, 'Adicionar versão de '+titulo.toLowerCase())}</div>
+    </div>`;
+  };
+  const total = _anexosDe(['software','firmware']).length;
+  return `
+    <div class="equip-panel-head">
+      <span class="equip-panel-title">Software e Firmware</span>
+      <span class="equip-tag">${total} versão(ões)</span>
+    </div>
+    <p class="muted" style="font-size:12px;margin-bottom:8px">Repositório das versões liberadas pelo fabricante, para consulta e download. A ordem é pela <b>data de liberação</b>, não pela data do envio — cadastrar hoje uma versão antiga não a coloca no topo.</p>
+    ${bloco('software','Software')}
+    ${bloco('firmware','Firmware')}`;
+}
+
+// Formulário de envio, inline no painel. Um por categoria.
+function abrirFormAnexo(cat){
+  const box = document.getElementById('anexo-form-'+cat);
+  if(!box) return;
+  if(box.style.display !== 'none'){ box.style.display='none'; box.innerHTML=''; return; }
+  const versionada = (cat!=='agregado');
+  const aceitas = versionada ? _EXT_BIN_ACEITAS : _EXT_DOC_ACEITAS;
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div class="g2">
+      <div class="form-group"><label class="form-label">Título</label>
+        <input class="form-input" id="anx-tit-${cat}" maxlength="200" placeholder="${versionada?'Ex.: Software de aquisição':'Ex.: Laudo de compatibilidade eletromagnética'}"></div>
+      ${versionada?`<div class="form-group"><label class="form-label">Versão</label>
+        <input class="form-input" id="anx-ver-${cat}" maxlength="60" placeholder="Ex.: v2.4.1"></div>`:''}
+    </div>
+    ${versionada?`<div class="g2">
+      <div class="form-group"><label class="form-label">Data de liberação</label>
+        <input class="form-input" type="date" id="anx-rel-${cat}"></div>
+      <div class="form-group"><label class="form-label">Notas da versão</label>
+        <input class="form-input" id="anx-not-${cat}" placeholder="O que mudou nesta versão"></div>
+    </div>`:`<div class="form-group"><label class="form-label">Observação</label>
+        <input class="form-input" id="anx-not-${cat}" placeholder="Opcional"></div>`}
+    <div class="form-group"><label class="form-label">Arquivo</label>
+      <input class="form-input" type="file" id="anx-arq-${cat}" accept="${aceitas}"></div>
+    ${versionada?'<p class="muted" style="font-size:11px">Aceita instalador e imagem de firmware (.zip, .exe, .bin, .hex…). O arquivo é sempre servido como download — a plataforma nunca o executa nem o abre.</p>':''}
+    <div class="modal-footer" style="margin-top:8px">
+      <button type="button" class="btn btn-ghost" onclick="abrirFormAnexo('${cat}')">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="anx-ok-${cat}" onclick="enviarAnexo('${cat}')">Enviar</button>
+    </div>`;
+  const t = document.getElementById('anx-tit-'+cat); if(t) t.focus();
+}
+
+async function enviarAnexo(cat){
+  const ctx = _equipCtx;
+  if(!ctx || !ctx.equip_id) return;
+  const val = id => { const el=document.getElementById(id); return el ? el.value : ''; };
+  const inp = document.getElementById('anx-arq-'+cat);
+  const f = inp && inp.files && inp.files[0];
+  if(!f){ showToast('Escolha um arquivo','error'); return; }
+
+  const fd = new FormData();
+  fd.append('arquivo', f);
+  fd.append('categoria', cat);
+  fd.append('titulo', val('anx-tit-'+cat));
+  fd.append('notas', val('anx-not-'+cat));
+  if(cat!=='agregado'){
+    fd.append('versao_rotulo', val('anx-ver-'+cat));
+    fd.append('data_release', val('anx-rel-'+cat));
+  }
+
+  const btn = document.getElementById('anx-ok-'+cat);
+  if(btn){ btn.disabled = true; btn.textContent = 'Enviando…'; }
+  try{
+    // Sem Content-Type manual: o navegador define o boundary do multipart.
+    const res = await apiFetch(`/equipamentos/${ctx.equip_id}/anexos`, {
+      method:'POST', body: fd, headers:{'Authorization':'Bearer '+getToken()}
+    });
+    if(!res) return;
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok){ showToast(data.erro||'Erro ao enviar o arquivo','error'); return; }
+    showToast('Arquivo enviado','success');
+    await _loadAnexos();
+  }catch(e){
+    showToast('Erro de rede ao enviar','error');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Enviar'; }
+  }
+}
+
+function baixarAnexo(anexoId){
+  _baixarRota(`/equipamentos/anexos/${anexoId}/conteudo`);
+}
+
+function visualizarAnexo(anexoId, nome, ext){
+  return _visualizarRota(`/equipamentos/anexos/${anexoId}/conteudo`, nome, ext,
+                         ()=>baixarAnexo(anexoId));
+}
+
+async function removerAnexo(anexoId){
+  const ok = await confirmModal('Remover anexo',
+    'Remover este arquivo da plataforma? A cópia no servidor da engenharia não é afetada.');
+  if(!ok) return;
+  try{
+    const res = await apiFetch(`/equipamentos/anexos/${anexoId}`, {method:'DELETE'});
+    if(!res) return;
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok){ showToast(data.erro||'Erro ao remover','error'); return; }
+    showToast('Arquivo removido','success');
+    await _loadAnexos();
   }catch(e){ showToast('Erro de rede','error'); }
 }
 

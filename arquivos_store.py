@@ -50,6 +50,23 @@ MAX_BYTES = MAX_MB * 1024 * 1024
 EXT_PERMITIDAS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx",
                   ".png", ".jpg", ".jpeg"}
 
+# ── Binários do repositório de software/firmware ─────────────────────────────
+# Allowlist SEPARADA de propósito: o instalador e a imagem de firmware entram
+# só pela rota do repositório do equipamento. Se `.exe` e `.zip` entrassem em
+# EXT_PERMITIDAS, qualquer documento passaria a aceitá-los, e o campo "Arquivos"
+# de uma IT viraria porta de entrada de executável sem ninguém decidir isso.
+#
+# Nada aqui é visualizável (EXT_VISUALIZAVEL não os inclui) nem abre inline: a
+# rota que os serve força `as_attachment` e mime genérico. O navegador nunca
+# tenta interpretar o conteúdo; o arquivo só desce para o disco de quem baixou.
+EXT_BINARIAS = {".zip", ".7z", ".bin", ".hex", ".img", ".dfu", ".exe", ".msi"}
+
+# Teto próprio: instalador e firmware passam dos 80 MB com facilidade (o maior
+# documento de escritório medido no share tem 56 MB; um instalador de software
+# de equipamento passa de 300 MB sem esforço).
+MAX_BIN_MB    = int(os.environ.get("DOCTRACK_UPLOAD_BIN_MAX_MB", "500"))
+MAX_BIN_BYTES = MAX_BIN_MB * 1024 * 1024
+
 # O que o navegador abre sem baixar. `.docx` entra porque o front o renderiza
 # client-side (docx.renderAsync), não porque o navegador saiba abri-lo.
 EXT_INLINE       = {".pdf", ".png", ".jpg", ".jpeg"}
@@ -71,7 +88,7 @@ _CHUNK = 1024 * 1024
 
 
 class ArquivoGrandeDemais(Exception):
-    """Passou de MAX_BYTES durante a gravação (o parcial já foi descartado)."""
+    """Passou do teto da chamada durante a gravação (o parcial já foi descartado)."""
 
 
 class ExtensaoNaoPermitida(Exception):
@@ -83,8 +100,10 @@ def ext_de(nome):
     return os.path.splitext(str(nome or ""))[1].lower()
 
 
-def extensao_ok(nome):
-    return ext_de(nome) in EXT_PERMITIDAS
+def extensao_ok(nome, permitidas=None):
+    """True se a extensão está na allowlist. `permitidas` troca o conjunto —
+    é assim que a rota do repositório aceita binário sem afrouxar as demais."""
+    return ext_de(nome) in (permitidas if permitidas is not None else EXT_PERMITIDAS)
 
 
 def mime_de(nome):
@@ -110,7 +129,7 @@ def existe(sha):
     return bool(sha) and os.path.isfile(caminho_de(sha))
 
 
-def guardar(stream, nome=""):
+def guardar(stream, nome="", permitidas=None, limite=None):
     """Grava o conteúdo de `stream` e devolve `(sha256, tamanho)`.
 
     Valida a extensão de `nome` antes de tocar no disco. Escreve num `.tmp` e só
@@ -119,9 +138,14 @@ def guardar(stream, nome=""):
     arquivo íntegro, já que o nome é o hash do conteúdo esperado.
 
     Se o blob já existir (mesmo conteúdo enviado antes), não regrava.
+
+    `permitidas` e `limite` sobrescrevem allowlist e teto por chamada: cada rota
+    diz o que aceita, em vez de existir um único teto global que a rota mais
+    permissiva acabaria ditando para todas.
     """
-    if nome and not extensao_ok(nome):
+    if nome and not extensao_ok(nome, permitidas):
         raise ExtensaoNaoPermitida(ext_de(nome))
+    teto = MAX_BYTES if limite is None else int(limite)
 
     tmp_dir = os.path.join(RAIZ, "_tmp")
     os.makedirs(tmp_dir, exist_ok=True)
@@ -138,7 +162,7 @@ def guardar(stream, nome=""):
                 tamanho += len(pedaco)
                 # Checa durante a gravação, e não só pelo MAX_CONTENT_LENGTH do
                 # Flask: o header Content-Length é do cliente, o que chegou é fato.
-                if tamanho > MAX_BYTES:
+                if tamanho > teto:
                     raise ArquivoGrandeDemais(tamanho)
                 h.update(pedaco)
                 saida.write(pedaco)

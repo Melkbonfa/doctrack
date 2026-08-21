@@ -745,6 +745,86 @@ class EquipamentoPasta(db.Model):
         }
 
 
+class EquipamentoArquivo(db.Model):
+    """Arquivo pendurado no EQUIPAMENTO, e não em um dos 12 tipos de documento.
+
+    Duas coisas não cabiam no `DocumentoArquivo`:
+
+      * **Docs agregados** — laudo de EMC, certificado do fabricante, datasheet,
+        ficha de segurança. São documentos do equipamento que não são nenhum dos
+        12 tipos canônicos, e forçá-los num tipo existente sujaria a completude
+        (o denominador do ICE conta tipos, não arquivos).
+      * **Software e firmware** — a versão que está rodando no equipamento. Aqui
+        o que importa é o RÓTULO DE VERSÃO do fabricante (`versao_rotulo`, ex.
+        "v2.4.1") e a data de liberação, não o sequencial de upload: quem procura
+        quer "a mais nova", e "a mais nova" é a do fabricante.
+
+    Por isso a `categoria` e não duas tabelas: os três casos guardam bytes,
+    autoria e data do mesmo jeito; só a leitura difere (o painel de software
+    destaca a versão corrente, o de agregados é uma lista simples).
+
+    Como no `DocumentoArquivo`, `sha256` é o nome do blob em disco — o caminho
+    deriva do conteúdo, nunca da requisição — e remover é soft delete: a linha
+    fica para a trilha e o blob só sai quando ninguém mais aponta para ele.
+    """
+    __tablename__ = "equipamento_arquivos"
+
+    # 'agregado' = documento avulso do equipamento; 'software'/'firmware' = item
+    # do repositório de versões.
+    CATEGORIAS = ("agregado", "software", "firmware")
+    CATEGORIAS_VERSIONADAS = ("software", "firmware")
+
+    id             = db.Column(db.Integer, primary_key=True)
+    equipamento_id = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                               nullable=False, index=True)
+    categoria      = db.Column(db.String(20), default="agregado", nullable=False, index=True)
+    # Nome de exibição. Vazio → cai no nome do arquivo enviado.
+    titulo         = db.Column(db.String(200), default="")
+    # Rótulo de versão do FABRICANTE ("v2.4.1", "FW 3.02"). Texto livre de
+    # propósito: cada fabricante numera do seu jeito e não há o que validar.
+    versao_rotulo  = db.Column(db.String(60), default="")
+    # Data de liberação da versão (YYYY-MM-DD, texto — padrão do projeto para
+    # datas vindas de planilha/fabricante). É por ela que "a mais nova" é decidida.
+    data_release   = db.Column(db.String(10), default="")
+    notas          = db.Column(db.Text, default="")
+
+    sha256        = db.Column(db.String(64), nullable=False, index=True)
+    nome_original = db.Column(db.String(300), nullable=False, default="")
+    ext           = db.Column(db.String(10), default="")
+    mime          = db.Column(db.String(120), default="")
+    tamanho       = db.Column(db.Integer, default=0)
+
+    enviado_por = db.Column(db.String(120), default="")
+    enviado_em  = db.Column(db.DateTime, default=datetime.now, index=True)
+    ativo       = db.Column(db.Boolean, default=True, nullable=False, index=True)
+
+    equipamento = db.relationship(
+        "Equipamento", foreign_keys=[equipamento_id],
+        backref=db.backref("anexos", lazy="select",
+                           cascade="all, delete-orphan"))
+
+    def to_dict(self):
+        import arquivos_store
+        return {
+            "id":             self.id,
+            "equipamento_id": self.equipamento_id,
+            "categoria":      self.categoria or "agregado",
+            "titulo":         self.titulo or self.nome_original or "",
+            "versao_rotulo":  self.versao_rotulo or "",
+            "data_release":   self.data_release or "",
+            "notas":          self.notas or "",
+            "nome":           self.nome_original or "",
+            "ext":            (self.ext or "").lstrip("."),
+            "mime":           self.mime or "",
+            "tamanho":        self.tamanho or 0,
+            "enviado_por":    self.enviado_por or "",
+            "enviado_em":     self.enviado_em.strftime("%d/%m/%Y %H:%M") if self.enviado_em else "",
+            "enviado_em_iso": self.enviado_em.isoformat() if self.enviado_em else "",
+            "ativo":          bool(self.ativo),
+            "pode_visualizar": arquivos_store.pode_visualizar(self.nome_original or ""),
+        }
+
+
 class EquipamentoHistorico(db.Model):
     """Trilha de-para das alterações do equipamento (campo, antigo, novo, quem).
 
