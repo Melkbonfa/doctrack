@@ -1667,6 +1667,8 @@ async function loadTipos(){
   _tipos = data.tipos || [];
   if (Array.isArray(data.areas)) _areas = data.areas;
   if (data.area_legado) _areaLegado = data.area_legado;
+  // Os chips do filtro guardam o índice em `_tipos`: lista nova, chips novos.
+  renderFiltroModelos();
   return _tipos;
 }
 
@@ -1788,6 +1790,9 @@ function editarProjetoAtual(){
 function fecharFormProjeto(){ _fecharModal("modal-proj-form"); _formProjId = null; }
 
 async function _recarregarTudo(){
+  // Os modelos vêm antes: outra pessoa pode ter criado, renomeado ou mudado a
+  // área de um, e a grade pinta a etiqueta a partir deles.
+  await loadTipos().catch(()=>{});
   await Promise.all([
     loadProjetos().catch(()=>{}),
     loadKpis().catch(()=>{}),
