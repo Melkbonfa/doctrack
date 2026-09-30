@@ -2112,6 +2112,11 @@ def _sync_schema():
         "modelos_entregavel": [
             ("peso", "FLOAT DEFAULT 1"),
         ],
+        # Área do modelo (projetos unificados). Os tipos que já existem são todos
+        # do PDE — era o único departamento com o módulo. Ver migration 017.
+        "tipos_projeto": [
+            ("area", "VARCHAR(20) DEFAULT 'pde' NOT NULL"),
+        ],
         "projeto_mensal": [
             ("custo_mes", "FLOAT DEFAULT 0"),
         ],

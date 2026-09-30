@@ -134,7 +134,7 @@ def test_criar_tipo_libera_projeto_e_modelo(client, admin_token, auth_headers):
     assert client.post("/api/projetos", json={"nome": "P", "tipo": "Locação"},
                        headers=h).status_code == 400
 
-    res = client.post("/api/tipos-projeto", json={"nome": "  Locação "}, headers=h)
+    res = client.post("/api/tipos-projeto", json={"nome": "  Locação ", "area": "pde"}, headers=h)
     assert res.status_code == 201, res.get_json()
     assert res.get_json()["tipo"]["nome"] == "Locação"
 
@@ -155,23 +155,23 @@ def test_criar_tipo_libera_projeto_e_modelo(client, admin_token, auth_headers):
 def test_criar_tipo_copiando_modelo_de_outro(app, client, admin_token, auth_headers):
     _seed_modelo(app, "OEM")
     h = auth_headers(admin_token)
-    res = client.post("/api/tipos-projeto", json={"nome": "ODM", "copiar_de": "OEM"}, headers=h)
+    res = client.post("/api/tipos-projeto", json={"nome": "ODM", "area": "pde", "copiar_de": "OEM"}, headers=h)
     assert res.status_code == 201 and res.get_json()["tipo"]["itens_modelo"] == 2
     modelos = client.get("/api/modelos", headers=h).get_json()["modelos"]
     assert [m["tipo"] for m in modelos["ODM"]] == ["Protótipo", "Manual"]
     # cópia independente: o modelo de origem continua com os itens dele
     assert len(modelos["OEM"]) == 2
 
-    assert client.post("/api/tipos-projeto", json={"nome": "X", "copiar_de": "Nada"},
+    assert client.post("/api/tipos-projeto", json={"nome": "X", "area": "pde", "copiar_de": "Nada"},
                        headers=h).status_code == 400
 
 
 def test_nome_de_tipo_invalido(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
-    assert client.post("/api/tipos-projeto", json={"nome": "  "}, headers=h).status_code == 400
-    assert client.post("/api/tipos-projeto", json={"nome": "x" * 21}, headers=h).status_code == 400
+    assert client.post("/api/tipos-projeto", json={"nome": "  ", "area": "pde"}, headers=h).status_code == 400
+    assert client.post("/api/tipos-projeto", json={"nome": "x" * 21, "area": "pde"}, headers=h).status_code == 400
     # duplicado, sem diferenciar maiúsculas
-    assert client.post("/api/tipos-projeto", json={"nome": "oem"}, headers=h).status_code == 409
+    assert client.post("/api/tipos-projeto", json={"nome": "oem", "area": "pde"}, headers=h).status_code == 409
 
 
 def test_renomear_tipo_propaga_para_projetos_e_modelo(app, client, admin_token, auth_headers):
@@ -243,7 +243,7 @@ def test_tipos_so_gestao_altera(client, tecnico_token, leitura_token, auth_heade
 
 def test_arquivar_some_da_lista_e_restaurar_traz_de_volta(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
-    pid = client.post("/api/projetos", json={"nome": "Arquivável"}, headers=h).get_json()["projeto"]["id"]
+    pid = client.post("/api/projetos", json={"nome": "Arquivável", "tipo": "OEM"}, headers=h).get_json()["projeto"]["id"]
 
     # arquiva → some da lista de ativos, aparece na de arquivados
     assert client.delete(f"/api/projetos/{pid}", headers=h).status_code == 200

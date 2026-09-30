@@ -176,7 +176,7 @@ def test_serie_mensal_automatica(app):
 @pytest.fixture
 def projeto_id(client, gestor_token, auth_headers):
     res = client.post("/api/projetos", headers=auth_headers(gestor_token),
-                      json={"nome": "Projeto PMO", "ano": 2026, "orcamento": "150.000,00",
+                      json={"nome": "Projeto PMO", "tipo": "OEM", "ano": 2026, "orcamento": "150.000,00",
                             "data_inicio_prev": "2026-01-01", "data_fim_prev": "2026-12-31"})
     assert res.status_code == 201
     return res.get_json()["projeto"]["id"]

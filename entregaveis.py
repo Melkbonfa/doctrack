@@ -3,6 +3,8 @@ entregaveis.py — Módulo de Projetos / Entregáveis (PMO)
 
 Rotas:
   GET    /api/projetos                — lista com avanço calculado + filtros
+                                        (?tipo= e ?area= repetíveis: o filtro
+                                        de modelos, igual em alertas/resumo/export)
   POST   /api/projetos                — criar (admin/gestor)
   GET    /api/projetos/<id>           — detalhe agrupado por categoria
   PUT    /api/projetos/<id>           — editar metadados (admin/gestor)
@@ -21,7 +23,7 @@ Rotas:
   GET    /api/entregaveis/responsaveis — usuários atribuíveis (picker)
   GET    /api/tipos-projeto           — tipos de projeto cadastrados (com uso)
   POST   /api/tipos-projeto           — criar tipo (admin/gestor)
-  PUT    /api/tipos-projeto/<id>      — renomear tipo (admin/gestor)
+  PUT    /api/tipos-projeto/<id>      — renomear tipo / trocar área (admin/gestor)
   DELETE /api/tipos-projeto/<id>      — excluir tipo sem projetos (admin/gestor)
   GET    /api/modelos                 — modelos de entregáveis por tipo de projeto
   POST   /api/modelos                 — adicionar item de modelo (admin/gestor)
@@ -46,7 +48,8 @@ from models import (db, Projeto, Entregavel, EntregavelHistorico, ProjetoMensal,
                     ProjetoBaseline, ModeloEntregavel, TipoProjeto, User,
                     CATEGORIAS_ENTREGAVEL, STATUS_ENTREGAVEL, MOSCOW,
                     TIPO_PROJETO_MAX, STATUS_PROJETO, STATUS_PROJETO_ABERTO,
-                    _parse_iso)
+                    AREA_PROJETO_LEGADO, _parse_iso)
+from areas import AREAS, AREA_SLUGS
 from auth import require_role, get_client_ip
 
 entregaveis_bp = Blueprint("entregaveis", __name__)
@@ -109,6 +112,20 @@ def _tipo_projeto_por_nome(nome):
     return (TipoProjeto.query
             .filter(db.func.lower(TipoProjeto.nome) == (nome or "").lower())
             .first())
+
+
+def _areas_dos_tipos():
+    """{nome do tipo em minúsculas: slug da área}. A área do projeto sai daqui;
+    tipo vazio ou desconhecido cai em AREA_PROJETO_LEGADO."""
+    return {t.nome.lower(): (t.area or AREA_PROJETO_LEGADO)
+            for t in TipoProjeto.query.all()}
+
+
+def _area_invalida(valor):
+    """Resposta 400 pronta se `valor` não é um slug de areas.py, senão None."""
+    if valor in AREA_SLUGS:
+        return None
+    return jsonify({"erro": f"área inválida. Use: {', '.join(AREA_SLUGS)}"}), 400
 
 
 # ── Perfil do requisitante ───────────────────────────────────────────────────
@@ -236,9 +253,28 @@ def _filtrar_projetos(q):
             return None, (jsonify(
                 {"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400)
         q = q.filter_by(status=status)
-    tipo = request.args.get("tipo", "").strip()
-    if tipo:
-        q = q.filter(Projeto.tipo.ilike(tipo))
+    # Recorte por modelo: `tipo` e `area` repetíveis (?tipo=PDE RUO&tipo=PDR RUO,
+    # ?area=pdr). Um projeto entra se o modelo dele foi pedido OU se o modelo é
+    # de uma área pedida — é o filtro de modelos que vale para todas as abas.
+    tipos = [t.strip().lower() for t in request.args.getlist("tipo") if t.strip()]
+    areas = [a.strip().lower() for a in request.args.getlist("area") if a.strip()]
+    for a in areas:
+        erro = _area_invalida(a)
+        if erro:
+            return None, erro
+    if tipos or areas:
+        tipo_proj = db.func.lower(db.func.coalesce(Projeto.tipo, ""))
+        conds = []
+        if tipos:
+            conds.append(tipo_proj.in_(tipos))
+        if areas:
+            nomes = [n for n, a in _areas_dos_tipos().items() if a in areas]
+            if nomes:
+                conds.append(tipo_proj.in_(nomes))
+            # Projeto antigo, sem modelo, é do PDE (ver AREA_PROJETO_LEGADO).
+            if AREA_PROJETO_LEGADO in areas:
+                conds.append(tipo_proj == "")
+        q = q.filter(db.or_(*conds)) if conds else q.filter(db.false())
     busca = request.args.get("busca", "").strip()
     if busca:
         alvo = f"%{busca}%"
@@ -316,11 +352,14 @@ def criar_projeto():
     moscow = (data.get("moscow") or "").strip()
     if moscow and moscow not in MOSCOW:
         return jsonify({"erro": f"moscow inválido. Use: {', '.join(MOSCOW)}"}), 400
+    # O modelo é o que põe o projeto numa área e no filtro: projeto novo sem
+    # modelo seria um projeto que nenhum recorte por área encontra.
     tipo = (data.get("tipo") or "").strip()
-    if tipo:
-        tipos = _tipos_projeto()
-        if tipo not in tipos:
-            return jsonify({"erro": f"tipo inválido. Use: {', '.join(tipos)}"}), 400
+    tipos = _tipos_projeto()
+    if not tipo:
+        return jsonify({"erro": "modelo (tipo) é obrigatório"}), 400
+    if tipo not in tipos:
+        return jsonify({"erro": f"tipo inválido. Use: {', '.join(tipos)}"}), 400
     status = (data.get("status") or "execucao").strip()
     if status not in STATUS_PROJETO:
         return jsonify({"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400
@@ -438,6 +477,10 @@ def editar_projeto(pid):
             tipos = _tipos_projeto()
             if novo not in tipos:
                 return jsonify({"erro": f"tipo inválido. Use: {', '.join(tipos)}"}), 400
+        # Projeto antigo sem modelo continua editável; quem já tem modelo não
+        # volta a ficar sem (sumiria do recorte da própria área).
+        if campo == "tipo" and not novo and p.tipo:
+            return jsonify({"erro": "o modelo do projeto não pode ficar vazio"}), 400
         if campo == "status" and novo and novo not in STATUS_PROJETO:
             return jsonify({"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400
         if campo in DATAS_PROJETO:
@@ -572,10 +615,14 @@ def alertas():
     hoje = datetime.now().date()
     dias_parado = request.args.get("dias_parado", default=30, type=int)
 
+    # Mesmo recorte de modelos da tela (?tipo=/?area=): o sino não pode contar
+    # alertas de projetos que o filtro escondeu.
+    q, erro = _filtrar_projetos(_query_projetos())
+    if erro:
+        return erro
     itens = []
-    projetos = _query_projetos().filter(
-        Projeto.ativo.is_(True),
-        Projeto.status.in_(STATUS_PROJETO_ABERTO)).all()
+    projetos = q.filter(Projeto.ativo.is_(True),
+                        Projeto.status.in_(STATUS_PROJETO_ABERTO)).all()
 
     for p in projetos:
         meus = [e for e in p.entregaveis if _responsavel_por(e, user)]
@@ -944,7 +991,12 @@ def listar_tipos_projeto():
         d["projetos"] = por_projeto.get(t.nome, 0)
         d["itens_modelo"] = por_modelo.get(t.nome, 0)
         tipos.append(d)
-    return jsonify({"tipos": tipos})
+    # As áreas vão junto porque a tela agrupa e pinta os modelos por elas, e a
+    # fonte única dos nomes e cores é areas.py.
+    areas = [{"slug": a["slug"], "sigla": a["slug"].upper(), "nome": a["nome"],
+              "accent": a["accent"]} for a in AREAS]
+    return jsonify({"tipos": tipos, "areas": areas,
+                    "area_legado": AREA_PROJETO_LEGADO})
 
 
 @entregaveis_bp.route("/api/tipos-projeto", methods=["POST"])
@@ -956,12 +1008,19 @@ def criar_tipo_projeto():
     nome, erro = _validar_nome_tipo(data)
     if erro:
         return erro
+    area = (data.get("area") or "").strip().lower()
+    if not area:
+        return jsonify({"erro": "área é obrigatória"}), 400
+    erro = _area_invalida(area)
+    if erro:
+        return erro
     origem = (data.get("copiar_de") or "").strip()
     if origem and origem not in _tipos_projeto():
         return jsonify({"erro": "copiar_de: tipo de origem não existe"}), 400
 
     ult = TipoProjeto.query.order_by(TipoProjeto.ordem.desc()).first()
-    t = TipoProjeto(nome=nome, ordem=((ult.ordem or 0) + 1) if ult else 0)
+    t = TipoProjeto(nome=nome, area=area,
+                    ordem=((ult.ordem or 0) + 1) if ult else 0)
     db.session.add(t)
     copiados = 0
     if origem:
@@ -982,13 +1041,33 @@ def criar_tipo_projeto():
 @entregaveis_bp.route("/api/tipos-projeto/<int:tid>", methods=["PUT"])
 @require_role("admin", "gestor")
 def editar_tipo_projeto(tid):
-    """Renomeia o tipo e propaga o nome novo para os projetos (inclusive
-    arquivados) e para os itens de modelo, que guardam o tipo pelo nome."""
+    """Renomeia o tipo e/ou troca a área dele. O nome novo é propagado para os
+    projetos (inclusive arquivados) e para os itens de modelo, que guardam o
+    tipo pelo nome; a área não precisa de propagação — o projeto a lê daqui."""
     t = TipoProjeto.query.get_or_404(tid)
     data = request.get_json(silent=True) or {}
-    nome, erro = _validar_nome_tipo(data, ignorar_id=t.id)
-    if erro:
-        return erro
+    if "nome" not in data and "area" not in data:
+        return jsonify({"erro": "informe nome e/ou área"}), 400
+    nome = t.nome
+    if "nome" in data:
+        nome, erro = _validar_nome_tipo(data, ignorar_id=t.id)
+        if erro:
+            return erro
+    area = t.area
+    if "area" in data:
+        area = (data.get("area") or "").strip().lower()
+        erro = _area_invalida(area)
+        if erro:
+            return erro
+
+    if area != t.area:
+        area_antiga = t.area
+        t.area = area
+        db.session.commit()
+        _emit("PROJETO_UPDATED", {"tipo_projeto": t.to_dict()}, get_jwt_identity(),
+              entidade=f"Tipo de projeto · {t.nome}", campo="tipo_area",
+              antigo=area_antiga, novo=area)
+
     antigo = t.nome
     if nome != antigo:
         t.nome = nome
@@ -1124,7 +1203,10 @@ def excluir_modelo(mid):
 def resumo():
     user = _usuario_atual()
     role = user.role if user else ""
-    projetos = _query_projetos().filter_by(ativo=True).all()
+    q, erro = _filtrar_projetos(_query_projetos())
+    if erro:
+        return erro
+    projetos = q.all()
     if role == "tecnico":
         projetos = [p for p in projetos
                     if any(_responsavel_por(e, user) for e in p.entregaveis)]
@@ -1180,6 +1262,11 @@ def exportar_excel():
     if erro:
         return erro
     projetos = q.order_by(Projeto.prioridade, Projeto.nome).all()
+    area_de = _areas_dos_tipos()
+
+    def _area(p):
+        return area_de.get((p.tipo or "").lower(), AREA_PROJETO_LEGADO).upper()
+
     # união ordenada de tipos (categoria, tipo) preservando ordem de aparição
     tipos = []
     for p in projetos:
@@ -1197,8 +1284,9 @@ def exportar_excel():
     cab = Font(bold=True, color="FFFFFF")
     azul = PatternFill("solid", fgColor="1F4E5F")
 
-    headers = ["Projeto", "Status", "MoSCoW", "SKU", "Lançamento", "Avanço %"] + \
-              [f"{t}\n({c})" for c, t in tipos]
+    headers = ["Projeto", "Modelo", "Área", "Status", "MoSCoW", "SKU", "Lançamento",
+               "Avanço %"] + [f"{t}\n({c})" for c, t in tipos]
+    PRIMEIRA_ENT = 9   # coluna do primeiro entregável (depois das 8 fixas acima)
     for j, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=j, value=h)
         cell.font = cab
@@ -1206,13 +1294,15 @@ def exportar_excel():
         cell.alignment = Alignment(wrap_text=True, vertical="center")
     for i, p in enumerate(projetos, 2):
         ws.cell(row=i, column=1, value=p.nome).font = Font(bold=True)
-        ws.cell(row=i, column=2, value=p.status or "")
-        ws.cell(row=i, column=3, value=p.moscow)
-        ws.cell(row=i, column=4, value=p.sku)
-        ws.cell(row=i, column=5, value=p.lancamento)
-        ws.cell(row=i, column=6, value=p.avanco)
+        ws.cell(row=i, column=2, value=p.tipo or "")
+        ws.cell(row=i, column=3, value=_area(p))
+        ws.cell(row=i, column=4, value=p.status or "")
+        ws.cell(row=i, column=5, value=p.moscow)
+        ws.cell(row=i, column=6, value=p.sku)
+        ws.cell(row=i, column=7, value=p.lancamento)
+        ws.cell(row=i, column=8, value=p.avanco)
         mapa = {(e.categoria, e.tipo): e for e in p.entregaveis}
-        for j, chave in enumerate(tipos, 7):
+        for j, chave in enumerate(tipos, PRIMEIRA_ENT):
             e = mapa.get(chave)
             if e is None:
                 continue
@@ -1234,7 +1324,7 @@ def exportar_excel():
 
     # ── Aba PMO: o que o export não trazia (cronograma, R$, índices) ──────────
     wp = wb.create_sheet("PMO")
-    cols_pmo = ["Projeto", "Status", "Tipo", "Início prev.", "Término prev.",
+    cols_pmo = ["Projeto", "Status", "Modelo", "Área", "Início prev.", "Término prev.",
                 "Início real", "Término real", "Previsão (velocidade)",
                 "Avanço %", "Previsto %", "SPI", "CPI",
                 "Orçado (BAC)", "Gasto (AC)", "Projetado (EAC)", "Desvio",
@@ -1247,7 +1337,7 @@ def exportar_excel():
     for i, p in enumerate(projetos, 2):
         m = p.pmo_metrics()
         bac, eac = m.get("bac") or 0, m.get("eac")
-        vals = [p.nome, p.status or "", p.tipo or "",
+        vals = [p.nome, p.status or "", p.tipo or "", _area(p),
                 p.data_inicio_prev or "", p.data_fim_prev or "",
                 p.data_inicio_real or "", p.data_fim_real or "",
                 p.previsao_termino() or "",
@@ -1264,7 +1354,7 @@ def exportar_excel():
 
     # ── Aba Entregáveis: linha a linha, para dinâmica/BI ──────────────────────
     we = wb.create_sheet("Detalhe")
-    cols_det = ["Projeto", "Categoria", "Entregável", "Status", "%", "Peso",
+    cols_det = ["Projeto", "Modelo", "Área", "Categoria", "Entregável", "Status", "%", "Peso",
                 "Responsáveis", "Início prev.", "Término prev.",
                 "Início real", "Conclusão", "Atrasado", "Atualizado em"]
     for j, h in enumerate(cols_det, 1):
@@ -1276,7 +1366,7 @@ def exportar_excel():
         for e in p.entregaveis:
             nomes = ", ".join(u.nome for u in e.responsaveis_users) or (e.responsaveis or "")
             for j, v in enumerate([
-                    p.nome, e.categoria or "", e.tipo, e.status or "",
+                    p.nome, p.tipo or "", _area(p), e.categoria or "", e.tipo, e.status or "",
                     e.percentual, e.peso if e.peso is not None else 1.0, nomes,
                     e.data_inicio_prev or "", e.data_fim_prev or "",
                     e.data_inicio or "", e.data_conclusao or "",
@@ -1285,7 +1375,7 @@ def exportar_excel():
                 we.cell(row=linha, column=j, value=v)
             linha += 1
     we.column_dimensions["A"].width = 26
-    we.column_dimensions["C"].width = 34
+    we.column_dimensions["E"].width = 34
     we.freeze_panes = "A2"
 
     buf = io.BytesIO()
