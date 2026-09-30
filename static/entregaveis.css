@@ -419,8 +419,16 @@ select.input{cursor:pointer}
   border-color:color-mix(in srgb,var(--ac) 60%,transparent)}
 .fm-area{display:inline-flex;align-items:center;gap:6px;letter-spacing:.4px}
 .fm-dot{width:8px;height:8px;border-radius:50%;background:var(--ac);flex-shrink:0}
-/* Celular: o grupo quebra em duas linhas; pílula vira cartão para não parecer torta. */
-@media (max-width:560px){.fm-grupo{border-radius:14px}.fm-chip{padding:4px 9px}}
+/* Abaixo de 900px o mobile.css da plataforma dá 44px de altura a todo <button>
+   (alvo de toque). Pílula dentro de pílula nessa altura vira um oval inchado:
+   aqui os chips passam a cantos de 10px e o grupo a 14px, e o grupo pode quebrar
+   em duas linhas sem parecer torto. Sem o mobile.css o desenho é o mesmo, só
+   mais baixo. */
+@media (max-width:900px){
+  .fm-chips{gap:6px}
+  .fm-grupo{border-radius:14px;padding:2px}
+  .fm-chip{display:inline-flex;align-items:center;border-radius:10px;padding:4px 12px}
+}
 
 .modelo-tag{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.3px;
   padding:2px 8px;border-radius:20px;white-space:nowrap;flex-shrink:0;
