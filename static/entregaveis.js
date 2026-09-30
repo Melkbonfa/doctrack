@@ -1,13 +1,13 @@
 /* Entregáveis por Projeto — lógica da página */
 /* TOKEN_KEY, token(), esc(), norm() e o par de tema vêm de static/common.js. */
 const CATEGORIAS = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"];
-const TIPOS_PROJETO = ["OEM", "Revenda"];
+let _tipos = [];   // tipos de projeto cadastrados: [{id, nome, projetos, itens_modelo}]
 let _projetos = [], _projAtualId = null, _popEntregavel = null;
 let _resumo = null, _projetosAll = [], _charts = {};
 let _projChip = "todos";
 let _projSort = "padrao", _formProjId = null, _projDetalheAtual = null;
 let _pfEntregaveis = [];   // lista editável de entregáveis na criação de projeto
-let _modelosTipoAtual = "OEM";   // tipo selecionado na aba Modelos
+let _modelosTipoAtual = "";      // tipo selecionado na aba Modelos (nome)
 let _verArquivados = false;      // grade de projetos mostrando arquivados?
 let _fichaProj = null;   // projeto selecionado na ficha do Dashboard
 let _projStatus = "";    // filtro de situação (ciclo de vida) na grade
@@ -1401,7 +1401,7 @@ function _parseMoeda(s){
 
 function _preencherForm(p){
   document.getElementById("pf-nome").value = p ? (p.nome || "") : "";
-  document.getElementById("pf-tipo").value = p ? (p.tipo || "") : "";
+  _fillTipoSelect(p ? (p.tipo || "") : "");
   document.getElementById("pf-sku").value = p ? (p.sku || "") : "";
   document.getElementById("pf-lancamento").value = p ? _toIso(p.lancamento) : "";
   document.getElementById("pf-moscow").value = p ? (normMoscow(p.moscow) || "") : "";
@@ -1457,6 +1457,28 @@ function _fillCatSelect(id, sel){
   const el = document.getElementById(id);
   if (!el) return;
   el.innerHTML = CATEGORIAS.map(c => `<option value="${c}" ${c===sel?"selected":""}>${c}</option>`).join("");
+}
+
+/* ── Tipos de projeto ──
+   A lista era fixa no código (OEM/Revenda); agora vem do cadastro e o gestor
+   cria outros na aba Modelos ou direto do formulário de projeto. */
+async function loadTipos(){
+  const data = await api("/api/tipos-projeto");
+  _tipos = data.tipos || [];
+  return _tipos;
+}
+
+/* Preenche o <select> de tipo do formulário de projeto. Um tipo fora do
+   cadastro (dado legado) entra como opção extra: sem isso, abrir e salvar o
+   projeto apagaria o tipo dele em silêncio. Opções via DOM, e não innerHTML —
+   o nome agora é digitado pelo usuário. */
+function _fillTipoSelect(sel){
+  const el = document.getElementById("pf-tipo");
+  if (!el) return;
+  const nomes = _tipos.map(t => t.nome);
+  if (sel && !nomes.includes(sel)) nomes.push(sel);
+  el.replaceChildren(new Option("—", ""), ...nomes.map(n => new Option(n, n)));
+  el.value = sel || "";
 }
 
 /* ── Editor de entregáveis na criação de projeto ── */
@@ -1556,7 +1578,7 @@ async function salvarFormProjeto(){
   if (!nome){ toast("Informe o nome do projeto", true); return; }
   const payload = {
     nome,
-    tipo: document.getElementById("pf-tipo").value,               // "" | OEM | Revenda
+    tipo: document.getElementById("pf-tipo").value,               // "" | nome de um tipo cadastrado
     sku: document.getElementById("pf-sku").value.trim(),
     lancamento: document.getElementById("pf-lancamento").value,   // ISO yyyy-mm-dd ou ""
     moscow: document.getElementById("pf-moscow").value,           // "" | Must | Should | Could | Wont
@@ -1661,34 +1683,140 @@ async function excluirEntregavel(eid, nome){
   }catch(err){ toast(err.message, true); }
 }
 
-/* ── Aba Modelos: templates de entregáveis por tipo (OEM/Revenda) ── */
+/* ── Aba Modelos: tipos de projeto + template de entregáveis de cada um ── */
 let _modelosCache = {};
 
+function _tipoAtual(){ return _tipos.find(t => t.nome === _modelosTipoAtual) || null; }
+
+function _plural(n, um, varios){ return `${n} ${n === 1 ? um : varios}`; }
+
 async function loadModelos(){
-  const data = await api("/api/modelos");
+  const [data] = await Promise.all([api("/api/modelos"), loadTipos()]);
   _modelosCache = data.modelos || {};
-  renderModelosToggle(data.tipos || TIPOS_PROJETO);
+  // o tipo selecionado pode ter sido renomeado/excluído (inclusive por outra pessoa)
+  if (!_tipoAtual()) _modelosTipoAtual = _tipos.length ? _tipos[0].nome : "";
+  renderModelosToggle();
   renderModelos();
 }
 
-function renderModelosToggle(tipos){
+function renderModelosToggle(){
   const host = document.getElementById("modelos-tipo-toggle");
-  if (!host) return;
-  host.innerHTML = tipos.map(t =>
-    `<button type="button" class="modelos-tipo-btn${t===_modelosTipoAtual?" active":""}" onclick="setModelosTipo('${t}')">${esc(t)}</button>`
-  ).join("");
+  if (host){
+    // índice no onclick, e não o nome: o nome agora é digitado pelo usuário.
+    host.innerHTML = _tipos.map((t, i) =>
+      `<button type="button" class="modelos-tipo-btn${t.nome===_modelosTipoAtual?" active":""}" onclick="setModelosTipo(${i})">${esc(t.nome)}</button>`
+    ).join("");
+    host.style.display = _tipos.length ? "" : "none";
+  }
+  const novo = document.getElementById("btn-novo-tipo");
+  if (novo) novo.style.display = canEditProj() ? "" : "none";
+  renderModelosInfo();
 }
 
-function setModelosTipo(t){
-  _modelosTipoAtual = t;
-  document.querySelectorAll("#modelos-tipo-toggle .modelos-tipo-btn")
-    .forEach(b => b.classList.toggle("active", b.textContent.trim() === t));
+function setModelosTipo(i){
+  const t = _tipos[i];
+  if (!t) return;
+  _modelosTipoAtual = t.nome;
+  renderModelosToggle();
   renderModelos();
+}
+
+/* Linha do tipo selecionado: quanto ele é usado + renomear/excluir. */
+function renderModelosInfo(){
+  const host = document.getElementById("modelos-tipo-info");
+  if (!host) return;
+  const t = _tipoAtual();
+  if (!t){ host.innerHTML = ""; return; }
+  const uso = t.projetos ? "usado por " + _plural(t.projetos, "projeto", "projetos") : "ainda sem projetos";
+  host.innerHTML = `<span>Tipo <b>${esc(t.nome)}</b> · ${uso}</span>`
+    + (canEditProj() ? `<span class="modelos-acts">
+        <button type="button" class="lnk" onclick="abrirFormTipo(${t.id})">Renomear</button>
+        <button type="button" class="lnk lnk-danger" onclick="tipoExcluir(${t.id})">Excluir tipo</button>
+      </span>` : "");
+}
+
+/* ── Criar / renomear / excluir tipo de projeto ── */
+let _tipoEditId = null, _tipoParaForm = false;
+
+/* Com `id` renomeia; sem, cria. `paraForm`: aberto de dentro do formulário de
+   projeto — ao salvar, o tipo novo já fica selecionado lá. */
+function abrirFormTipo(id, paraForm){
+  const t = id ? _tipos.find(x => x.id === id) : null;
+  if (id && !t) return;
+  _tipoEditId = t ? t.id : null;
+  _tipoParaForm = !!paraForm;
+  document.getElementById("tf-title").textContent = t ? "Renomear tipo de projeto" : "Novo tipo de projeto";
+  document.getElementById("tf-sub").textContent = !t ? "Cada tipo tem o seu modelo de entregáveis"
+    : t.projetos ? `O nome novo vale também para ${_plural(t.projetos, "projeto que já usa", "projetos que já usam")} este tipo`
+    : "Nenhum projeto usa este tipo ainda";
+  document.getElementById("tf-nome").value = t ? t.nome : "";
+  // Tipo novo quase sempre é variação de um existente: oferece copiar o modelo.
+  document.getElementById("tf-copiar-wrap").style.display = (t || !_tipos.length) ? "none" : "";
+  document.getElementById("tf-copiar").replaceChildren(
+    new Option("Começar vazio", ""),
+    ..._tipos.map(x => new Option(
+      `Copiar de ${x.nome} (${_plural(x.itens_modelo, "item", "itens")})`, x.nome)));
+  _abrirModal("modal-tipo-form");
+  setTimeout(() => document.getElementById("tf-nome").focus(), 60);
+}
+
+function fecharFormTipo(){ _fecharModal("modal-tipo-form"); _tipoEditId = null; _tipoParaForm = false; }
+
+async function salvarFormTipo(){
+  const nome = document.getElementById("tf-nome").value.trim();
+  if (!nome){ toast("Informe o nome do tipo", true); return; }
+  const editId = _tipoEditId, paraForm = _tipoParaForm;
+  try{
+    let salvo;
+    if (editId){
+      const antigo = (_tipos.find(x => x.id === editId) || {}).nome;
+      salvo = (await api("/api/tipos-projeto/" + editId,
+        { method: "PUT", body: JSON.stringify({ nome }) })).tipo;
+      if (_modelosTipoAtual === antigo) _modelosTipoAtual = salvo.nome;
+      toast("Tipo renomeado");
+    } else {
+      salvo = (await api("/api/tipos-projeto", { method: "POST", body: JSON.stringify({
+        nome, copiar_de: document.getElementById("tf-copiar").value }) })).tipo;
+      toast("Tipo criado");
+    }
+    fecharFormTipo();
+    if (paraForm){
+      await loadTipos();
+      _fillTipoSelect(salvo.nome);
+      await onTipoProjetoChange();   // carrega a lista-padrão do tipo recém-criado
+    } else {
+      if (!editId) _modelosTipoAtual = salvo.nome;
+      await loadModelos();
+      // os projetos em memória ainda carregam o nome antigo do tipo
+      if (editId) _recarregarTudo().catch(()=>{});
+    }
+  }catch(err){ toast(err.message, true); }
+}
+
+async function tipoExcluir(id){
+  const t = _tipos.find(x => x.id === id);
+  if (!t) return;
+  if (t.projetos){
+    toast(`"${t.nome}" está em uso por ${_plural(t.projetos, "projeto", "projetos")} (contando arquivados). Troque o tipo deles antes de excluir.`, true);
+    return;
+  }
+  const extra = t.itens_modelo ? ` O modelo dele (${_plural(t.itens_modelo, "item", "itens")}) é excluído junto.` : "";
+  if (!(await confirmar(`Excluir o tipo "${t.nome}"?${extra}`,
+        {title:"Excluir tipo de projeto", okLabel:"Excluir"}))) return;
+  try{
+    await api("/api/tipos-projeto/" + id, { method: "DELETE" });
+    toast("Tipo excluído");
+    await loadModelos();
+  }catch(err){ toast(err.message, true); }
 }
 
 function renderModelos(){
   const host = document.getElementById("modelos-body");
   if (!host) return;
+  if (!_tipoAtual()){
+    host.innerHTML = `<div class="per-vazio" style="padding:16px 0">Nenhum tipo de projeto cadastrado${canEditProj() ? " — crie o primeiro em “+ Novo tipo”" : ""}.</div>`;
+    return;
+  }
   const itens = _modelosCache[_modelosTipoAtual] || [];
   const pode = canEditProj();
   // agrupa por categoria
@@ -2011,6 +2139,9 @@ document.getElementById("modal-ent-form").addEventListener("click", (e) => {
 document.getElementById("modal-modelo-form").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) fecharModeloForm();
 });
+document.getElementById("modal-tipo-form").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) fecharFormTipo();
+});
 document.getElementById("cf-ok").addEventListener("click", () => _fecharConfirm(true));
 document.getElementById("cf-cancel").addEventListener("click", () => _fecharConfirm(false));
 document.getElementById("modal-confirm-ent").addEventListener("click", (e) => {
@@ -2029,7 +2160,9 @@ document.addEventListener("keydown", (e) => {
   // o sino é a camada mais leve: sai primeiro, antes de fechar qualquer modal
   if (sinoAberto()){ fecharSino(); document.getElementById("sino-btn").focus(); return; }
   if (document.getElementById("modal-confirm-ent").classList.contains("open")){ _fecharConfirm(false); return; }
-  if (document.getElementById("modal-modelo-form").classList.contains("open")) fecharModeloForm();
+  // o de tipo vem antes do formulário de projeto: abre por cima dele
+  if (document.getElementById("modal-tipo-form").classList.contains("open")) fecharFormTipo();
+  else if (document.getElementById("modal-modelo-form").classList.contains("open")) fecharModeloForm();
   else if (document.getElementById("modal-ent-form").classList.contains("open")) fecharFormEntregavel();
   else if (document.getElementById("modal-mensal").classList.contains("open")) fecharModalMensal();
   else if (document.getElementById("modal-proj-form").classList.contains("open")) fecharFormProjeto();
@@ -2080,7 +2213,8 @@ function _temJsPDF(){
   if (!["admin", "gestor", "tecnico"].includes(userRole())){ window.location.href = "/hub"; return; }
   try{
     // Um carregamento de projetos serve grade e gráficos; alertas em paralelo.
-    await Promise.all([loadKpis(), loadProjetos(), loadAlertas().catch(()=>{})]);
+    await Promise.all([loadKpis(), loadProjetos(), loadAlertas().catch(()=>{}),
+                       loadTipos().catch(()=>{})]);
     populateDashProjSel();
     renderCharts();
     conectarSocket();

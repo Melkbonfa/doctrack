@@ -79,6 +79,11 @@ def _semear(db):
     for d in docs:
         db.session.add(d)
 
+    # Em produção quem semeia é servidor._seed_tipos_projeto(), na subida.
+    from models import TipoProjeto, TIPOS_PROJETO
+    for ordem, nome in enumerate(TIPOS_PROJETO):
+        db.session.add(TipoProjeto(nome=nome, ordem=ordem))
+
     db.session.commit()
 
 

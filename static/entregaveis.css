@@ -222,8 +222,14 @@ select.input{cursor:pointer}
 
 /* ── Aba Modelos ── */
 .modelos-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
-.modelos-tipo-toggle{display:inline-flex;gap:4px;background:var(--bg-void);border:1px solid var(--border-soft);
+.modelos-tipos{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* flex-wrap: os tipos são cadastráveis, a fila não tem mais tamanho fixo. */
+.modelos-tipo-toggle{display:inline-flex;flex-wrap:wrap;gap:4px;background:var(--bg-void);border:1px solid var(--border-soft);
   border-radius:var(--r2);padding:3px}
+.modelos-tipo-info{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+  font-size:12px;color:var(--t3);margin:0 0 14px;padding:8px 4px;border-bottom:1px solid var(--border-soft)}
+.modelos-tipo-info:empty{display:none}
+.modelos-tipo-info b{color:var(--t1)}
 .modelos-tipo-btn{appearance:none;border:none;background:none;color:var(--t3);font-size:13px;font-weight:600;
   font-family:var(--font-body);padding:6px 16px;border-radius:var(--r);cursor:pointer;transition:color .15s,background .15s}
 .modelos-tipo-btn:hover{color:var(--t1)}
@@ -245,9 +251,15 @@ select.input{cursor:pointer}
 .modelos-add #mod-add-nome{flex:1;min-width:160px}
 .modelos-add #mod-add-resp{flex:0 0 200px}
 
-/* ── Diálogos pequenos centralizados (confirmação, edição de modelo, novo entregável) ── */
-#modal-confirm-ent.open,#modal-modelo-form.open,#modal-ent-form.open{align-items:center}
-#modal-confirm-ent .modal,#modal-modelo-form .modal,#modal-ent-form .modal{margin:auto}
+/* "+ novo tipo" ao lado do rótulo, no formulário de projeto */
+.pf-label-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pf-lnk{appearance:none;border:none;background:none;cursor:pointer;font-size:11px;font-weight:600;
+  color:var(--cyan);padding:0;font-family:var(--font-body)}
+.pf-lnk:hover{text-decoration:underline}
+
+/* ── Diálogos pequenos centralizados (confirmação, edição de modelo, novo entregável, tipo) ── */
+#modal-confirm-ent.open,#modal-modelo-form.open,#modal-ent-form.open,#modal-tipo-form.open{align-items:center}
+#modal-confirm-ent .modal,#modal-modelo-form .modal,#modal-ent-form .modal,#modal-tipo-form .modal{margin:auto}
 
 /* ── Selo de projeto arquivado (card) ── */
 .proj-arch-tag{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;

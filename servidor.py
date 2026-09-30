@@ -2338,7 +2338,7 @@ def _sync_schema():
             db.session.commit()
             print(f"[INFO] Schema: {ligados} entregável(is) com responsáveis vinculados a usuários")
 
-    # Semeia os modelos de entregáveis (OEM/Revenda) a partir dos entregáveis
+    # Semeia os modelos de entregáveis dos tipos padrão a partir dos entregáveis
     # distintos já existentes — só quando a tabela está vazia (espelha a
     # migration 006). Cross-dialect (Postgres/SQLite).
     if "modelos_entregavel" in set(_sa_inspect(db.engine).get_table_names()):
@@ -2952,6 +2952,26 @@ def _seed_tipos_consumivel():
         print(f"[INFO] Consumíveis: {n} tipos semeados com modelo de campos")
 
 
+def _seed_tipos_projeto():
+    """Semeia os tipos de projeto (só quando a tabela está vazia): os padrão
+    (OEM/Revenda) mais qualquer nome já gravado em projetos ou modelos — banco
+    que vem de antes do cadastro não pode subir com projeto apontando para um
+    tipo que a tela não oferece. Espelha a migration 016. Idempotente."""
+    from models import TipoProjeto, Projeto, ModeloEntregavel, TIPOS_PROJETO
+    if TipoProjeto.query.count() > 0:
+        return
+    nomes = list(TIPOS_PROJETO)
+    em_uso = ([r[0] for r in db.session.query(Projeto.tipo).distinct()]
+              + [r[0] for r in db.session.query(ModeloEntregavel.tipo_projeto).distinct()])
+    for nome in em_uso:
+        if nome and nome not in nomes:
+            nomes.append(nome)
+    for ordem, nome in enumerate(nomes):
+        db.session.add(TipoProjeto(nome=nome, ordem=ordem))
+    db.session.commit()
+    print(f"[INFO] Projetos: {len(nomes)} tipo(s) de projeto semeado(s)")
+
+
 def _snapshot_projetos_do_dia():
     """Foto do dia dos projetos ativos.
 
@@ -3043,6 +3063,7 @@ def init_app(app_=None):
             db.create_all()
             _sync_schema()
             _seed_tipos_consumivel()
+            _seed_tipos_projeto()
             # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
             from sqlalchemy import text
             db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))
