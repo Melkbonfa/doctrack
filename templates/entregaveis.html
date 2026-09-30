@@ -190,8 +190,13 @@
               <div class="card-title" style="margin:0">Modelos de entregáveis</div>
               <p class="muted" style="margin:4px 0 0">Listas-padrão usadas ao criar um projeto de cada tipo. Editar aqui só afeta projetos criados depois.</p>
             </div>
-            <div class="modelos-tipo-toggle" id="modelos-tipo-toggle" role="tablist"></div>
+            <div class="modelos-tipos">
+              <div class="modelos-tipo-toggle" id="modelos-tipo-toggle" role="tablist"></div>
+              <button class="btn btn-ghost btn-sm" id="btn-novo-tipo" type="button" onclick="abrirFormTipo()" style="display:none">+ Novo tipo</button>
+            </div>
           </div>
+          <!-- Tipo selecionado: uso + renomear/excluir (ver renderModelosInfo) -->
+          <div class="modelos-tipo-info" id="modelos-tipo-info"></div>
           <div id="modelos-body"><div class="loading-state"><div class="spinner"></div>Carregando…</div></div>
         </div>
       </div><!-- /aba-modelos -->
@@ -267,11 +272,14 @@
         <div class="form-group"><label class="form-label" for="pf-sku">SKU</label><input class="form-input" id="pf-sku" placeholder="Opcional"></div>
       </div>
       <div class="g2">
-        <div class="form-group"><label class="form-label" for="pf-tipo">Tipo de projeto</label>
+        <div class="form-group">
+          <div class="pf-label-row">
+            <label class="form-label" for="pf-tipo">Tipo de projeto</label>
+            <button type="button" class="pf-lnk" onclick="abrirFormTipo(null, true)">+ novo tipo</button>
+          </div>
+          <!-- Opções vêm do cadastro (/api/tipos-projeto) — ver _fillTipoSelect(). -->
           <select class="form-input" id="pf-tipo" onchange="onTipoProjetoChange()">
             <option value="">—</option>
-            <option value="OEM">OEM</option>
-            <option value="Revenda">Revenda</option>
           </select>
         </div>
         <div class="form-group"><label class="form-label" for="pf-moscow">Prioridade MoSCoW</label>
@@ -383,6 +391,21 @@
           <span class="muted" style="font-weight:400">— 1 = padrão; 8 = pesa 8× mais no avanço</span></label>
         <input class="form-input" id="mdf-peso" inputmode="decimal" value="1"></div>
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharModeloForm()">Cancelar</button><button class="btn btn-primary" onclick="salvarModeloForm()">Salvar</button></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/renomear tipo de projeto. Fica acima do formulário de projeto
+       (z-index), porque também abre de dentro dele. -->
+  <div class="modal-overlay" id="modal-tipo-form" role="dialog" aria-modal="true" aria-labelledby="tf-title" aria-hidden="true" style="z-index:9200">
+    <div class="modal" style="width:420px" tabindex="-1">
+      <div class="modal-title" id="tf-title">Novo tipo de projeto</div>
+      <div class="modal-sub" id="tf-sub">Cada tipo tem o seu modelo de entregáveis</div>
+      <div class="form-group"><label class="form-label" for="tf-nome">Nome *</label>
+        <input class="form-input" id="tf-nome" maxlength="20" placeholder="Ex.: Locação"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();salvarFormTipo();}"></div>
+      <div class="form-group" id="tf-copiar-wrap"><label class="form-label" for="tf-copiar">Modelo de entregáveis</label>
+        <select class="form-input" id="tf-copiar"></select></div>
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharFormTipo()">Cancelar</button><button class="btn btn-primary" onclick="salvarFormTipo()">Salvar</button></div>
     </div>
   </div>
 

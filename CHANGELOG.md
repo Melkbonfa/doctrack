@@ -14,6 +14,27 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Projetos: tipos de projeto cadastráveis
+Os tipos eram uma lista fixa no código (`OEM` e `Revenda`), repetida no Python,
+no JavaScript e no HTML. Um terceiro tipo exigia mexer nos três e publicar.
+
+- **Adicionado** o cadastro de tipos de projeto (tabela `tipos_projeto`). Na aba
+  **Modelos** do módulo Projetos, admin e gestor criam (**+ Novo tipo**),
+  renomeiam e excluem tipos; cada tipo tem o seu modelo de entregáveis. O
+  formulário de projeto ganhou um atalho **+ novo tipo** ao lado do campo.
+- **Adicionado** "copiar de" na criação: o tipo novo pode nascer com o modelo de
+  entregáveis de um tipo existente, em vez de vazio.
+- **Adicionado** `/api/tipos-projeto` (GET/POST/PUT/DELETE). Renomear propaga o
+  nome para os projetos (inclusive arquivados) e para o modelo; excluir é
+  recusado (409) enquanto houver projeto usando o tipo.
+- **Adicionado** `migrations/016_tipos_projeto.py`. Não é obrigatório rodar: a
+  subida do servidor cria a tabela e semeia `OEM`, `Revenda` e qualquer tipo já
+  gravado em projetos ou modelos.
+- **Alterado** editar um projeto cujo tipo não está no cadastro deixa de ser
+  recusado quando o tipo não mudou — o formulário reenvia todos os campos.
+- **Não muda** o `tipo` da composição no módulo Custos (`OEM`/`Revenda`), que
+  decide se há NRE e é um conceito à parte.
+
 ### Anexos do equipamento: docs agregados e repositório de software/firmware
 O card do equipamento só comportava os 12 tipos canônicos de documento. Um laudo
 de EMC, um certificado do fabricante ou o instalador do software não são nenhum

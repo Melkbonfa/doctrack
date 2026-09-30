@@ -19,7 +19,11 @@ Rotas:
   DELETE /api/entregaveis/<id>        — excluir entregável (admin/gestor)
   POST   /api/projetos/<id>/entregaveis — adicionar entregável (admin/gestor)
   GET    /api/entregaveis/responsaveis — usuários atribuíveis (picker)
-  GET    /api/modelos                 — modelos de entregáveis por tipo (OEM/Revenda)
+  GET    /api/tipos-projeto           — tipos de projeto cadastrados (com uso)
+  POST   /api/tipos-projeto           — criar tipo (admin/gestor)
+  PUT    /api/tipos-projeto/<id>      — renomear tipo (admin/gestor)
+  DELETE /api/tipos-projeto/<id>      — excluir tipo sem projetos (admin/gestor)
+  GET    /api/modelos                 — modelos de entregáveis por tipo de projeto
   POST   /api/modelos                 — adicionar item de modelo (admin/gestor)
   PUT    /api/modelos/<id>            — editar item de modelo (admin/gestor)
   DELETE /api/modelos/<id>            — excluir item de modelo (admin/gestor)
@@ -39,9 +43,9 @@ from flask_jwt_extended import get_jwt_identity
 from sqlalchemy.orm import selectinload
 
 from models import (db, Projeto, Entregavel, EntregavelHistorico, ProjetoMensal,
-                    ProjetoBaseline, ModeloEntregavel, User,
+                    ProjetoBaseline, ModeloEntregavel, TipoProjeto, User,
                     CATEGORIAS_ENTREGAVEL, STATUS_ENTREGAVEL, MOSCOW,
-                    TIPOS_PROJETO, STATUS_PROJETO, STATUS_PROJETO_ABERTO,
+                    TIPO_PROJETO_MAX, STATUS_PROJETO, STATUS_PROJETO_ABERTO,
                     _parse_iso)
 from auth import require_role, get_client_ip
 
@@ -92,6 +96,19 @@ def _parse_data(v):
     if not _RE_ISO.match(s) or _parse_iso(s) is None:
         return None, "data inválida (use AAAA-MM-DD)"
     return s, None
+
+
+def _tipos_projeto():
+    """Nomes dos tipos de projeto cadastrados, na ordem de exibição."""
+    return [t.nome for t in
+            TipoProjeto.query.order_by(TipoProjeto.ordem, TipoProjeto.id).all()]
+
+
+def _tipo_projeto_por_nome(nome):
+    """Busca sem diferenciar maiúsculas: "oem" e "OEM" são o mesmo tipo."""
+    return (TipoProjeto.query
+            .filter(db.func.lower(TipoProjeto.nome) == (nome or "").lower())
+            .first())
 
 
 # ── Perfil do requisitante ───────────────────────────────────────────────────
@@ -300,8 +317,10 @@ def criar_projeto():
     if moscow and moscow not in MOSCOW:
         return jsonify({"erro": f"moscow inválido. Use: {', '.join(MOSCOW)}"}), 400
     tipo = (data.get("tipo") or "").strip()
-    if tipo and tipo not in TIPOS_PROJETO:
-        return jsonify({"erro": f"tipo inválido. Use: {', '.join(TIPOS_PROJETO)}"}), 400
+    if tipo:
+        tipos = _tipos_projeto()
+        if tipo not in tipos:
+            return jsonify({"erro": f"tipo inválido. Use: {', '.join(tipos)}"}), 400
     status = (data.get("status") or "execucao").strip()
     if status not in STATUS_PROJETO:
         return jsonify({"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400
@@ -413,8 +432,12 @@ def editar_projeto(pid):
             return jsonify({"erro": "nome não pode ficar vazio"}), 400
         if campo == "moscow" and novo and novo not in MOSCOW:
             return jsonify({"erro": "moscow inválido"}), 400
-        if campo == "tipo" and novo and novo not in TIPOS_PROJETO:
-            return jsonify({"erro": f"tipo inválido. Use: {', '.join(TIPOS_PROJETO)}"}), 400
+        # O formulário reenvia todos os campos: um tipo que não mudou passa
+        # mesmo que não esteja mais cadastrado (dado legado não trava a edição).
+        if campo == "tipo" and novo and novo != (p.tipo or ""):
+            tipos = _tipos_projeto()
+            if novo not in tipos:
+                return jsonify({"erro": f"tipo inválido. Use: {', '.join(tipos)}"}), 400
         if campo == "status" and novo and novo not in STATUS_PROJETO:
             return jsonify({"erro": f"status inválido. Use: {', '.join(STATUS_PROJETO)}"}), 400
         if campo in DATAS_PROJETO:
@@ -888,24 +911,138 @@ def excluir_entregavel(eid):
     return jsonify({"ok": True, "avanco_projeto": projeto.avanco})
 
 
+# ── TIPOS DE PROJETO (cadastro: OEM, Revenda e os que o gestor criar) ────────
+
+def _validar_nome_tipo(data, ignorar_id=None):
+    """Devolve (nome, erro). `erro` é a resposta pronta ou None."""
+    nome = " ".join((data.get("nome") or "").split())
+    if not nome:
+        return None, (jsonify({"erro": "nome é obrigatório"}), 400)
+    if len(nome) > TIPO_PROJETO_MAX:
+        return None, (jsonify(
+            {"erro": f"nome deve ter no máximo {TIPO_PROJETO_MAX} caracteres"}), 400)
+    existente = _tipo_projeto_por_nome(nome)
+    if existente and existente.id != ignorar_id:
+        return None, (jsonify(
+            {"erro": f"já existe um tipo chamado '{existente.nome}'"}), 409)
+    return nome, None
+
+
+@entregaveis_bp.route("/api/tipos-projeto", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def listar_tipos_projeto():
+    """Tipos cadastrados + quanto cada um é usado (projetos, inclusive
+    arquivados, e itens de modelo) — é o que a tela mostra antes de excluir."""
+    por_projeto = dict(db.session.query(Projeto.tipo, db.func.count(Projeto.id))
+                       .group_by(Projeto.tipo).all())
+    por_modelo = dict(db.session.query(ModeloEntregavel.tipo_projeto,
+                                       db.func.count(ModeloEntregavel.id))
+                      .group_by(ModeloEntregavel.tipo_projeto).all())
+    tipos = []
+    for t in TipoProjeto.query.order_by(TipoProjeto.ordem, TipoProjeto.id).all():
+        d = t.to_dict()
+        d["projetos"] = por_projeto.get(t.nome, 0)
+        d["itens_modelo"] = por_modelo.get(t.nome, 0)
+        tipos.append(d)
+    return jsonify({"tipos": tipos})
+
+
+@entregaveis_bp.route("/api/tipos-projeto", methods=["POST"])
+@require_role("admin", "gestor")
+def criar_tipo_projeto():
+    """Cria um tipo. `copiar_de` (opcional) clona o modelo de entregáveis de um
+    tipo existente — tipo novo quase sempre é variação de um que já existe."""
+    data = request.get_json(silent=True) or {}
+    nome, erro = _validar_nome_tipo(data)
+    if erro:
+        return erro
+    origem = (data.get("copiar_de") or "").strip()
+    if origem and origem not in _tipos_projeto():
+        return jsonify({"erro": "copiar_de: tipo de origem não existe"}), 400
+
+    ult = TipoProjeto.query.order_by(TipoProjeto.ordem.desc()).first()
+    t = TipoProjeto(nome=nome, ordem=((ult.ordem or 0) + 1) if ult else 0)
+    db.session.add(t)
+    copiados = 0
+    if origem:
+        for m in (ModeloEntregavel.query.filter_by(tipo_projeto=origem)
+                  .order_by(ModeloEntregavel.ordem, ModeloEntregavel.id).all()):
+            db.session.add(ModeloEntregavel(
+                tipo_projeto=nome, categoria=m.categoria, tipo=m.tipo, peso=m.peso,
+                responsavel_padrao=m.responsavel_padrao, ordem=m.ordem))
+            copiados += 1
+    db.session.commit()
+
+    d = dict(t.to_dict(), projetos=0, itens_modelo=copiados)
+    _emit("PROJETO_UPDATED", {"tipo_projeto": d}, get_jwt_identity(),
+          entidade=f"Tipo de projeto · {nome}", campo="tipo_criado", novo=nome)
+    return jsonify({"tipo": d}), 201
+
+
+@entregaveis_bp.route("/api/tipos-projeto/<int:tid>", methods=["PUT"])
+@require_role("admin", "gestor")
+def editar_tipo_projeto(tid):
+    """Renomeia o tipo e propaga o nome novo para os projetos (inclusive
+    arquivados) e para os itens de modelo, que guardam o tipo pelo nome."""
+    t = TipoProjeto.query.get_or_404(tid)
+    data = request.get_json(silent=True) or {}
+    nome, erro = _validar_nome_tipo(data, ignorar_id=t.id)
+    if erro:
+        return erro
+    antigo = t.nome
+    if nome != antigo:
+        t.nome = nome
+        Projeto.query.filter_by(tipo=antigo).update(
+            {"tipo": nome}, synchronize_session=False)
+        ModeloEntregavel.query.filter_by(tipo_projeto=antigo).update(
+            {"tipo_projeto": nome}, synchronize_session=False)
+        db.session.commit()
+        _emit("PROJETO_UPDATED", {"tipo_projeto": t.to_dict()}, get_jwt_identity(),
+              entidade=f"Tipo de projeto · {nome}", campo="tipo_renomeado",
+              antigo=antigo, novo=nome)
+    return jsonify({"tipo": t.to_dict()})
+
+
+@entregaveis_bp.route("/api/tipos-projeto/<int:tid>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def excluir_tipo_projeto(tid):
+    """Exclui o tipo e o modelo de entregáveis dele. Recusa enquanto houver
+    projeto (ativo ou arquivado) usando: o projeto ficaria com um tipo que o
+    formulário não sabe mais oferecer."""
+    t = TipoProjeto.query.get_or_404(tid)
+    em_uso = Projeto.query.filter_by(tipo=t.nome).count()
+    if em_uso:
+        return jsonify({"erro": f"'{t.nome}' está em uso por {em_uso} projeto(s), "
+                                "contando os arquivados. Troque o tipo deles antes "
+                                "de excluir."}), 409
+    nome = t.nome
+    ModeloEntregavel.query.filter_by(tipo_projeto=nome).delete(synchronize_session=False)
+    db.session.delete(t)
+    db.session.commit()
+    _emit("PROJETO_UPDATED", {}, get_jwt_identity(),
+          entidade=f"Tipo de projeto · {nome}", campo="tipo_excluido", antigo=nome)
+    return jsonify({"ok": True})
+
+
 # ── MODELOS DE ENTREGÁVEIS (templates por tipo de projeto) ───────────────────
 
 @entregaveis_bp.route("/api/modelos", methods=["GET"])
 @require_role("admin", "gestor")
 def listar_modelos():
-    """Itens de modelo agrupados por tipo de projeto (OEM/Revenda)."""
+    """Itens de modelo agrupados por tipo de projeto."""
     tipo = (request.args.get("tipo") or "").strip()
+    tipos = _tipos_projeto()
     q = ModeloEntregavel.query
     if tipo:
-        if tipo not in TIPOS_PROJETO:
+        if tipo not in tipos:
             return jsonify({"erro": "tipo inválido"}), 400
         q = q.filter_by(tipo_projeto=tipo)
     itens = q.order_by(ModeloEntregavel.tipo_projeto,
                        ModeloEntregavel.ordem, ModeloEntregavel.id).all()
-    out = {t: [] for t in TIPOS_PROJETO}
+    out = {t: [] for t in tipos}
     for m in itens:
         out.setdefault(m.tipo_projeto, []).append(m.to_dict())
-    return jsonify({"tipos": TIPOS_PROJETO, "modelos": out})
+    return jsonify({"tipos": tipos, "modelos": out})
 
 
 @entregaveis_bp.route("/api/modelos", methods=["POST"])
@@ -913,8 +1050,9 @@ def listar_modelos():
 def adicionar_modelo():
     data = request.get_json(silent=True) or {}
     tipo_projeto = (data.get("tipo_projeto") or "").strip()
-    if tipo_projeto not in TIPOS_PROJETO:
-        return jsonify({"erro": f"tipo_projeto inválido. Use: {', '.join(TIPOS_PROJETO)}"}), 400
+    tipos = _tipos_projeto()
+    if tipo_projeto not in tipos:
+        return jsonify({"erro": f"tipo_projeto inválido. Use: {', '.join(tipos)}"}), 400
     tipo = (data.get("tipo") or "").strip()
     if not tipo:
         return jsonify({"erro": "tipo (nome do entregável) é obrigatório"}), 400

@@ -1280,7 +1280,10 @@ class RevokedToken(db.Model):
 CATEGORIAS_ENTREGAVEL = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"]
 STATUS_ENTREGAVEL = ["na", "pendente", "em_progresso", "concluido"]
 MOSCOW = ["Must", "Should", "Could", "Wont"]
-TIPOS_PROJETO = ["OEM", "Revenda"]   # tipo do projeto → define o modelo de entregáveis
+# Tipos de projeto semeados em banco novo. A lista viva mora na tabela
+# `tipos_projeto` (ver TipoProjeto) — o gestor cria outros pela aba Modelos.
+TIPOS_PROJETO = ["OEM", "Revenda"]
+TIPO_PROJETO_MAX = 20   # projetos.tipo e modelos_entregavel.tipo_projeto são String(20)
 
 # Ciclo de vida do projeto. Ortogonal a `ativo` (que é só arquivamento): um
 # projeto arquivado pode ter terminado bem (concluido) ou morrido no meio
@@ -1407,7 +1410,7 @@ class Projeto(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     nome        = db.Column(db.String(200), nullable=False)
     descricao   = db.Column(db.String(400), default="")
-    tipo        = db.Column(db.String(20), default="")    # "OEM" | "Revenda" | "" (projetos antigos)
+    tipo        = db.Column(db.String(20), default="")    # nome de um TipoProjeto | "" (projetos antigos)
     sku         = db.Column(db.String(50), default="")
     moscow      = db.Column(db.String(10), default="")
     prioridade  = db.Column(db.Integer, default=0)
@@ -1872,8 +1875,28 @@ class EntregavelHistorico(db.Model):
         }
 
 
+class TipoProjeto(db.Model):
+    """Tipo de projeto cadastrável (OEM, Revenda e os que o gestor criar).
+
+    O tipo define qual modelo de entregáveis o projeto recebe ao nascer.
+    `projetos.tipo` e `modelos_entregavel.tipo_projeto` guardam o NOME, não o
+    id — já era assim quando a lista era fixa no código, e manter evita migrar
+    as duas colunas. O preço é que renomear precisa propagar para as duas
+    (ver entregaveis.editar_tipo_projeto).
+    """
+    __tablename__ = "tipos_projeto"
+
+    id        = db.Column(db.Integer, primary_key=True)
+    nome      = db.Column(db.String(20), nullable=False, unique=True)
+    ordem     = db.Column(db.Integer, default=0)
+    criado_em = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome, "ordem": self.ordem or 0}
+
+
 class ModeloEntregavel(db.Model):
-    """Item de modelo (template) de entregável por tipo de projeto (OEM/Revenda).
+    """Item de modelo (template) de entregável por tipo de projeto.
 
     Ao criar um projeto de um tipo, estes itens são COPIADOS para o projeto como
     entregáveis editáveis. Editar/excluir aqui só afeta projetos criados depois —
@@ -1882,7 +1905,7 @@ class ModeloEntregavel(db.Model):
     __tablename__ = "modelos_entregavel"
 
     id            = db.Column(db.Integer, primary_key=True)
-    tipo_projeto  = db.Column(db.String(20), nullable=False, index=True)   # "OEM" | "Revenda"
+    tipo_projeto  = db.Column(db.String(20), nullable=False, index=True)   # nome de um TipoProjeto
     categoria     = db.Column(db.String(40), default="Produto")
     tipo          = db.Column(db.String(120), nullable=False)              # nome do entregável
     peso          = db.Column(db.Float, default=1.0)   # esforço relativo padrão
