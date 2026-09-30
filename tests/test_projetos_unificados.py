@@ -214,7 +214,31 @@ def test_export_filtra_e_traz_modelo_e_area(client, portfolio):
     assert linhas == [("Kit A", "PDR RUO", "PDR"), ("Kit B", "PDR IVD", "PDR")]
 
     pmo = wb["PMO"]
-    assert [c.value for c in pmo[1][:4]] == ["Projeto", "Status", "Modelo", "Área"]
+    assert [c.value for c in pmo[1][:4]] == ["Projeto", "Situação", "Modelo", "Área"]
+
+
+def test_export_usa_a_situacao_e_nao_o_avanco(client, admin_token, auth_headers):
+    """Projeto dado como concluído sem chegar a 100% sai como Concluído."""
+    from openpyxl import load_workbook
+    h = auth_headers(admin_token)
+    pid = _novo_projeto(client, h, "Quase", "OEM", status="concluido",
+                        entregaveis=[{"categoria": "Produto", "tipo": "Protótipo"},
+                                     {"categoria": "Produto", "tipo": "Lote"}])
+    _novo_projeto(client, h, "Andando", "OEM")
+    ent = client.get(f"/api/projetos/{pid}", headers=h).get_json()["categorias"]
+    primeiro = ent[0]["entregaveis"][0]["id"]
+    assert client.put(f"/api/entregaveis/{primeiro}", json={"status": "concluido"},
+                      headers=h).status_code == 200
+
+    wb = load_workbook(io.BytesIO(client.get("/api/entregaveis/export", headers=h).data))
+    ws = wb.worksheets[0]
+    assert ws.cell(row=1, column=4).value == "Situação"
+    linhas = {r[0]: (r[3], r[7]) for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert linhas["Quase"][0] == "Concluído"
+    assert linhas["Quase"][1] < 100              # o avanço continua sendo o real
+    assert linhas["Andando"][0] == "Em execução"
+    assert {r[0]: r[1] for r in wb["PMO"].iter_rows(min_row=2, values_only=True)} == {
+        "Quase": "Concluído", "Andando": "Em execução"}
 
 
 def test_export_mostra_legado_como_pde(client, portfolio):

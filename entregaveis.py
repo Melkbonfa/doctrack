@@ -58,6 +58,10 @@ entregaveis_bp = Blueprint("entregaveis", __name__)
 DATAS_PROJETO = ("data_inicio_prev", "data_inicio_real", "data_fim_prev", "data_fim_real")
 # Campos que compõem a linha de base: mexer neles versiona a baseline.
 CAMPOS_BASELINE = ("data_inicio_prev", "data_fim_prev", "orcamento")
+# Rótulos do campo "Situação" (Projeto.status), iguais aos da tela.
+_ROTULO_SITUACAO = {"planejado": "Planejado", "execucao": "Em execução",
+                    "suspenso": "Suspenso", "concluido": "Concluído",
+                    "cancelado": "Cancelado"}
 
 _RE_COMPET = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")   # 'YYYY-MM'
 _RE_ISO    = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1267,6 +1271,11 @@ def exportar_excel():
     def _area(p):
         return area_de.get((p.tipo or "").lower(), AREA_PROJETO_LEGADO).upper()
 
+    # A situação é a que o gestor escolhe no formulário, não o avanço: projeto
+    # dado como concluído com 99% é concluído. Sai com o rótulo da tela.
+    def _situacao(p):
+        return _ROTULO_SITUACAO.get(p.status or "", p.status or "")
+
     # união ordenada de tipos (categoria, tipo) preservando ordem de aparição
     tipos = []
     for p in projetos:
@@ -1284,7 +1293,7 @@ def exportar_excel():
     cab = Font(bold=True, color="FFFFFF")
     azul = PatternFill("solid", fgColor="1F4E5F")
 
-    headers = ["Projeto", "Modelo", "Área", "Status", "MoSCoW", "SKU", "Lançamento",
+    headers = ["Projeto", "Modelo", "Área", "Situação", "MoSCoW", "SKU", "Lançamento",
                "Avanço %"] + [f"{t}\n({c})" for c, t in tipos]
     PRIMEIRA_ENT = 9   # coluna do primeiro entregável (depois das 8 fixas acima)
     for j, h in enumerate(headers, 1):
@@ -1296,7 +1305,7 @@ def exportar_excel():
         ws.cell(row=i, column=1, value=p.nome).font = Font(bold=True)
         ws.cell(row=i, column=2, value=p.tipo or "")
         ws.cell(row=i, column=3, value=_area(p))
-        ws.cell(row=i, column=4, value=p.status or "")
+        ws.cell(row=i, column=4, value=_situacao(p))
         ws.cell(row=i, column=5, value=p.moscow)
         ws.cell(row=i, column=6, value=p.sku)
         ws.cell(row=i, column=7, value=p.lancamento)
@@ -1324,7 +1333,7 @@ def exportar_excel():
 
     # ── Aba PMO: o que o export não trazia (cronograma, R$, índices) ──────────
     wp = wb.create_sheet("PMO")
-    cols_pmo = ["Projeto", "Status", "Modelo", "Área", "Início prev.", "Término prev.",
+    cols_pmo = ["Projeto", "Situação", "Modelo", "Área", "Início prev.", "Término prev.",
                 "Início real", "Término real", "Previsão (velocidade)",
                 "Avanço %", "Previsto %", "SPI", "CPI",
                 "Orçado (BAC)", "Gasto (AC)", "Projetado (EAC)", "Desvio",
@@ -1337,7 +1346,7 @@ def exportar_excel():
     for i, p in enumerate(projetos, 2):
         m = p.pmo_metrics()
         bac, eac = m.get("bac") or 0, m.get("eac")
-        vals = [p.nome, p.status or "", p.tipo or "", _area(p),
+        vals = [p.nome, _situacao(p), p.tipo or "", _area(p),
                 p.data_inicio_prev or "", p.data_fim_prev or "",
                 p.data_inicio_real or "", p.data_fim_real or "",
                 p.previsao_termino() or "",

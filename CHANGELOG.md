@@ -14,6 +14,23 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Projetos: exports pela situação, não pelo avanço
+O PDF do portfólio decidia se um projeto estava concluído pelo avanço: só com
+100%. Um projeto que o gestor deu como **Concluído** no campo Situação, com 99%,
+aparecia como "em progresso".
+
+- **Alterado** o relatório em PDF conta os projetos pela situação escolhida no
+  projeto. Os KPIs passam a ser Concluídos e Em execução, e a rosca vira
+  "Situação dos Projetos", com Planejado, Em execução, Suspenso, Concluído e
+  Cancelado. O filtro "Concluídos (100%) / Pendentes (< 100%)" vira um filtro
+  por situação, com a opção Abertos, e já abre com a situação filtrada na aba
+  Projetos.
+- **Adicionado** a coluna Situação no detalhamento do PDF, e a situação no
+  cabeçalho da ficha em PDF de um projeto. O avanço % continua em sua coluna.
+- **Alterado** no Excel, a coluna "Status" das abas principal e PMO passa a se
+  chamar "Situação" e traz o rótulo da tela ("Em execução"), e não o código
+  (`execucao`).
+
 ### Projetos unificados: PDE, PDR e INOV no mesmo módulo
 Projetos só existia no hub do PDE. O gestor das três áreas precisava de uma
 visão única, com um jeito de recortar por departamento. O que separa uma área da

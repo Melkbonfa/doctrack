@@ -22,6 +22,12 @@ const STATUS_PROJETO_LABEL = {
   planejado: "Planejado", execucao: "Em execução", suspenso: "Suspenso",
   concluido: "Concluído", cancelado: "Cancelado",
 };
+const _SITUACAO_ABERTA = ["planejado", "execucao", "suspenso"];
+// Mesmos tons dos selos .st-* do CSS, para o PDF.
+const STATUS_PROJETO_COR = {
+  planejado: "#3b82f6", execucao: "#22d3ee", suspenso: "#f59e0b",
+  concluido: "#10b981", cancelado: "#f87171",
+};
 
 // token(), esc(), applyTheme() e toggleTheme() vêm de static/common.js.
 // Aqui só registramos o que este módulo precisa refazer na troca de tema.
@@ -2518,8 +2524,11 @@ function _exportFilteredProjects(){
       const k = v === "Wont" ? "Wont" : (v || "Sem prioridade");
       if (k !== cfg.moscow) return false;
     }
-    if (cfg.status === 'Finalizado' && p.avanco < 100) return false;
-    if (cfg.status === 'Pendente' && p.avanco === 100) return false;
+    // Situação escolhida no projeto, não o avanço: 99% dado como concluído é
+    // concluído. "abertos" = planejado, em execução e suspenso, como na API.
+    const st = p.status || "execucao";
+    if (cfg.status === 'abertos' && !_SITUACAO_ABERTA.includes(st)) return false;
+    if (cfg.status && cfg.status !== 'abertos' && st !== cfg.status) return false;
     return true;
   });
 }
@@ -2530,7 +2539,8 @@ function updateExportPreviewEnt(){
 function openExportModal(){
   const el1=document.getElementById('exp-periodo'); if(el1) el1.value='';
   const el2=document.getElementById('exp-moscow'); if(el2) el2.value='';
-  const el3=document.getElementById('exp-status'); if(el3) el3.value='';
+  // Parte da situação filtrada na aba Projetos, como o Excel.
+  const el3=document.getElementById('exp-status'); if(el3) el3.value=_projStatus||'';
   ['exp-periodo','exp-moscow','exp-status'].forEach(id=>{
     const e=document.getElementById(id); if(e) e.addEventListener('input', updateExportPreviewEnt);
     if(e) e.addEventListener('change', updateExportPreviewEnt);
@@ -2606,12 +2616,12 @@ async function gerarRelatorioPDF(){
   // garante a fonte Inter carregada antes de rasterizar os gráficos (mesma fonte da plataforma)
   try{ await Promise.all([document.fonts.load("700 60px Inter"), document.fonts.load("600 24px Inter")]); await document.fonts.ready; }catch(e){}
 
-  let conc=0, prog=0, pend=0;
-  projects.forEach(p=>{
-    if(p.avanco === 100) conc++;
-    else if(p.avanco > 0) prog++;
-    else pend++;
-  });
+  // Conta pela situação escolhida no projeto, não pelo avanço: projeto dado
+  // como concluído com 99% entra em Concluídos.
+  const porSituacao = {};
+  projects.forEach(p=>{ const st = p.status || "execucao"; porSituacao[st] = (porSituacao[st]||0) + 1; });
+  const situacoes = Object.keys(STATUS_PROJETO_LABEL).filter(st => porSituacao[st]);
+  const conc = porSituacao.concluido || 0, exec = porSituacao.execucao || 0;
   const avg = projects.length ? Math.round(projects.reduce((a,b)=>a+b.avanco,0)/projects.length) : 0;
 
   const top = [...projects].sort((a,b)=>b.avanco - a.avanco).slice(0,10);
@@ -2622,12 +2632,11 @@ async function gerarRelatorioPDF(){
       moscowCont[k]=(moscowCont[k]||0)+1;
   });
 
-  // Rosca de status — idêntica à do dashboard: cutout 78%, gradiente vertical, cantos arredondados + espaçamento
-  const stHex = ['#10b981','#22d3ee','#f59e0b'];
+  // Rosca de situação — mesmo desenho da do dashboard: cutout 78%, gradiente vertical, cantos arredondados + espaçamento
   const donutImg = await _renderChartImage((ctx,w,h)=>({
     type:'doughnut',
-    data:{labels:['Concluídos','Em progresso','Pendentes'],
-      datasets:[{data:[conc,prog,pend], backgroundColor:stHex.map(c=>_vgradFull(ctx,h,c)),
+    data:{labels:situacoes.map(st=>STATUS_PROJETO_LABEL[st]),
+      datasets:[{data:situacoes.map(st=>porSituacao[st]), backgroundColor:situacoes.map(st=>_vgradFull(ctx,h,STATUS_PROJETO_COR[st])),
         borderWidth:0, borderRadius:14, spacing:6}]},
     options:{cutout:'78%', layout:{padding:14}, plugins:{legend:{display:false}}},
     plugins:[_centerTextPlugin(projects.length, 'projetos')]
@@ -2666,7 +2675,8 @@ async function gerarRelatorioPDF(){
   const C = { bg:[13,16,32], card:[26,31,58], rowAlt:[20,24,46], border:[42,54,98],
     t1:[241,245,249], tmut:[148,163,255], accent:[34,211,238],
     green:[16,185,129], amber:[245,158,11], red:[239,68,68], cyan:[34,211,238] };
-  
+  const corSituacao = (st) => { const n = parseInt((STATUS_PROJETO_COR[st]||'#94a3ff').slice(1), 16); return [(n>>16)&255, (n>>8)&255, n&255]; };
+
   function paintBg(){ doc.setFillColor(...C.bg); doc.rect(0,0,pageW,pageH,'F'); }
   function card(x,yy,w,h){ doc.setFillColor(...C.card); doc.setDrawColor(...C.border); doc.setLineWidth(0.3); doc.roundedRect(x,yy,w,h,2.5,2.5,'FD'); }
   function cardTitle(txt,x,yy,w){ doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...C.accent); doc.text(txt.toUpperCase(), x+w/2, yy+6.5, {align:'center'}); }
@@ -2699,7 +2709,7 @@ async function gerarRelatorioPDF(){
   const filtros = [];
   if(cfg.periodo) filtros.push(`Avanço em: Últimos ${cfg.periodo} dias`);
   if(cfg.moscow) filtros.push(`MoSCoW: ${cfg.moscow==="Wont"?"Won't":cfg.moscow}`);
-  if(cfg.status) filtros.push(`Status: ${cfg.status}`);
+  if(cfg.status) filtros.push(`Situação: ${cfg.status==='abertos' ? 'Abertos' : (STATUS_PROJETO_LABEL[cfg.status]||cfg.status)}`);
   if(_filtro.size) filtros.unshift(`Modelos: ${filtroDescricao()}`);
   if(!filtros.length) filtros.push('Todos os projetos');
 
@@ -2715,7 +2725,7 @@ async function gerarRelatorioPDF(){
 
   let y = 34;
   const rowAh = 74, gap = 4, colW = 58;
-  const kpis = [['Projetos Filtrados', projects.length, C.t1],['Concluídos', conc, C.green],['Em progresso', prog, C.cyan],['Avanço Médio', avg+'%', C.accent]];
+  const kpis = [['Projetos Filtrados', projects.length, C.t1],['Concluídos', conc, C.green],['Em execução', exec, C.cyan],['Avanço Médio', avg+'%', C.accent]];
   const kh = (rowAh - gap*3)/4;
   kpis.forEach(([lab,val,col],i)=>{
     const cy = y + i*(kh+gap);
@@ -2729,9 +2739,9 @@ async function gerarRelatorioPDF(){
   const donW = (pageW - margin*2 - colW - gap*2)/2;
   const d1x = margin+colW+gap, d2x = d1x+donW+gap;
   const donImgH = rowAh - 18; 
-  card(d1x, y, donW, rowAh); cardTitle('Status dos Projetos', d1x, y, donW);
+  card(d1x, y, donW, rowAh); cardTitle('Situação dos Projetos', d1x, y, donW);
   _addImgContain(doc, donutImg, d1x+6, y+9, donW-12, donImgH, 1);
-  legendRow([['Concluídos',C.green],['Em progresso',C.cyan],['Pendentes',C.amber]].map(([l,c])=>[c,l]), d1x+donW/2, y+rowAh-4, donW-10);
+  legendRow(situacoes.map(st=>[corSituacao(st), STATUS_PROJETO_LABEL[st]]), d1x+donW/2, y+rowAh-4, donW-10);
   
   card(d2x, y, donW, rowAh); cardTitle('Prioridade MoSCoW', d2x, y, donW);
   _addImgContain(doc, moscowImg, d2x+6, y+9, donW-12, donImgH, 1);
@@ -2752,11 +2762,12 @@ async function gerarRelatorioPDF(){
   doc.text('Detalhamento dos Projetos', margin, y+4); y += 11;
 
   const cols = [
-    {h:'Projeto', k:'nome', w:80},
-    {h:'MoSCoW', k:'moscow', w:24},
-    {h:'Pend.', k:'pendentes', w:20},
-    {h:'Lançamento', k:'lancamento', w:34},
-    {h:'Avanço', k:'avanco', w:24},
+    {h:'Projeto', k:'nome', w:78},
+    {h:'Situação', k:'status', w:28},
+    {h:'MoSCoW', k:'moscow', w:22},
+    {h:'Pend.', k:'pendentes', w:18},
+    {h:'Lançamento', k:'lancamento', w:32},
+    {h:'Avanço', k:'avanco', w:22},
     {h:'SPI (prazo)', k:'spi', w:32},
     {h:'CPI (custo)', k:'cpi', w:32},
   ];
@@ -2780,6 +2791,7 @@ async function gerarRelatorioPDF(){
       let v = String(p[c.k] || (c.k==='avanco'?'0':'—'));
       let corCel = null;
       if(c.k === 'avanco') v += '%';
+      if(c.k === 'status') { const st = p.status || 'execucao'; v = STATUS_PROJETO_LABEL[st] || st; corCel = corSituacao(st); }
       if(c.k === 'moscow') { v = normMoscow(v) || '—'; if(v==="Wont") v="Won't"; }
       if(c.k === 'lancamento') v = fmtLanc(p.lancamento) || '—';
       if(c.k === 'spi') { v = m.spi != null ? m.spi.toFixed(2) : '—'; if(m.spi != null) corCel = _pmoPdfCor(m.status_prazo); }
@@ -2859,7 +2871,7 @@ async function exportarProjetoPDF(){
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...C.tmut);
   const periodo = periodoProjeto(p);
   doc.text('Gerado em '+hoje, pageW-margin, 14, {align:'right'});
-  const subDir = [periodo?('Prazo '+periodo):null, m.bac?('Orçado '+_money(m.bac)):null].filter(Boolean).join('   ·   ');
+  const subDir = [STATUS_PROJETO_LABEL[p.status]||null, periodo?('Prazo '+periodo):null, m.bac?('Orçado '+_money(m.bac)):null].filter(Boolean).join('   ·   ');
   if(subDir) doc.text(subDir, pageW-margin, 20, {align:'right'});
   doc.setDrawColor(...C.accent); doc.setLineWidth(0.5); doc.line(margin, 27, pageW-margin, 27);
 
