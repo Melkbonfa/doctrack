@@ -93,12 +93,16 @@ function _fecharConfirm(val){
 /* ── Abas (Dashboard · PMO · Projetos · Modelos) ──
    Alertas não é aba: vive no sino do cabeçalho (ver abrirSino). */
 function trocarAba(aba){
+  _abaAtual = aba;
   ["dash", "pmo", "proj", "modelos"].forEach(t => {
     const sec = document.getElementById("aba-" + t);
     if (sec) sec.style.display = (t === aba) ? "" : "none";
     const b = document.getElementById("tab-btn-" + t);
     if (b){ b.classList.toggle("active", t === aba); b.setAttribute("aria-selected", t === aba); }
   });
+  // O filtro recorta projetos; a aba Modelos edita os próprios modelos.
+  const barra = document.getElementById("fm-bar");
+  if (barra) barra.hidden = (aba === "modelos");
   if (aba === "modelos"){ loadModelos().catch(e => toast(e.message, true)); return; }
   if (aba === "dash"){
     Promise.all([loadKpis(), loadProjetosAll()]).then(() => {
@@ -116,13 +120,205 @@ function trocarAba(aba){
   }
 }
 
+/* ══ FILTRO DE MODELOS ═════════════════════════════════════════════════════
+   Projetos é um módulo só para PDE, PDR e INOV; o que separa uma área da outra
+   é o modelo do projeto. Um filtro único, acima das abas, recorta Dashboard,
+   PMO, Projetos, o sino e os exports. Quem filtra é a API (?area= / ?tipo=),
+   para o resumo e os alertas baterem com a grade.
+
+   Chaves: "area:<slug>" (a área inteira, inclusive projeto antigo sem modelo)
+   ou "tipo:<nome>" (um modelo). Conjunto vazio = tudo. */
+let _areas = [];            // [{slug, sigla, nome, accent}] — vêm de /api/tipos-projeto
+let _areaLegado = "pde";    // área de projeto sem modelo
+let _filtro = new Set();
+let _abaAtual = "dash";
+const _FILTRO_KEY = "dt_proj_filtro";
+
+function _areaInfo(slug){
+  return _areas.find(a => a.slug === slug)
+    || { slug, sigla: String(slug || "").toUpperCase(), nome: slug || "", accent: "#94a3b8" };
+}
+function _tipoInfo(nome){
+  const n = String(nome || "").toLowerCase();
+  return n ? (_tipos.find(t => t.nome.toLowerCase() === n) || null) : null;
+}
+/* A área do projeto é a do modelo dele; sem modelo, a do legado. */
+function _areaDoProjeto(p){ const t = _tipoInfo(p && p.tipo); return t ? t.area : _areaLegado; }
+function _tiposDaArea(slug){ return _tipos.filter(t => t.area === slug); }
+
+/* Modelos agrupados por área, na ordem de areas.py. Cada item leva o índice em
+   `_tipos`: é ele que vai nos onclick, e não o nome digitado pelo usuário. */
+function _gruposDeTipos(){
+  const idx = _tipos.map((t, i) => [t, i]);
+  const grupos = _areas.map(a => ({ area: a, tipos: idx.filter(([t]) => t.area === a.slug) }));
+  const orfaos = idx.filter(([t]) => !_areas.some(a => a.slug === t.area));
+  if (orfaos.length) grupos.push({ area: _areaInfo("outros"), tipos: orfaos });
+  return grupos;
+}
+
+/* Acrescenta o filtro a uma URL da API. */
+function _comFiltro(url){
+  if (!_filtro.size) return url;
+  const p = new URLSearchParams();
+  _filtro.forEach(k => { const i = k.indexOf(":"); p.append(k.slice(0, i), k.slice(i + 1)); });
+  return url + (url.includes("?") ? "&" : "?") + p.toString();
+}
+
+/* Estado inicial: a URL manda (os cards dos hubs abrem com ?area=), depois a
+   última escolha, depois tudo. */
+function _lerFiltroInicial(){
+  const qs = new URLSearchParams(location.search);
+  const daUrl = [...qs.getAll("area").map(a => "area:" + a.toLowerCase()),
+                 ...qs.getAll("modelo").map(m => "tipo:" + m)];
+  if (daUrl.length) return new Set(daUrl);
+  try{
+    const salvo = JSON.parse(localStorage.getItem(_FILTRO_KEY) || "[]");
+    if (Array.isArray(salvo)) return new Set(salvo.filter(k => typeof k === "string"));
+  }catch(e){}
+  return new Set();
+}
+
+/* Guarda a escolha e espelha na URL (o link copiado abre no mesmo recorte). */
+function _salvarFiltro(){
+  try{ localStorage.setItem(_FILTRO_KEY, JSON.stringify([..._filtro])); }catch(e){}
+  try{
+    const u = new URL(location.href);
+    u.searchParams.delete("area"); u.searchParams.delete("modelo");
+    _filtro.forEach(k => {
+      const i = k.indexOf(":");
+      u.searchParams.append(k.slice(0, i) === "area" ? "area" : "modelo", k.slice(i + 1));
+    });
+    history.replaceState(null, "", u.pathname + u.search + u.hash);
+  }catch(e){}
+}
+
+/* Descarta o que não existe mais (modelo renomeado ou excluído) e simplifica:
+   modelo de área já marcada inteira sai; todos os modelos de uma área viram a
+   área (e aí entra o projeto antigo sem modelo); todas as áreas = tudo. */
+function _normalizarFiltro(){
+  const out = new Set();
+  _filtro.forEach(k => {
+    if (k.startsWith("area:")){
+      const s = k.slice(5);
+      if (_areas.some(a => a.slug === s)) out.add("area:" + s);
+    } else if (k.startsWith("tipo:")){
+      const t = _tipoInfo(k.slice(5));
+      if (t) out.add("tipo:" + t.nome);
+    }
+  });
+  [...out].forEach(k => {
+    if (!k.startsWith("tipo:")) return;
+    const t = _tipoInfo(k.slice(5));
+    if (t && out.has("area:" + t.area)) out.delete(k);
+  });
+  _areas.forEach(a => {
+    const ts = _tiposDaArea(a.slug);
+    if (ts.length && ts.every(t => out.has("tipo:" + t.nome))){
+      ts.forEach(t => out.delete("tipo:" + t.nome));
+      out.add("area:" + a.slug);
+    }
+  });
+  if (_areas.length && _areas.every(a => out.has("area:" + a.slug))) out.clear();
+  _filtro = out;
+}
+
+function filtroTodos(){ _filtro.clear(); _aplicarFiltro(); }
+
+function filtroArea(slug){
+  const k = "area:" + slug;
+  if (_filtro.has(k)) _filtro.delete(k);
+  else { _tiposDaArea(slug).forEach(t => _filtro.delete("tipo:" + t.nome)); _filtro.add(k); }
+  _aplicarFiltro();
+}
+
+function filtroTipo(i){
+  const t = _tipos[i];
+  if (!t) return;
+  const kArea = "area:" + t.area, kTipo = "tipo:" + t.nome;
+  if (_filtro.has(kArea)){
+    // a área inteira estava marcada: desmarca só este modelo
+    _filtro.delete(kArea);
+    _tiposDaArea(t.area).forEach(o => { if (o.nome !== t.nome) _filtro.add("tipo:" + o.nome); });
+  } else if (_filtro.has(kTipo)) _filtro.delete(kTipo);
+  else _filtro.add(kTipo);
+  _aplicarFiltro();
+}
+
+function _aplicarFiltro(){
+  _normalizarFiltro();
+  _salvarFiltro();
+  renderFiltroModelos();
+  _recarregarRecorte().catch(e => toast(e.message, true));
+}
+
+/* Recarrega tudo o que o filtro recorta e redesenha a aba aberta. */
+async function _recarregarRecorte(){
+  await Promise.all([loadKpis(), loadProjetos(), loadAlertas().catch(()=>{})]);
+  if (sinoAberto()) renderAlertas();
+  populateDashProjSel();
+  if (_abaAtual === "dash"){
+    const sel = document.getElementById("dash-proj-sel");
+    // o projeto aberto na ficha saiu do recorte: volta ao portfólio
+    if (_fichaProj && (!sel || sel.value !== String(_fichaProj.id))){
+      if (sel) sel.value = "";
+      setDashProj("");
+    } else if (!_fichaProj) renderCharts();
+  } else if (_abaAtual === "pmo"){
+    renderPmoDashboard(); renderFinanceiro();
+  }
+}
+
+/* Texto curto do recorte, para o subtítulo e o PDF. */
+function filtroDescricao(){
+  if (!_filtro.size) return "Todas as áreas";
+  const partes = [];
+  _gruposDeTipos().forEach(({ area, tipos }) => {
+    if (_filtro.has("area:" + area.slug)) partes.push(area.sigla);
+    else tipos.forEach(([t]) => { if (_filtro.has("tipo:" + t.nome)) partes.push(t.nome); });
+  });
+  return partes.join(", ");
+}
+
+function renderFiltroModelos(){
+  const host = document.getElementById("fm-chips");
+  if (!host) return;
+  const chip = (cls, on, attrs, inner) =>
+    `<button type="button" class="fm-chip ${cls}${on ? " on" : ""}" aria-pressed="${on}" ${attrs}>${inner}</button>`;
+  let html = chip("fm-todos", !_filtro.size, `onclick="filtroTodos()"`, "Todos");
+  _gruposDeTipos().forEach(({ area, tipos }) => {
+    if (area.slug === "outros") return;
+    const areaOn = _filtro.has("area:" + area.slug);
+    // Área com um modelo só, de mesmo nome (INOV/INOV): o chip da área basta.
+    const soAArea = tipos.length === 1 && tipos[0][0].nome.toUpperCase() === area.sigla;
+    html += `<span class="fm-grupo" style="--ac:${area.accent}">`
+      + chip("fm-area", areaOn,
+             `onclick="filtroArea('${area.slug}')" title="${esc(area.nome)} — todos os modelos"`,
+             `<span class="fm-dot" aria-hidden="true"></span>${esc(area.sigla)}`)
+      + (soAArea ? "" : tipos.map(([t, i]) =>
+          chip("fm-tipo", areaOn || _filtro.has("tipo:" + t.nome),
+               `onclick="filtroTipo(${i})"`, esc(t.nome))).join(""))
+      + `</span>`;
+  });
+  host.innerHTML = html;
+}
+
+/* Etiqueta do modelo na cor da área. Nome que não traz a área (OEM, Revenda,
+   projeto sem modelo) ganha a sigla na frente, para a etiqueta dizer as duas. */
+function modeloTagHtml(p){
+  const a = _areaInfo(_areaDoProjeto(p));
+  const nome = (p && p.tipo) || "Sem modelo";
+  const rotulo = nome.toUpperCase().startsWith(a.sigla) ? nome : `${a.sigla} · ${nome}`;
+  return `<span class="modelo-tag${p && p.tipo ? "" : " sem"}" style="--ac:${a.accent}"`
+    + ` title="${esc(a.nome)}">${esc(rotulo)}</span>`;
+}
+
 /* Uma única chamada abastece a grade E os gráficos. Antes o init fazia duas
    requisições quase idênticas (/api/projetos e ?com_entregaveis=1), cada uma
    recalculando o PMO de todos os projetos no servidor. */
 async function loadProjetosAll(){
   // `_projetosAll` é SEMPRE o portfólio ativo: é o que alimenta Dashboard, PMO
   // e financeiro. Ver arquivados não pode contaminar esses números.
-  const data = await api("/api/projetos?com_entregaveis=1");
+  const data = await api(_comFiltro("/api/projetos?com_entregaveis=1"));
   _projetosAll = data.projetos;
   if (typeof data.financeiro === "boolean") _financeiro = data.financeiro;
   if (data.role) _meuRole = data.role;
@@ -139,7 +335,7 @@ function atualizarSubtitulo(){
   const n = _projetosAll.length;
   const anos = [...new Set(_projetosAll.map(p => p.ano).filter(Boolean))].sort();
   const periodo = anos.length ? (anos.length === 1 ? anos[0] : `${anos[0]}–${anos[anos.length-1]}`) : "";
-  el.textContent = ["Engenharia",
+  el.textContent = [filtroDescricao(),
     `${n} projeto${n === 1 ? "" : "s"} ativo${n === 1 ? "" : "s"}`,
     periodo].filter(Boolean).join(" · ");
 }
@@ -428,7 +624,8 @@ function renderPmoDashboard(){
 
   // 2) Quadrante SPI×CPI (projetos com ambos os índices)
   const pts = projs.filter(p => p.pmo && p.pmo.spi != null && p.pmo.cpi != null);
-  const pontos = pts.map(p => ({ x: p.pmo.spi, y: p.pmo.cpi, nome: p.nome }));
+  const pontos = pts.map(p => ({ x: p.pmo.spi, y: p.pmo.cpi,
+    nome: p.tipo ? `${p.nome} · ${p.tipo}` : p.nome }));
   const cores = pts.map(p => _PMO_COR[_piorStatus(p.pmo.status_prazo, p.pmo.status_custo)]);
   const vals = pontos.flatMap(pt => [pt.x, pt.y]).concat([1]);
   const lo = Math.min(0.6, ...vals) - 0.1, hi = Math.max(1.2, ...vals) + 0.1;
@@ -473,7 +670,7 @@ function renderPmoDashboard(){
       if (m.spi != null) chips.push(_pmoChip("Prazo", m.spi, m.status_prazo));
       if (m.cpi != null) chips.push(_pmoChip("Custo", m.cpi, m.status_custo));
       return `<div class="pmo-risk-item" onclick="trocarAba('proj');setTimeout(()=>abrirProjModal(${p.id}),120)">
-        <span class="pmo-risk-name">${esc(p.nome)}</span>
+        <span class="pmo-risk-name">${esc(p.nome)} ${modeloTagHtml(p)}</span>
         <span class="pmo-risk-chips">${chips.join("")}</span>
       </div>`;
     }).join("");
@@ -535,7 +732,7 @@ function renderFinanceiro(){
 
 /* ── KPIs ── */
 async function loadKpis(){
-  const r = await api("/api/entregaveis/resumo");
+  const r = await api(_comFiltro("/api/entregaveis/resumo"));
   _resumo = r;
 
   const concluidos = r.concluidos || 0, em = r.em_progresso || 0, pend = r.pendentes || 0;
@@ -636,7 +833,7 @@ function renderFichaProjeto(p){
   flat.forEach(e => { if (e.status === "concluido") conc++; else if (e.status === "em_progresso") prog++; else if (e.status === "pendente") pend++; });
   const aplic = conc + prog + pend;
   const periodo = periodoProjeto(p);
-  const sub = [];
+  const sub = [modeloTagHtml(p)];
   if (p.sku) sub.push("SKU " + esc(p.sku));
   if (periodo) sub.push("Prazo " + esc(periodo));
   if (m.bac) sub.push("Orçado " + _money(m.bac));
@@ -675,7 +872,7 @@ function renderFichaProjeto(p){
     <div class="ficha-head">
       <div>
         <div class="ficha-title">${esc(p.nome)} ${moscowBadgeHtml(p.moscow)}</div>
-        <div class="ficha-sub">${sub.join(" · ") || "Sem cronograma/orçamento definidos"}</div>
+        <div class="ficha-sub">${sub.join(" · ")}${sub.length === 1 ? " · Sem cronograma/orçamento definidos" : ""}</div>
       </div>
       ${pmoChipsHtml(p)}
     </div>
@@ -767,7 +964,7 @@ function renderTendencia(serie, canvasId){
    projeto para descobrir o que tinha vencido. */
 
 async function loadAlertas(){
-  const r = await api("/api/projetos/alertas");
+  const r = await api(_comFiltro("/api/projetos/alertas"));
   _alertas = r.alertas || [];
   atualizarBadgeAlertas();
   return _alertas;
@@ -920,7 +1117,7 @@ function renderRespPicker(elId, chave, selecionados){
 async function loadProjetos(){
   await loadProjetosAll();
   if (_verArquivados){
-    const data = await api("/api/projetos?com_entregaveis=1&arquivados=1");
+    const data = await api(_comFiltro("/api/projetos?com_entregaveis=1&arquivados=1"));
     _projetos = data.projetos;
   } else {
     _projetos = _projetosAll;
@@ -1068,7 +1265,7 @@ function renderProjGrid(){
         <span class="proj-card-name">${esc(p.nome)}</span>
         ${_verArquivados ? '<span class="proj-arch-tag">Arquivado</span>' : moscowBadgeHtml(p.moscow)}
       </div>
-      ${statusTagHtml(p.status)}
+      <div class="proj-tags">${modeloTagHtml(p)}${statusTagHtml(p.status, true)}</div>
       <div class="proj-prog">
         <div class="proj-prog-track"><i style="width:${p.avanco}%"></i></div>
         <div class="proj-prog-meta"><span class="pct">${p.avanco}% concluído</span><span>${p.pendentes} pendente${p.pendentes===1?"":"s"}</span></div>
@@ -1090,9 +1287,12 @@ function renderProjGrid(){
   });
 }
 
-function statusTagHtml(st){
+/* `solto`: só o selo, para dividir a linha com outra etiqueta. */
+function statusTagHtml(st, solto){
   const lab = STATUS_PROJETO_LABEL[st];
-  return lab ? `<div><span class="st-tag st-${esc(st)}">${esc(lab)}</span></div>` : "";
+  if (!lab) return "";
+  const tag = `<span class="st-tag st-${esc(st)}">${esc(lab)}</span>`;
+  return solto ? tag : `<div>${tag}</div>`;
 }
 
 /* Previsão pela velocidade real — mais legível que um índice: uma data para
@@ -1164,7 +1364,7 @@ async function abrirProjModal(id){
   const restoreBtn = document.getElementById("proj-modal-restore");
   if (restoreBtn) restoreBtn.style.display = (canEditProj() && arquivado) ? "" : "none";
   const partes = [];
-  if (p.tipo) partes.push(esc(p.tipo));
+  partes.push(modeloTagHtml(p));
   if (p.sku) partes.push("SKU " + esc(p.sku));
   if (p.lancamento) partes.push("Lançamento " + esc(fmtLanc(p.lancamento)));
   const periodo = periodoProjeto(p);
@@ -1465,20 +1665,39 @@ function _fillCatSelect(id, sel){
 async function loadTipos(){
   const data = await api("/api/tipos-projeto");
   _tipos = data.tipos || [];
+  if (Array.isArray(data.areas)) _areas = data.areas;
+  if (data.area_legado) _areaLegado = data.area_legado;
   return _tipos;
 }
 
-/* Preenche o <select> de tipo do formulário de projeto. Um tipo fora do
-   cadastro (dado legado) entra como opção extra: sem isso, abrir e salvar o
-   projeto apagaria o tipo dele em silêncio. Opções via DOM, e não innerHTML —
-   o nome agora é digitado pelo usuário. */
+/* Preenche o <select> de modelo do formulário de projeto, agrupado por área.
+   Um tipo fora do cadastro (dado legado) entra como opção extra: sem isso,
+   abrir e salvar o projeto apagaria o tipo dele em silêncio. Opções via DOM, e
+   não innerHTML — o nome é digitado pelo usuário. */
 function _fillTipoSelect(sel){
   const el = document.getElementById("pf-tipo");
   if (!el) return;
-  const nomes = _tipos.map(t => t.nome);
-  if (sel && !nomes.includes(sel)) nomes.push(sel);
-  el.replaceChildren(new Option("—", ""), ...nomes.map(n => new Option(n, n)));
+  const grupos = _gruposDeTipos().filter(g => g.tipos.length).map(({ area, tipos }) => {
+    const og = document.createElement("optgroup");
+    og.label = area.slug === "outros" ? "Outros" : `${area.sigla} — ${area.nome}`;
+    tipos.forEach(([t]) => og.appendChild(new Option(t.nome, t.nome)));
+    return og;
+  });
+  const extra = (sel && !_tipoInfo(sel)) ? [new Option(sel, sel)] : [];
+  // Projeto novo precisa de modelo; o antigo sem modelo continua podendo ficar sem.
+  const vazio = new Option(_formProjId ? "— sem modelo —" : "Escolha o modelo…", "");
+  el.replaceChildren(vazio, ...extra, ...grupos);
   el.value = sel || "";
+}
+
+/* Modelo que o filtro já aponta: abrir "+ Novo projeto" com o filtro num
+   modelo só (ou numa área de modelo único) começa com ele escolhido. */
+function _modeloSugerido(){
+  if (_filtro.size !== 1) return "";
+  const [k] = [..._filtro];
+  if (k.startsWith("tipo:")) return k.slice(5);
+  const ts = _tiposDaArea(k.slice(5));
+  return ts.length === 1 ? ts[0].nome : "";
 }
 
 /* ── Editor de entregáveis na criação de projeto ── */
@@ -1520,7 +1739,7 @@ async function onTipoProjetoChange(){
   const hint = document.getElementById("pf-ent-hint");
   if (!tipo){
     _pfEntregaveis = [];
-    if (hint) hint.textContent = "Escolha o tipo para carregar a lista-padrão. Você pode remover ou adicionar itens antes de criar.";
+    if (hint) hint.textContent = "Escolha o modelo para carregar a lista-padrão. Você pode remover ou adicionar itens antes de criar.";
     pfRenderEntList();
     return;
   }
@@ -1544,6 +1763,11 @@ function abrirFormProjeto(){
   document.getElementById("pf-tipo").disabled = false;
   document.getElementById("pf-ent-wrap").style.display = "";
   pfRenderEntList();
+  const sugerido = _modeloSugerido();
+  if (sugerido && _tipoInfo(sugerido)){
+    _fillTipoSelect(_tipoInfo(sugerido).nome);
+    onTipoProjetoChange();
+  }
   _abrirModal("modal-proj-form");
   setTimeout(() => document.getElementById("pf-nome").focus(), 60);
 }
@@ -1576,9 +1800,12 @@ async function _recarregarTudo(){
 async function salvarFormProjeto(){
   const nome = document.getElementById("pf-nome").value.trim();
   if (!nome){ toast("Informe o nome do projeto", true); return; }
+  if (!_formProjId && !document.getElementById("pf-tipo").value){
+    toast("Escolha o modelo do projeto", true); return;
+  }
   const payload = {
     nome,
-    tipo: document.getElementById("pf-tipo").value,               // "" | nome de um tipo cadastrado
+    tipo: document.getElementById("pf-tipo").value,               // nome de um modelo ("" só no legado)
     sku: document.getElementById("pf-sku").value.trim(),
     lancamento: document.getElementById("pf-lancamento").value,   // ISO yyyy-mm-dd ou ""
     moscow: document.getElementById("pf-moscow").value,           // "" | Must | Should | Could | Wont
@@ -1702,9 +1929,15 @@ async function loadModelos(){
 function renderModelosToggle(){
   const host = document.getElementById("modelos-tipo-toggle");
   if (host){
-    // índice no onclick, e não o nome: o nome agora é digitado pelo usuário.
-    host.innerHTML = _tipos.map((t, i) =>
-      `<button type="button" class="modelos-tipo-btn${t.nome===_modelosTipoAtual?" active":""}" onclick="setModelosTipo(${i})">${esc(t.nome)}</button>`
+    // Agrupado por área. Índice no onclick, e não o nome: o nome é digitado
+    // pelo usuário.
+    host.innerHTML = _gruposDeTipos().filter(g => g.tipos.length).map(({ area, tipos }) =>
+      `<span class="modelos-area" style="--ac:${area.accent}">`
+      + `<span class="modelos-area-lbl" title="${esc(area.nome)}">${esc(area.slug === "outros" ? "Outros" : area.sigla)}</span>`
+      + tipos.map(([t, i]) =>
+          `<button type="button" class="modelos-tipo-btn${t.nome===_modelosTipoAtual?" active":""}" onclick="setModelosTipo(${i})">${esc(t.nome)}</button>`
+        ).join("")
+      + `</span>`
     ).join("");
     host.style.display = _tipos.length ? "" : "none";
   }
@@ -1721,35 +1954,40 @@ function setModelosTipo(i){
   renderModelos();
 }
 
-/* Linha do tipo selecionado: quanto ele é usado + renomear/excluir. */
+/* Linha do modelo selecionado: área, quanto ele é usado + editar/excluir. */
 function renderModelosInfo(){
   const host = document.getElementById("modelos-tipo-info");
   if (!host) return;
   const t = _tipoAtual();
   if (!t){ host.innerHTML = ""; return; }
   const uso = t.projetos ? "usado por " + _plural(t.projetos, "projeto", "projetos") : "ainda sem projetos";
-  host.innerHTML = `<span>Tipo <b>${esc(t.nome)}</b> · ${uso}</span>`
+  const a = _areaInfo(t.area);
+  host.innerHTML = `<span>Modelo <b>${esc(t.nome)}</b> · ${esc(a.nome)} · ${uso}</span>`
     + (canEditProj() ? `<span class="modelos-acts">
-        <button type="button" class="lnk" onclick="abrirFormTipo(${t.id})">Renomear</button>
-        <button type="button" class="lnk lnk-danger" onclick="tipoExcluir(${t.id})">Excluir tipo</button>
+        <button type="button" class="lnk" onclick="abrirFormTipo(${t.id})">Editar</button>
+        <button type="button" class="lnk lnk-danger" onclick="tipoExcluir(${t.id})">Excluir modelo</button>
       </span>` : "");
 }
 
 /* ── Criar / renomear / excluir tipo de projeto ── */
 let _tipoEditId = null, _tipoParaForm = false;
 
-/* Com `id` renomeia; sem, cria. `paraForm`: aberto de dentro do formulário de
-   projeto — ao salvar, o tipo novo já fica selecionado lá. */
+/* Com `id` edita (nome e área); sem, cria. `paraForm`: aberto de dentro do
+   formulário de projeto — ao salvar, o modelo novo já fica selecionado lá. */
 function abrirFormTipo(id, paraForm){
   const t = id ? _tipos.find(x => x.id === id) : null;
   if (id && !t) return;
   _tipoEditId = t ? t.id : null;
   _tipoParaForm = !!paraForm;
-  document.getElementById("tf-title").textContent = t ? "Renomear tipo de projeto" : "Novo tipo de projeto";
-  document.getElementById("tf-sub").textContent = !t ? "Cada tipo tem o seu modelo de entregáveis"
-    : t.projetos ? `O nome novo vale também para ${_plural(t.projetos, "projeto que já usa", "projetos que já usam")} este tipo`
-    : "Nenhum projeto usa este tipo ainda";
+  document.getElementById("tf-title").textContent = t ? "Editar modelo de projeto" : "Novo modelo de projeto";
+  document.getElementById("tf-sub").textContent = !t ? "Cada modelo tem a sua área e a sua lista de entregáveis"
+    : t.projetos ? `Nome e área valem também para ${_plural(t.projetos, "projeto que já usa", "projetos que já usam")} este modelo`
+    : "Nenhum projeto usa este modelo ainda";
   document.getElementById("tf-nome").value = t ? t.nome : "";
+  // Área: a do modelo; no novo, a que o contexto sugere (aba Modelos ou filtro).
+  const areaSel = document.getElementById("tf-area");
+  areaSel.replaceChildren(..._areas.map(a => new Option(`${a.sigla} — ${a.nome}`, a.slug)));
+  areaSel.value = t ? t.area : _areaSugerida();
   // Tipo novo quase sempre é variação de um existente: oferece copiar o modelo.
   document.getElementById("tf-copiar-wrap").style.display = (t || !_tipos.length) ? "none" : "";
   document.getElementById("tf-copiar").replaceChildren(
@@ -1760,24 +1998,35 @@ function abrirFormTipo(id, paraForm){
   setTimeout(() => document.getElementById("tf-nome").focus(), 60);
 }
 
+/* Área que o contexto aponta para um modelo novo: a do modelo aberto na aba
+   Modelos, senão a única área do filtro, senão a do legado. */
+function _areaSugerida(){
+  if (_abaAtual === "modelos"){ const t = _tipoAtual(); if (t) return t.area; }
+  const areas = new Set([..._filtro].map(k => k.startsWith("area:") ? k.slice(5)
+    : ((_tipoInfo(k.slice(5)) || {}).area || "")));
+  return areas.size === 1 ? [...areas][0] : _areaLegado;
+}
+
 function fecharFormTipo(){ _fecharModal("modal-tipo-form"); _tipoEditId = null; _tipoParaForm = false; }
 
 async function salvarFormTipo(){
   const nome = document.getElementById("tf-nome").value.trim();
-  if (!nome){ toast("Informe o nome do tipo", true); return; }
+  if (!nome){ toast("Informe o nome do modelo", true); return; }
+  const area = document.getElementById("tf-area").value;
+  if (!area){ toast("Escolha a área do modelo", true); return; }
   const editId = _tipoEditId, paraForm = _tipoParaForm;
   try{
     let salvo;
     if (editId){
       const antigo = (_tipos.find(x => x.id === editId) || {}).nome;
       salvo = (await api("/api/tipos-projeto/" + editId,
-        { method: "PUT", body: JSON.stringify({ nome }) })).tipo;
+        { method: "PUT", body: JSON.stringify({ nome, area }) })).tipo;
       if (_modelosTipoAtual === antigo) _modelosTipoAtual = salvo.nome;
-      toast("Tipo renomeado");
+      toast("Modelo atualizado");
     } else {
       salvo = (await api("/api/tipos-projeto", { method: "POST", body: JSON.stringify({
-        nome, copiar_de: document.getElementById("tf-copiar").value }) })).tipo;
-      toast("Tipo criado");
+        nome, area, copiar_de: document.getElementById("tf-copiar").value }) })).tipo;
+      toast("Modelo criado");
     }
     fecharFormTipo();
     if (paraForm){
@@ -1787,7 +2036,8 @@ async function salvarFormTipo(){
     } else {
       if (!editId) _modelosTipoAtual = salvo.nome;
       await loadModelos();
-      // os projetos em memória ainda carregam o nome antigo do tipo
+      // o filtro e os projetos em memória ainda conhecem o nome/área antigos
+      _normalizarFiltro(); _salvarFiltro(); renderFiltroModelos();
       if (editId) _recarregarTudo().catch(()=>{});
     }
   }catch(err){ toast(err.message, true); }
@@ -1797,16 +2047,17 @@ async function tipoExcluir(id){
   const t = _tipos.find(x => x.id === id);
   if (!t) return;
   if (t.projetos){
-    toast(`"${t.nome}" está em uso por ${_plural(t.projetos, "projeto", "projetos")} (contando arquivados). Troque o tipo deles antes de excluir.`, true);
+    toast(`"${t.nome}" está em uso por ${_plural(t.projetos, "projeto", "projetos")} (contando arquivados). Troque o modelo deles antes de excluir.`, true);
     return;
   }
-  const extra = t.itens_modelo ? ` O modelo dele (${_plural(t.itens_modelo, "item", "itens")}) é excluído junto.` : "";
-  if (!(await confirmar(`Excluir o tipo "${t.nome}"?${extra}`,
-        {title:"Excluir tipo de projeto", okLabel:"Excluir"}))) return;
+  const extra = t.itens_modelo ? ` A lista de entregáveis dele (${_plural(t.itens_modelo, "item", "itens")}) é excluída junto.` : "";
+  if (!(await confirmar(`Excluir o modelo "${t.nome}"?${extra}`,
+        {title:"Excluir modelo de projeto", okLabel:"Excluir"}))) return;
   try{
     await api("/api/tipos-projeto/" + id, { method: "DELETE" });
-    toast("Tipo excluído");
+    toast("Modelo excluído");
     await loadModelos();
+    _normalizarFiltro(); _salvarFiltro(); renderFiltroModelos();
   }catch(err){ toast(err.message, true); }
 }
 
@@ -1814,7 +2065,7 @@ function renderModelos(){
   const host = document.getElementById("modelos-body");
   if (!host) return;
   if (!_tipoAtual()){
-    host.innerHTML = `<div class="per-vazio" style="padding:16px 0">Nenhum tipo de projeto cadastrado${canEditProj() ? " — crie o primeiro em “+ Novo tipo”" : ""}.</div>`;
+    host.innerHTML = `<div class="per-vazio" style="padding:16px 0">Nenhum modelo de projeto cadastrado${canEditProj() ? " — crie o primeiro em “+ Novo modelo”" : ""}.</div>`;
     return;
   }
   const itens = _modelosCache[_modelosTipoAtual] || [];
@@ -2109,8 +2360,9 @@ async function salvarPop(){
 }
 
 /* ── Export ── */
-// Segue a busca e a situação da aba Projetos — o export devolvia o portfólio
-// inteiro, e o nome fixo aqui descartava o "Projetos_AAAAMMDD.xlsx" do servidor.
+// Segue o filtro de modelos e a busca e a situação da aba Projetos — o export
+// devolvia o portfólio inteiro, e o nome fixo aqui descartava o
+// "Projetos_AAAAMMDD.xlsx" do servidor.
 async function exportarExcel(){
   try{
     const p = new URLSearchParams();
@@ -2118,7 +2370,7 @@ async function exportarExcel(){
     if (busca.trim()) p.set("busca", busca.trim());
     if (_projStatus) p.set("status", _projStatus);
     const qs = p.toString();
-    await baixarDoServidor("/api/entregaveis/export" + (qs ? "?" + qs : ""),
+    await baixarDoServidor(_comFiltro("/api/entregaveis/export" + (qs ? "?" + qs : "")),
                            "Projetos.xlsx");   // common.js
   }catch(err){ toast(err.message, true); }
 }
@@ -2212,9 +2464,15 @@ function _temJsPDF(){
   // Técnico entra em modo restrito (só os entregáveis dele); leitura não entra.
   if (!["admin", "gestor", "tecnico"].includes(userRole())){ window.location.href = "/hub"; return; }
   try{
+    // Os modelos vêm antes: o filtro (da URL ou do último uso) é validado
+    // contra eles, e é ele que recorta todas as chamadas abaixo.
+    _filtro = _lerFiltroInicial();
+    await loadTipos().catch(()=>{});
+    _normalizarFiltro();
+    _salvarFiltro();
+    renderFiltroModelos();
     // Um carregamento de projetos serve grade e gráficos; alertas em paralelo.
-    await Promise.all([loadKpis(), loadProjetos(), loadAlertas().catch(()=>{}),
-                       loadTipos().catch(()=>{})]);
+    await Promise.all([loadKpis(), loadProjetos(), loadAlertas().catch(()=>{})]);
     populateDashProjSel();
     renderCharts();
     conectarSocket();
@@ -2437,6 +2695,7 @@ async function gerarRelatorioPDF(){
   if(cfg.periodo) filtros.push(`Avanço em: Últimos ${cfg.periodo} dias`);
   if(cfg.moscow) filtros.push(`MoSCoW: ${cfg.moscow==="Wont"?"Won't":cfg.moscow}`);
   if(cfg.status) filtros.push(`Status: ${cfg.status}`);
+  if(_filtro.size) filtros.unshift(`Modelos: ${filtroDescricao()}`);
   if(!filtros.length) filtros.push('Todos os projetos');
 
   paintBg();

@@ -394,3 +394,46 @@ select.input{cursor:pointer}
 .theme-light .sino-pop-head{background:#f8fafc}
 .theme-light .resp-picker{background:#fff}
 .theme-light .resp-chip{background:#f8fafc}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PROJETOS UNIFICADOS — filtro de modelos e etiqueta do modelo
+   A cor vem da área (areas.py) por --ac, inline em cada grupo/etiqueta. O
+   color-mix com --t1 escurece a cor no tema claro e clareia no escuro, então
+   ciano e rosa continuam legíveis nos dois.
+   ══════════════════════════════════════════════════════════════════════════ */
+.fm-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}
+.fm-bar[hidden]{display:none}
+.fm-lbl{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--t4)}
+.fm-chips{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.fm-grupo{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;padding:3px;border-radius:var(--r-pill);
+  border:1px solid color-mix(in srgb,var(--ac) 32%,transparent);background:color-mix(in srgb,var(--ac) 6%,transparent)}
+.fm-chip{appearance:none;cursor:pointer;font-family:var(--font-body);font-size:12px;font-weight:600;white-space:nowrap;
+  padding:4px 11px;border-radius:var(--r-pill);border:1px solid var(--border-soft);background:var(--bg-elevated);color:var(--t3);
+  transition:background .15s,color .15s,border-color .15s}
+.fm-chip:hover{color:var(--t1);border-color:var(--border-mid)}
+.fm-chip:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.fm-todos.on{background:var(--cyan-brand);border-color:var(--cyan-brand);color:#fff}
+.fm-grupo .fm-chip{border-color:transparent;background:transparent}
+.fm-grupo .fm-chip:hover{background:color-mix(in srgb,var(--ac) 10%,transparent)}
+.fm-grupo .fm-chip.on{color:var(--t1);background:color-mix(in srgb,var(--ac) 24%,transparent);
+  border-color:color-mix(in srgb,var(--ac) 60%,transparent)}
+.fm-area{display:inline-flex;align-items:center;gap:6px;letter-spacing:.4px}
+.fm-dot{width:8px;height:8px;border-radius:50%;background:var(--ac);flex-shrink:0}
+/* Celular: o grupo quebra em duas linhas; pílula vira cartão para não parecer torta. */
+@media (max-width:560px){.fm-grupo{border-radius:14px}.fm-chip{padding:4px 9px}}
+
+.modelo-tag{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.3px;
+  padding:2px 8px;border-radius:20px;white-space:nowrap;flex-shrink:0;
+  color:color-mix(in srgb,var(--ac) 62%,var(--t1));
+  background:color-mix(in srgb,var(--ac) 14%,transparent);
+  border:1px solid color-mix(in srgb,var(--ac) 40%,transparent)}
+/* Projeto antigo sem modelo: tracejado, para lembrar que falta classificar. */
+.modelo-tag.sem{border-style:dashed;opacity:.85}
+.proj-tags{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.pmo-risk-name .modelo-tag{margin-left:6px;vertical-align:1px}
+
+/* Aba Modelos: os botões de modelo agrupados pela área. */
+.modelos-area{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;padding-left:8px;border-left:2px solid var(--ac)}
+.modelos-area + .modelos-area{margin-left:8px}
+.modelos-area-lbl{font-size:10px;font-weight:800;letter-spacing:.6px;margin-right:4px;
+  color:color-mix(in srgb,var(--ac) 62%,var(--t1))}
