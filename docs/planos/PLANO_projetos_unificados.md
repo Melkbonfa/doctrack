@@ -1,5 +1,9 @@
 # Plano — Projetos unificados (PDE · PDR · INOV)
 
+> **Andamento (2026-09-30):** as Fases 1 a 3 estão implementadas na branch
+> `feat/projetos-unificados`. Falta a Fase 4 (virada dos dados reais), que
+> depende das [decisões em aberto](#decisões-em-aberto) com o André.
+
 ## De onde veio
 
 Conversa com o André em 2026-09-30. Ele é gestor de todas as áreas e quer:

@@ -14,6 +14,42 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Projetos unificados: PDE, PDR e INOV no mesmo módulo
+Projetos só existia no hub do PDE. O gestor das três áreas precisava de uma
+visão única, com um jeito de recortar por departamento. O que separa uma área da
+outra passa a ser o **modelo** do projeto (`PDE RUO`, `PDE IVD`, `PDR RUO`,
+`PDR IVD`, `INOV`…), que é o tipo de projeto cadastrável. Plano em
+`docs/planos/PLANO_projetos_unificados.md`.
+
+- **Adicionado** a área do modelo (`tipos_projeto.area`). A área do projeto vem
+  do modelo, e não é guardada no projeto. Os tipos que já existem nascem `pde`.
+  Não é obrigatório rodar `migrations/017_area_tipo_projeto.py`: a subida do
+  servidor cria a coluna.
+- **Adicionado** a área **INOV** (Inovação), com sub-hub e o card de Projetos.
+  A sidebar do PDR ganhou um link para Projetos. Os três caminhos abrem a tela já
+  filtrada pela área de origem (`/projetos?area=<slug>`).
+- **Adicionado** um filtro de modelos acima das abas, que vale para Dashboard,
+  PMO, Projetos, o sino de alertas e os exports (Excel e PDF). Os chips ficam
+  agrupados por área: o da área marca todos os modelos dela, e dá para somar
+  modelos de áreas diferentes (ex.: `PDE IVD` + `PDR IVD` = todos os IVD). A URL
+  acompanha o filtro e a última escolha fica guardada no navegador.
+- **Adicionado** a etiqueta do modelo, na cor da área, no card, na ficha, no
+  modal do projeto e na lista de risco do PMO. O projeto antigo sem modelo
+  aparece como "PDE · Sem modelo", tracejado.
+- **Adicionado** `?tipo=` e `?area=` repetíveis em `/api/projetos`,
+  `/api/projetos/alertas`, `/api/entregaveis/resumo` e `/api/entregaveis/export`.
+  Alertas e resumo antes ignoravam qualquer filtro. O projeto sem modelo conta
+  como PDE, e uma área sem nenhum modelo devolve vazio, e não o portfólio
+  inteiro.
+- **Adicionado** as colunas Modelo e Área nas três abas do Excel.
+- **Alterado** projeto novo passa a exigir modelo, e um projeto que já tem
+  modelo não pode voltar a ficar sem. O projeto antigo sem modelo continua
+  editável. Na tela, "tipo" passa a se chamar "modelo". Criar e editar um
+  modelo pede a área.
+- **Não muda**: as permissões. O filtro recorta a visão, mas não controla
+  acesso: gestor e admin continuam vendo tudo, e o técnico continua vendo só
+  onde tem entregável atribuído.
+
 ### Projetos: tipos de projeto cadastráveis
 Os tipos eram uma lista fixa no código (`OEM` e `Revenda`), repetida no Python,
 no JavaScript e no HTML. Um terceiro tipo exigia mexer nos três e publicar.
