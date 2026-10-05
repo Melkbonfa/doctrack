@@ -242,7 +242,7 @@ def test_edicao_gera_audit_log(client, gestor_token, admin_token, auth_headers, 
 
 def test_criar_projeto_gestor(client, gestor_token, auth_headers):
     res = client.post("/api/projetos", headers=auth_headers(gestor_token),
-                      json={"nome": "Novo Produto", "moscow": "Should", "ano": 2026})
+                      json={"nome": "Novo Produto", "tipo": "OEM", "moscow": "Should", "ano": 2026})
     assert res.status_code == 201
     assert res.get_json()["projeto"]["nome"] == "Novo Produto"
 

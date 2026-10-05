@@ -114,7 +114,8 @@ function navigate(page) {
   if (page === "audit") loadAudit();
   if (page === "usuarios") loadUsers();
 }
-document.querySelectorAll(".nav-item").forEach((n) => n.addEventListener("click", () => navigate(n.dataset.page)));
+// Só os itens internos: o de Projetos é um link para /projetos (módulo único).
+document.querySelectorAll(".nav-item[data-page]").forEach((n) => n.addEventListener("click", () => navigate(n.dataset.page)));
 
 async function refreshAll() {
   try {

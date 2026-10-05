@@ -18,7 +18,7 @@
       <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div>
           <h1 style="margin:0">Projetos</h1>
-          <p class="muted" style="margin:4px 0 0" id="page-sub">Engenharia · Portfólio de projetos</p>
+          <p class="muted" style="margin:4px 0 0" id="page-sub">Portfólio de projetos</p>
         </div>
         <div class="page-actions" style="display:flex;gap:10px;align-items:center">
           <!-- Sino de alertas: atrasos, prazos vencidos, estouro e projetos parados -->
@@ -50,6 +50,13 @@
           <button class="btn btn-primary btn-sm" id="btn-export-pdf" onclick="openExportModal()">Exportar PDF</button>
           <button class="btn btn-ghost btn-sm" id="btn-export" onclick="exportarExcel()">Excel</button>
         </div>
+      </div>
+
+      <!-- Filtro de modelos: um só, para Dashboard, PMO, Projetos, sino e exports.
+           Chips montados por renderFiltroModelos() a partir de /api/tipos-projeto. -->
+      <div class="fm-bar" id="fm-bar" role="group" aria-label="Filtrar por modelo">
+        <span class="fm-lbl">Modelos</span>
+        <div class="fm-chips" id="fm-chips"></div>
       </div>
 
       <div class="ent-tabs" role="tablist">
@@ -188,11 +195,11 @@
           <div class="modelos-head">
             <div>
               <div class="card-title" style="margin:0">Modelos de entregáveis</div>
-              <p class="muted" style="margin:4px 0 0">Listas-padrão usadas ao criar um projeto de cada tipo. Editar aqui só afeta projetos criados depois.</p>
+              <p class="muted" style="margin:4px 0 0">Cada modelo pertence a uma área e tem a lista-padrão de entregáveis usada ao criar um projeto dele. Editar aqui só afeta projetos criados depois.</p>
             </div>
             <div class="modelos-tipos">
               <div class="modelos-tipo-toggle" id="modelos-tipo-toggle" role="tablist"></div>
-              <button class="btn btn-ghost btn-sm" id="btn-novo-tipo" type="button" onclick="abrirFormTipo()" style="display:none">+ Novo tipo</button>
+              <button class="btn btn-ghost btn-sm" id="btn-novo-tipo" type="button" onclick="abrirFormTipo()" style="display:none">+ Novo modelo</button>
             </div>
           </div>
           <!-- Tipo selecionado: uso + renomear/excluir (ver renderModelosInfo) -->
@@ -274,8 +281,8 @@
       <div class="g2">
         <div class="form-group">
           <div class="pf-label-row">
-            <label class="form-label" for="pf-tipo">Tipo de projeto</label>
-            <button type="button" class="pf-lnk" onclick="abrirFormTipo(null, true)">+ novo tipo</button>
+            <label class="form-label" for="pf-tipo">Modelo *</label>
+            <button type="button" class="pf-lnk" onclick="abrirFormTipo(null, true)">+ novo modelo</button>
           </div>
           <!-- Opções vêm do cadastro (/api/tipos-projeto) — ver _fillTipoSelect(). -->
           <select class="form-input" id="pf-tipo" onchange="onTipoProjetoChange()">
@@ -398,12 +405,14 @@
        (z-index), porque também abre de dentro dele. -->
   <div class="modal-overlay" id="modal-tipo-form" role="dialog" aria-modal="true" aria-labelledby="tf-title" aria-hidden="true" style="z-index:9200">
     <div class="modal" style="width:420px" tabindex="-1">
-      <div class="modal-title" id="tf-title">Novo tipo de projeto</div>
-      <div class="modal-sub" id="tf-sub">Cada tipo tem o seu modelo de entregáveis</div>
+      <div class="modal-title" id="tf-title">Novo modelo de projeto</div>
+      <div class="modal-sub" id="tf-sub">Cada modelo tem a sua área e a sua lista de entregáveis</div>
       <div class="form-group"><label class="form-label" for="tf-nome">Nome *</label>
-        <input class="form-input" id="tf-nome" maxlength="20" placeholder="Ex.: Locação"
+        <input class="form-input" id="tf-nome" maxlength="20" placeholder="Ex.: PDR IVD"
                onkeydown="if(event.key==='Enter'){event.preventDefault();salvarFormTipo();}"></div>
-      <div class="form-group" id="tf-copiar-wrap"><label class="form-label" for="tf-copiar">Modelo de entregáveis</label>
+      <div class="form-group"><label class="form-label" for="tf-area">Área *</label>
+        <select class="form-input" id="tf-area"></select></div>
+      <div class="form-group" id="tf-copiar-wrap"><label class="form-label" for="tf-copiar">Lista de entregáveis</label>
         <select class="form-input" id="tf-copiar"></select></div>
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharFormTipo()">Cancelar</button><button class="btn btn-primary" onclick="salvarFormTipo()">Salvar</button></div>
     </div>
@@ -458,11 +467,15 @@
         </div>
       </div>
       <div class="g2">
-        <div class="form-group"><label class="form-label" for="exp-status">Status Global do Projeto</label>
+        <div class="form-group"><label class="form-label" for="exp-status">Situação do projeto</label>
           <select class="form-input" id="exp-status">
-            <option value="">Todos</option>
-            <option value="Finalizado">Concluídos (100%)</option>
-            <option value="Pendente">Pendentes (&lt; 100%)</option>
+            <option value="">Todas</option>
+            <option value="abertos">Abertos (planejado, em execução, suspenso)</option>
+            <option value="planejado">Planejado</option>
+            <option value="execucao">Em execução</option>
+            <option value="suspenso">Suspenso</option>
+            <option value="concluido">Concluído</option>
+            <option value="cancelado">Cancelado</option>
           </select>
         </div>
       </div>

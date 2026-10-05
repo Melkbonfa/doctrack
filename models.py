@@ -1284,6 +1284,9 @@ MOSCOW = ["Must", "Should", "Could", "Wont"]
 # `tipos_projeto` (ver TipoProjeto) — o gestor cria outros pela aba Modelos.
 TIPOS_PROJETO = ["OEM", "Revenda"]
 TIPO_PROJETO_MAX = 20   # projetos.tipo e modelos_entregavel.tipo_projeto são String(20)
+# Área de um projeto sem tipo (`tipo = ""`). Até os projetos serem unificados o
+# módulo só existia no PDE, então é de lá que vêm os projetos antigos.
+AREA_PROJETO_LEGADO = "pde"
 
 # Ciclo de vida do projeto. Ortogonal a `ativo` (que é só arquivamento): um
 # projeto arquivado pode ter terminado bem (concluido) ou morrido no meio
@@ -1883,16 +1886,22 @@ class TipoProjeto(db.Model):
     id — já era assim quando a lista era fixa no código, e manter evita migrar
     as duas colunas. O preço é que renomear precisa propagar para as duas
     (ver entregaveis.editar_tipo_projeto).
+
+    Na tela o tipo se chama **modelo** (PDE RUO, PDR IVD, INOV…). A `area` diz
+    de que departamento ele é, e a área do projeto vem daqui — não é guardada no
+    projeto, para não haver um `PDR RUO` marcado como PDE.
     """
     __tablename__ = "tipos_projeto"
 
     id        = db.Column(db.Integer, primary_key=True)
     nome      = db.Column(db.String(20), nullable=False, unique=True)
+    area      = db.Column(db.String(20), nullable=False, default=AREA_PROJETO_LEGADO)   # slug de areas.py
     ordem     = db.Column(db.Integer, default=0)
     criado_em = db.Column(db.DateTime, default=datetime.now)
 
     def to_dict(self):
-        return {"id": self.id, "nome": self.nome, "ordem": self.ordem or 0}
+        return {"id": self.id, "nome": self.nome,
+                "area": self.area or AREA_PROJETO_LEGADO, "ordem": self.ordem or 0}
 
 
 class ModeloEntregavel(db.Model):

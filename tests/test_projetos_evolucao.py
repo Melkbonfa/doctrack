@@ -109,7 +109,7 @@ def test_curva_s_sem_degrau_no_ponto_atual(app):
 def test_avanco_medio_ignora_projeto_sem_escopo(client, gestor_token, auth_headers, proj):
     """Projeto sem entregável devolve avanço 0 e puxava a média para baixo."""
     pid2 = client.post("/api/projetos", headers=auth_headers(gestor_token),
-                       json={"nome": "Com escopo", "entregaveis": []}).get_json()["projeto"]["id"]
+                       json={"nome": "Com escopo", "tipo": "OEM", "entregaveis": []}).get_json()["projeto"]["id"]
     eid = _add(client, gestor_token, auth_headers, pid2)
     client.put(f"/api/entregaveis/{eid}", headers=auth_headers(gestor_token),
                json={"status": "concluido"})
@@ -152,7 +152,7 @@ def test_arquivar_distingue_concluido_de_cancelado(client, gestor_token, auth_he
     """`ativo=False` não dizia se o projeto terminou ou morreu no meio."""
     def novo(nome):
         return client.post("/api/projetos", headers=auth_headers(gestor_token),
-                           json={"nome": nome, "entregaveis": []}).get_json()["projeto"]["id"]
+                           json={"nome": nome, "tipo": "OEM", "entregaveis": []}).get_json()["projeto"]["id"]
 
     ok = novo("Terminou bem")
     eid = _add(client, gestor_token, auth_headers, ok)
@@ -280,7 +280,7 @@ def test_alerta_de_entregavel_atrasado(client, gestor_token, auth_headers, proj)
 
 def test_alerta_de_projeto_vencido(client, gestor_token, auth_headers):
     pid = client.post("/api/projetos", headers=auth_headers(gestor_token), json={
-        "nome": "Venceu", "entregaveis": [],
+        "nome": "Venceu", "tipo": "OEM", "entregaveis": [],
         "data_inicio_prev": "2020-01-01", "data_fim_prev": "2020-12-31",
     }).get_json()["projeto"]["id"]
     _add(client, gestor_token, auth_headers, pid)

@@ -42,6 +42,10 @@ _IC_CUSTOS = ('<circle cx="12" cy="12" r="9"/>'
               '0 1.3-1.1 2.3-3 2.3a3.5 3.5 0 0 1-3-1.5"/>'
               '<path d="M12 5.5v13"/>')
 
+_IC_INOV = ('<path d="M9 18h6"/><path d="M10 21.5h4"/>'
+            '<path d="M12 2.5a6.5 6.5 0 0 0-3.8 11.8c.5.4.8 1 .8 1.6V16h6v-.1c0-.6.3-1.2.8-1.6'
+            'A6.5 6.5 0 0 0 12 2.5z"/>')
+
 
 AREAS = [
     {
@@ -54,7 +58,9 @@ AREAS = [
         "modulos": [
             {"label": "Equipamentos", "url": "/equipamentos", "role": None, "module": "equip", "icon": _IC_EQUIP_MOD},
             {"label": "Documentos", "url": "/", "role": None, "module": "docs", "icon": _IC_DOCS},
-            {"label": "Projetos", "url": "/projetos", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
+            # Projetos é um módulo só para todas as áreas; o `?area=` só abre a
+            # tela já filtrada pelos modelos da área de onde a pessoa veio.
+            {"label": "Projetos", "url": "/projetos?area=pde", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
             {"label": "Missões", "url": "/missoes", "role": "tecnico", "module": "missoes", "icon": _IC_MISSOES},
             {"label": "Custos", "url": "/custos/", "role": "gestor", "module": "custos", "icon": _IC_CUSTOS},
         ],
@@ -66,8 +72,20 @@ AREAS = [
         "accent": "#a855f7",
         "home": "/pdr/",
         "icon": _IC_REAG,
-        # Módulos do PDR (Dashboard/Documentos/Projetos) vivem dentro do app /pdr.
+        # Módulos do PDR (Dashboard/Documentos) vivem dentro do app /pdr, cuja
+        # sidebar leva a /projetos?area=pdr.
         "modulos": [],
+    },
+    {
+        "slug": "inov",
+        "nome": "Inovação",
+        "sub": "PROJETOS",
+        "accent": "#f472b6",
+        "home": "/hub/inov",
+        "icon": _IC_INOV,
+        "modulos": [
+            {"label": "Projetos", "url": "/projetos?area=inov", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
+        ],
     },
 ]
 
