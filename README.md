@@ -39,6 +39,7 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── servidor.py               # App Flask principal (rotas, API, Socket.IO)
 ├── models.py                 # Modelos SQLAlchemy
 ├── auth.py                   # Autenticação, RBAC e log de auditoria
+├── killswitch.py             # Trava de emergência: desliga o sistema por gatilho externo
 ├── areas.py                  # Definição das áreas/setores
 ├── documentos.py             # Blueprint do módulo Documentos (CRUD + arquivos do equipamento)
 ├── entregaveis.py            # Blueprint do módulo Entregáveis
@@ -88,6 +89,42 @@ Scripts úteis (rodar a partir da raiz do projeto):
 > `scripts\backup_doctrack.ps1` foi removido junto com a migração para o PostgreSQL.
 > Esta tabela ainda o listava; seguir a linha antiga gerava um backup vazio, porque o
 > script copiava o `doctrack.db` do SQLite. Use `gerar_backup.ps1`.
+
+## Trava de emergência (kill switch)
+
+Um gatilho externo desliga o sistema inteiro; só a senha-mestra o traz de volta.
+É para o incidente — credencial vazada, máquina comprometida, suspeita de acesso
+indevido — em que desligar sai mais barato que investigar com o sistema no ar.
+
+Travado, **tudo** responde `423`: API, páginas e WebSocket, inclusive para admin
+e para quem já estava logado. Só continuam de pé as rotas do próprio kill switch
+e `/api/version` (health check). Destravar encerra todas as sessões abertas
+antes da trava: todo mundo entra de novo.
+
+**Instalação** (uma vez, por servidor):
+
+```powershell
+.\venv\Scripts\python scripts\kill_switch.py hash
+```
+
+Ele pede o token do gatilho e a senha-mestra e imprime os dois hashes bcrypt
+para colar no `.env` (`DOCTRACK_KILL_TOKEN_HASH` e `DOCTRACK_UNLOCK_HASH`).
+Nenhum dos dois vai para o banco — se o motivo da trava for o banco
+comprometido, um segredo guardado nele não vale nada. Sem as duas variáveis o
+gatilho recusa travar: travar sem senha de volta é destruir, não proteger.
+Guarde a senha-mestra fora do servidor.
+
+**Disparar**, de qualquer lugar (não precisa do repositório nem de estar logado):
+
+```bash
+curl -X POST https://SEU-SERVIDOR/api/kill-switch/lock -H "X-Kill-Token: SEU_TOKEN" -H "Content-Type: application/json" -d "{\"motivo\":\"credencial vazada\"}"
+```
+
+**Liberar**: acesse `/travado` no navegador e informe a senha-mestra (ou
+`.\venv\Scripts\python scripts\kill_switch.py unlock --url https://SEU-SERVIDOR`).
+
+As duas rotas são limitadas a 3 tentativas falhas por IP a cada 15 min, e as
+duas ações ficam no log de auditoria sob o usuário `kill-switch`.
 
 ## Versionamento
 

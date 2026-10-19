@@ -216,6 +216,34 @@ def test_importar_servidor_nao_prepara_banco():
     assert "init_app()" in wsgi.read_text(encoding="utf-8")
 
 
+def test_limpeza_do_ratelimit_respeita_a_maior_janela_configurada(monkeypatch):
+    """O limpador não pode descartar uma chave que alguma política ainda conta.
+
+    Ele usava um max() escrito à mão que não incluía a janela do kill switch:
+    configurada acima daquele teto, o contador era zerado antes da hora e sobrava
+    um lote novo de tentativas contra a única rota que responde com o sistema
+    travado. Agora a maior janela consultada é aprendida em `bloqueado`, então
+    uma política nova nasce coberta.
+    """
+    import time
+
+    import ratelimit
+
+    ratelimit.resetar()
+    monkeypatch.setattr(ratelimit, "JANELA_KILLSWITCH", 1800)
+
+    chave = "killswitch:unlock:1.2.3.4"
+    agora = time.time()
+    # Falhas de 1000s atrás: dentro da janela de 1800s, fora do antigo teto (900).
+    ratelimit._tentativas[chave] = [agora - 1000] * ratelimit.LIMITE_KILLSWITCH
+    ratelimit._ultima_limpeza = 0.0            # força a limpeza a rodar agora
+
+    travado, _ = ratelimit.bloqueado(chave, ratelimit.LIMITE_KILLSWITCH,
+                                     ratelimit.JANELA_KILLSWITCH)
+    assert travado, "a limpeza zerou o contador ainda dentro da janela"
+    ratelimit.resetar()
+
+
 def test_esc_do_front_escapa_aspas_e_nao_so_os_sinais_de_tag():
     """`esc()` precisa ser seguro dentro de ATRIBUTO, não só no corpo do HTML.
 

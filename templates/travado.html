@@ -1,0 +1,168 @@
+{#
+  travado.html — tela de bloqueio do kill switch.
+
+  Deliberadamente autossuficiente: não estende base.html e não carrega nenhum
+  JS de /static. Esta é a página que aparece quando o sistema está travado por
+  suspeita de comprometimento — quanto menos código de aplicação ela executa,
+  menos superfície tem a única porta que ainda responde.
+#}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Sistema travado — DocTrack</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f14; --card: #131a22; --borda: #24303c;
+    --texto: #e6edf3; --suave: #93a1b1; --alerta: #f87171; --ok: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center;
+    justify-content: center; padding: 24px; background: var(--bg);
+    color: var(--texto);
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  }
+  .cartao {
+    width: 100%; max-width: 460px; background: var(--card);
+    border: 1px solid var(--borda); border-radius: 14px; padding: 32px;
+  }
+  .selo {
+    width: 52px; height: 52px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 26px;
+    background: rgba(248, 113, 113, .12); border: 1px solid rgba(248, 113, 113, .35);
+    margin-bottom: 18px;
+  }
+  h1 { font-size: 21px; margin: 0 0 8px; letter-spacing: -.2px; }
+  p  { margin: 0 0 16px; color: var(--suave); font-size: 14px; line-height: 1.55; }
+  dl { margin: 0 0 20px; font-size: 13px; color: var(--suave); }
+  dl div { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--borda); }
+  dt { min-width: 74px; color: #6b7a8c; }
+  dd { margin: 0; color: var(--texto); word-break: break-word; }
+  label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--suave); }
+  input {
+    width: 100%; padding: 11px 13px; border-radius: 9px; font-size: 15px;
+    background: #0b1119; border: 1px solid var(--borda); color: var(--texto);
+  }
+  input:focus { outline: none; border-color: #3b82f6; }
+  button {
+    width: 100%; margin-top: 14px; padding: 12px; border: 0; border-radius: 9px;
+    background: #2563eb; color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover:enabled { background: #1d4ed8; }
+  button:disabled { opacity: .55; cursor: default; }
+  .aviso { margin-top: 14px; font-size: 13px; min-height: 19px; }
+  .aviso.erro { color: var(--alerta); }
+  .aviso.ok   { color: var(--ok); }
+  .rodape { margin-top: 22px; font-size: 12px; color: #56657a; line-height: 1.5; }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f1f5f9; --card: #fff; --borda: #dde5ee;
+      --texto: #101828; --suave: #52627a;
+    }
+    input { background: #f8fafc; }
+    dt { color: #7b8aa0; }
+    .rodape { color: #7b8aa0; }
+  }
+</style>
+</head>
+<body>
+<main class="cartao">
+  <div class="selo" aria-hidden="true">&#128274;</div>
+
+  {% if info.travado %}
+    <h1>Sistema travado</h1>
+    <p>
+      O DocTrack foi desligado por medida de segurança. Nenhum dado pode ser
+      lido ou alterado — nem por administradores — até que a senha de
+      desbloqueio seja informada abaixo.
+    </p>
+    <dl>
+      {% if info.travado_em %}
+      <div>
+        <dt>Desde</dt>
+        <dd>{{ info.travado_em.strftime("%d/%m/%Y às %H:%M") }}</dd>
+      </div>
+      {% endif %}
+      {% if info.motivo %}
+      <div>
+        <dt>Motivo</dt>
+        <dd>{{ info.motivo }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+
+    <form id="form-unlock" autocomplete="off">
+      <label for="senha">Senha de desbloqueio</label>
+      <input id="senha" name="senha" type="password" required autofocus
+             autocomplete="off" spellcheck="false">
+      <button id="botao" type="submit">Desbloquear sistema</button>
+    </form>
+    <div class="aviso" id="aviso" role="status" aria-live="polite"></div>
+
+    <p class="rodape">
+      Ao desbloquear, todas as sessões abertas antes da trava são encerradas:
+      todos os usuários precisarão entrar novamente.
+    </p>
+  {% else %}
+    <h1>Sistema liberado</h1>
+    <p>O DocTrack está no ar normalmente. Nenhuma trava ativa no momento.</p>
+    <p class="rodape"><a href="/hub" style="color:#60a5fa">Ir para os módulos</a></p>
+  {% endif %}
+</main>
+
+{% if info.travado %}
+<script>
+(function () {
+  var form   = document.getElementById("form-unlock");
+  var campo  = document.getElementById("senha");
+  var botao  = document.getElementById("botao");
+  var aviso  = document.getElementById("aviso");
+
+  function dizer(texto, classe) {
+    aviso.textContent = texto;
+    aviso.className = "aviso " + (classe || "");
+  }
+
+  form.addEventListener("submit", function (evento) {
+    evento.preventDefault();
+    botao.disabled = true;
+    dizer("Verificando...");
+
+    fetch("/api/kill-switch/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senha: campo.value })
+    })
+      .then(function (resposta) {
+        return resposta.json().catch(function () { return {}; })
+          .then(function (corpo) { return { ok: resposta.ok, corpo: corpo }; });
+      })
+      .then(function (r) {
+        if (!r.ok) {
+          botao.disabled = false;
+          campo.value = "";
+          campo.focus();
+          dizer(r.corpo.erro || "Não foi possível desbloquear.", "erro");
+          return;
+        }
+        // O estado é lido com cache curto no servidor (DOCTRACK_LOCK_TTL); a
+        // espera antes de recarregar evita cair de volta na tela de bloqueio.
+        dizer("Sistema liberado. Redirecionando...", "ok");
+        setTimeout(function () { location.replace("/hub"); }, 3500);
+      })
+      .catch(function () {
+        botao.disabled = false;
+        dizer("Falha de conexão com o servidor.", "erro");
+      });
+  });
+})();
+</script>
+{% endif %}
+</body>
+</html>

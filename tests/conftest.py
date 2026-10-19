@@ -143,6 +143,20 @@ def _limpar_ratelimit():
     ratelimit.resetar()
 
 
+@pytest.fixture(autouse=True)
+def _limpar_killswitch():
+    """Descarta o cache da trava de emergência entre testes.
+
+    Cada teste recebe uma cópia limpa do banco (destravado), mas o cache de
+    killswitch é de módulo e sobrevive à troca: sem isto, um teste que trava o
+    sistema deixaria todos os seguintes respondendo 423.
+    """
+    import killswitch
+    killswitch.invalidar_cache()
+    yield
+    killswitch.invalidar_cache()
+
+
 @pytest.fixture
 def client(app):
     return app.test_client()

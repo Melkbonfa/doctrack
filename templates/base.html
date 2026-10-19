@@ -78,5 +78,9 @@
      esse bloco sem chamar super(). Todos eles carregam common.js e auth.js
      dentro do próprio bloco, então getToken/esc/DT_AUTH já existem aqui. -->
 <script src="/static/tempos-widget.js?v={{ asset_v }}"></script>
+<!-- Trava de emergência: leva a aba já aberta para a tela de bloqueio quando o
+     servidor passa a responder 423. Fora do block scripts pelo mesmo motivo dos
+     dois acima. -->
+<script src="/static/killswitch.js?v={{ asset_v }}"></script>
 </body>
 </html>

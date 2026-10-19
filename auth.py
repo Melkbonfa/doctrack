@@ -16,12 +16,13 @@ from flask_jwt_extended import (
     create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity, get_jwt
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 import os
 
 from models import db, User, AuditLog, RevokedToken
 from areas import dump_areas, parse_areas, AREA_SLUGS
+from utils import ip_do_cliente
 import ratelimit
 
 auth_bp = Blueprint("auth", __name__)
@@ -64,6 +65,8 @@ def require_role(*roles):
             claims   = get_jwt()                    # claims extras (role)
             role     = claims.get("role", "")
             if role not in roles:
+                # Não vai para a auditoria, nem aqui nem em require_area: ver
+                # "TENTATIVAS DE ACESSO RECUSADAS" mais abaixo.
                 return jsonify({"erro": "Acesso negado para este perfil"}), 403
             return fn(*args, **kwargs)
         return wrapper
@@ -98,10 +101,94 @@ def require_pdr_access(*roles):
 
 
 def get_client_ip():
-    # remote_addr já reflete o cliente real quando TRUST_PROXY está ativo (ProxyFix
-    # aplica o X-Forwarded-For). Sem proxy confiável, não lemos o cabeçalho — ele é
-    # forjável e este IP é gravado no audit log.
-    return request.remote_addr or ""
+    """IP de quem chamou, para o audit log.
+
+    Delega para `utils.ip_do_cliente()` — a mesma função que o rate limit usa.
+    As duas coisas PRECISAM concordar: se o audit log registra um IP e o
+    contador de tentativas conta outro, a investigação de um bloqueio olha para
+    um dado que não corresponde ao que causou o bloqueio.
+    """
+    return ip_do_cliente()
+
+
+# ── TENTATIVAS DE ACESSO RECUSADAS ────────────────────────────────────────────
+#
+# A validação de sistema computadorizado pede que o sistema registre as
+# tentativas de acesso de quem não está autorizado. O rate limit vê todas, mas
+# o contador dele mora em memória e some no reinício; a trilha que sobrevive é
+# audit_logs.
+#
+# Entra toda tentativa em que um segredo foi conferido e não bateu (senha,
+# código de ativação, token e senha do kill switch) e o bloqueio pelo limite.
+# Todas já contam no rate limit, então o volume que um atacante gera aqui é o
+# mesmo teto que o limite lhe dá — gravar o que o limite não conta abriria a
+# auditoria para ser inundada.
+#
+# Fica de fora, de propósito:
+#   * o segredo digitado — nem a senha, nem o código, nem trecho deles;
+#   * o 403 de perfil/área (require_role / require_area). Quem bate nele já
+#     está autenticado e identificado; não é alguém de fora tentando entrar. E
+#     o próprio front provoca esse 403 no uso normal (a seção que o perfil
+#     leitura não pode ver some ao receber 403): sem limite que o segure, cada
+#     tela aberta viraria linha de auditoria e o registro de um ataque de
+#     verdade ficaria enterrado no ruído do uso legítimo;
+#   * o 401 de JWT vencido, que acontece a cada expiração e o front renova
+#     sozinho.
+
+def _auditar_tentativa(email, acao, motivo="", entidade=""):
+    """Grava uma tentativa recusada. Nunca muda a resposta: se a gravação
+    falhar, a tentativa continua recusada com a mesma mensagem de sempre."""
+    try:
+        # usuario_email é varchar(120) e o e-mail vem do corpo da requisição,
+        # com o tamanho que quem ataca quiser. Estourar a coluna no PostgreSQL
+        # viraria 500 — que diz algo diferente de "e-mail ou senha incorretos".
+        log_action((email or "")[:120], acao, entidade=entidade,
+                   campo="motivo" if motivo else "", novo=motivo,
+                   ip=get_client_ip())
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WARN] Auditoria: {acao} não gravado — {e}")
+
+
+def auditar_bloqueio(acao, email, chaves, limite, janela,
+                     rotulo="limite por e-mail", entidade=""):
+    """Registra a tentativa barrada pelo limite (429): uma linha por bloqueio,
+    não uma por requisição.
+
+    Enquanto o bloqueio dura, cada nova tentativa leva 429 sem que o segredo
+    seja nem conferido. Gravar todas faria do próprio limite o jeito mais
+    barato de inundar audit_logs — a tabela que mais cresce, sem retenção por
+    padrão. As falhas que levaram ao bloqueio já estão gravadas uma a uma;
+    esta linha marca que ele aconteceu e que alguém insistiu.
+
+    `chaves` e `limite`/`janela` são os mesmos passados a `ratelimit.checar`:
+    servem para saber qual dos dois contadores barrou — o da identidade
+    (`rotulo`) ou o teto por IP — porque é por contador que se deduplica. Por
+    IP, o e-mail fica fora da comparação: senão uma varredura que troca de
+    e-mail a cada tentativa geraria uma linha por requisição de novo.
+
+    A memória de "este bloqueio já foi registrado" é a própria auditoria: no
+    máximo uma linha por contador a cada janela do limite.
+    """
+    email = (email or "")[:120]
+    ip = get_client_ip()
+    try:
+        por_identidade = ratelimit.bloqueado(chaves[0], limite, janela)[0]
+        motivo = rotulo if por_identidade else "limite por IP"
+        desde = datetime.now() - timedelta(
+            seconds=janela if por_identidade else ratelimit.JANELA_IP)
+        ja = AuditLog.query.filter(AuditLog.acao == acao, AuditLog.ip == ip,
+                                   AuditLog.valor_novo == motivo,
+                                   AuditLog.timestamp >= desde)
+        if por_identidade:
+            ja = ja.filter(AuditLog.usuario_email == email)
+        if ja.first() is not None:
+            return
+    except Exception:
+        # Sem como deduplicar, registra: na dúvida, uma linha a mais.
+        db.session.rollback()
+        motivo = rotulo
+    _auditar_tentativa(email, acao, motivo, entidade=entidade)
 
 
 # ── LOGIN ─────────────────────────────────────────────────────────────────────
@@ -120,11 +207,16 @@ def login():
     chaves = ratelimit.chaves_login(email)
     travado = ratelimit.checar(chaves, ratelimit.LIMITE_LOGIN, ratelimit.JANELA_LOGIN)
     if travado is not None:
+        auditar_bloqueio("LOGIN_BLOQUEADO", email, chaves,
+                         ratelimit.LIMITE_LOGIN, ratelimit.JANELA_LOGIN)
         return travado
 
     user = User.query.filter_by(email=email, ativo=True).first()
 
-    # Conta pendente de primeiro acesso/reset: orienta a definir a senha
+    # Conta pendente de primeiro acesso/reset: orienta a definir a senha.
+    # Fora da auditoria: nenhuma senha foi conferida (qualquer uma cai aqui) e
+    # esta recusa não conta no limite. A tentativa que vale para quem ataca uma
+    # conta pendente — adivinhar o código — é a do primeiro acesso, e essa grava.
     if user and user.precisa_definir_senha:
         return jsonify({
             "erro": "Esta conta ainda não tem senha. Use o código de ativação para definir sua senha no primeiro acesso.",
@@ -134,6 +226,10 @@ def login():
     if not user or not user.check_senha(senha):
         for chave in chaves:
             ratelimit.registrar_falha(chave)
+        # O motivo fica só na auditoria; ao cliente a mensagem é uma só, para
+        # não dizer se o e-mail tem conta.
+        _auditar_tentativa(email, "LOGIN_FALHA",
+                           "senha incorreta" if user else "e-mail sem conta ativa")
         return jsonify({"erro": "Email ou senha incorretos"}), 401
 
     ratelimit.limpar_chave(chaves[0])
@@ -216,19 +312,32 @@ def primeiro_acesso():
     chaves = ratelimit.chaves_ativacao(email)
     travado = ratelimit.checar(chaves, ratelimit.LIMITE_ATIVACAO, ratelimit.JANELA_ATIVACAO)
     if travado is not None:
+        auditar_bloqueio("ATIVACAO_BLOQUEADA", email, chaves,
+                         ratelimit.LIMITE_ATIVACAO, ratelimit.JANELA_ATIVACAO)
         return travado
 
     user = User.query.filter_by(email=email, ativo=True).first()
 
-    # Mensagens distintas para orientar o usuário (ferramenta interna)
+    # Mensagens distintas para orientar o usuário (ferramenta interna).
+    # As três recusas contam no limite e vão para a auditoria. Antes só o código
+    # errado contava: e-mail sem pendência e código vencido respondiam na hora e
+    # sem limite, então uma varredura de e-mails nesta rota não deixava rastro —
+    # e gravá-la sem contar abriria a auditoria a inundação.
+    falha = None
     if not user or not user.precisa_definir_senha or not user.ativacao_codigo_hash:
-        return jsonify({"erro": "Não há primeiro acesso pendente para este e-mail. Confira o e-mail digitado."}), 400
-    if user.ativacao_expira and datetime.now() > user.ativacao_expira:
-        return jsonify({"erro": "Código de ativação expirado. Peça um novo ao administrador."}), 400
-    if not user.check_codigo(codigo):
+        falha = ("sem primeiro acesso pendente",
+                 "Não há primeiro acesso pendente para este e-mail. Confira o e-mail digitado.")
+    elif user.ativacao_expira and datetime.now() > user.ativacao_expira:
+        falha = ("código expirado",
+                 "Código de ativação expirado. Peça um novo ao administrador.")
+    elif not user.check_codigo(codigo):
+        falha = ("código incorreto", "Código de ativação incorreto.")
+    if falha:
+        motivo, mensagem = falha
         for chave in chaves:
             ratelimit.registrar_falha(chave)
-        return jsonify({"erro": "Código de ativação incorreto."}), 400
+        _auditar_tentativa(email, "ATIVACAO_FALHA", motivo)
+        return jsonify({"erro": mensagem}), 400
 
     ratelimit.limpar_chave(chaves[0])
     user.set_senha(senha)          # também limpa o código e o estado pendente
