@@ -17,7 +17,9 @@ import os
 import threading
 import time
 
-from flask import jsonify, request
+from flask import jsonify
+
+from utils import ip_do_cliente
 
 # Limites (tentativas falhas / segundos). Ajustáveis por variável de ambiente
 # porque o número certo depende do tamanho da equipe.
@@ -25,6 +27,11 @@ LIMITE_LOGIN        = int(os.environ.get("DOCTRACK_LIMITE_LOGIN", "5"))
 JANELA_LOGIN        = int(os.environ.get("DOCTRACK_JANELA_LOGIN", "300"))
 LIMITE_ATIVACAO     = int(os.environ.get("DOCTRACK_LIMITE_ATIVACAO", "5"))
 JANELA_ATIVACAO     = int(os.environ.get("DOCTRACK_JANELA_ATIVACAO", "900"))
+# Kill switch: mais apertado que o login. São dois segredos únicos e sem dono —
+# não há usuário legítimo que erre a senha de desbloqueio cinco vezes seguidas —
+# e a rota de unlock é a única porta aberta com o sistema travado.
+LIMITE_KILLSWITCH   = int(os.environ.get("DOCTRACK_LIMITE_KILLSWITCH", "3"))
+JANELA_KILLSWITCH   = int(os.environ.get("DOCTRACK_JANELA_KILLSWITCH", "900"))
 # Teto por IP: barra a varredura que troca de e-mail a cada tentativa (que
 # escaparia do contador por identidade).
 LIMITE_IP           = int(os.environ.get("DOCTRACK_LIMITE_IP", "30"))
@@ -33,6 +40,13 @@ JANELA_IP           = int(os.environ.get("DOCTRACK_JANELA_IP", "300"))
 _tentativas = {}          # chave -> [timestamps das falhas]
 _lock = threading.Lock()
 _ultima_limpeza = 0.0
+# Maior janela já consultada. O limpador não pode descartar uma chave que alguma
+# política ainda conta, e enumerar as janelas à mão aqui já custou caro: a do
+# kill switch ficou de fora do max() e, configurada acima do teto, tinha o
+# contador zerado antes da hora — mais tentativas contra a única porta que
+# continua aberta com o sistema travado. Aprender a janela de quem pergunta faz
+# a próxima política nascer coberta.
+_janela_vista = 0.0
 
 
 def habilitado():
@@ -64,9 +78,13 @@ def bloqueado(chave, limite, janela):
     """Devolve (bloqueado, segundos_para_liberar)."""
     if not habilitado():
         return False, 0
+    global _janela_vista
     agora = time.time()
     with _lock:
-        _limpar(agora, max(JANELA_LOGIN, JANELA_ATIVACAO, JANELA_IP))
+        # JANELA_IP entra sempre: o teto por IP é consultado em toda checagem e
+        # sua chave precisa sobreviver mesmo quando a política da vez é curta.
+        _janela_vista = max(_janela_vista, janela, JANELA_IP)
+        _limpar(agora, _janela_vista)
         ts = _contar(chave, janela, agora)
         if len(ts) < limite:
             return False, 0
@@ -89,14 +107,23 @@ def limpar_chave(chave):
 
 def resetar():
     """Zera todo o estado — usado pelas fixtures de teste."""
-    global _ultima_limpeza
+    global _ultima_limpeza, _janela_vista
     with _lock:
         _tentativas.clear()
         _ultima_limpeza = 0.0
+        _janela_vista = 0.0
 
 
 def _ip():
-    return request.remote_addr or "-"
+    """Chave de IP dos contadores. NÃO é `request.remote_addr` direto.
+
+    Ver `utils.ip_do_cliente()`: atrás do túnel do Cloudflare o remote_addr é
+    127.0.0.1 (o cloudflared roda no mesmo servidor) ou um IP de edge, e os dois
+    fundiriam a equipe inteira numa chave só — transformando todo limite "por
+    IP" deste módulo num limite global. O caso grave é o do kill switch: três
+    tentativas erradas de qualquer um trancariam o desbloqueio para todos.
+    """
+    return ip_do_cliente() or "-"
 
 
 def chaves_login(email):
@@ -105,6 +132,12 @@ def chaves_login(email):
 
 def chaves_ativacao(email):
     return (f"ativacao:{(email or '').strip().lower()}:{_ip()}", f"ip:{_ip()}")
+
+
+def chaves_killswitch(acao):
+    """`acao` é "lock" ou "unlock" — contadores separados para que a varredura
+    do token do gatilho não consuma as tentativas de quem precisa destravar."""
+    return (f"killswitch:{acao}:{_ip()}", f"ip:{_ip()}")
 
 
 def checar(chaves, limite, janela):

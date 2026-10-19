@@ -14,6 +14,66 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Auditoria: tentativas de acesso recusadas
+A validação de sistema computadorizado exige registrar as tentativas de acesso
+de quem não está autorizado. Só o login certo ia para `audit_logs`; a falha
+ficava no contador em memória do limite de tentativas e sumia no reinício.
+
+- **Adicionado** as ações `LOGIN_FALHA`, `ATIVACAO_FALHA`,
+  `KILL_SWITCH_LOCK_FALHA` e `KILL_SWITCH_UNLOCK_FALHA`, com o e-mail digitado
+  (mesmo sem conta), o IP e o motivo. O segredo digitado nunca é gravado, e a
+  resposta ao cliente não muda.
+- **Adicionado** `LOGIN_BLOQUEADO`, `ATIVACAO_BLOQUEADA` e
+  `KILL_SWITCH_BLOQUEADO` para a tentativa barrada pelo limite (429) — uma
+  linha por bloqueio, não uma por requisição.
+- **Alterado** no primeiro acesso, e-mail sem pendência e código vencido passam
+  a contar no limite de tentativas (antes só o código errado contava). A
+  mensagem é a mesma; o que muda é que a varredura de e-mails nessa rota agora
+  esbarra no 429.
+- 403 de perfil/área e 401 de token vencido ficam fora, de propósito: ver
+  [acesso-usuarios.md](docs/funcional/acesso-usuarios.md#tentativas-de-acesso-recusadas).
+- **Adicionado** o IP de origem na tela de auditoria e no relatório exportado
+  (lista, CSV, PDF e busca). Ele sempre foi gravado, mas `/api/audit` e o export
+  não o devolviam.
+- **Corrigido** injeção de script no relatório exportado. O relatório montava o
+  HTML com os valores crus, e o export embutia o JSON num `<script>` sem escapar
+  `<`. Com as tentativas recusadas, o e-mail digitado por quem nem tem conta
+  passou a ir para a auditoria, e algo como `</script><script>…` rodaria no
+  navegador do admin, numa página que leva o JWT na URL. Os valores agora são
+  escapados nos dois lados.
+- **Corrigido** as ações do kill switch (`KILL_SWITCH_*`) apareciam sob o
+  módulo "Documentos" na tela de auditoria; agora ficam em "Sistema".
+- **Removido** `models.ACOES_AUDIT`. Ninguém a lia, e ela tinha 18 das mais de
+  50 ações que o sistema grava. Os eventos de tempo real já têm catálogo em
+  `event_bus.EventType`, e uma terceira lista mantida à mão voltaria a
+  desatualizar.
+
+### Trava de emergência (kill switch)
+Não havia como desligar o sistema. Numa suspeita de credencial vazada, as opções
+eram derrubar o serviço no servidor (e perder o acesso à própria tela que mostra
+o que aconteceu) ou desativar usuário por usuário — lento e incompleto, porque o
+JWT já emitido continuava valendo até expirar.
+
+- **Adicionado** gatilho externo `POST /api/kill-switch/lock`, autenticado por um
+  token próprio no header `X-Kill-Token`. Não passa por login: quem precisa
+  desligar pode estar sem acesso à conta, longe do servidor, ou justamente
+  desconfiando de uma sessão ativa.
+- **Adicionado** o efeito da trava: **toda** requisição responde `423` — API,
+  páginas e WebSocket —, sem exceção por perfil. Nem admin entra, porque a
+  hipótese que motiva a trava é a de que uma credencial legítima está nas mãos
+  erradas. Seguem respondendo apenas as rotas do próprio kill switch e
+  `/api/version`; se o health check travasse, o Render reiniciaria o serviço em
+  laço e a trava viraria um ciclo de reboot.
+- **Adicionado** desbloqueio por senha-mestra em `/travado`, que **encerra todas
+  as sessões** abertas antes da trava (corte por `iat` ligado à blocklist do
+  JWT). Sem isso, quem estivesse dentro no momento do incidente voltaria com o
+  token intacto.
+- **Adicionado** `scripts/kill_switch.py` (gera os hashes, dispara e libera) e a
+  migration `014_kill_switch.py`. Os dois segredos moram em variável de ambiente
+  como hash bcrypt, nunca no banco: se o motivo da trava for o banco
+  comprometido, um segredo guardado nele não vale nada. Sem os dois configurados
+  o gatilho recusa travar — travar sem senha de volta é destruir, não proteger.
+
 ### Módulo Tempos: apontamento de horas
 O DocTrack sabia o que foi feito, mas não quanto custou em esforço: o peso do
 entregável é estimativa e os dias de ciclo do cartão são tempo de calendário.

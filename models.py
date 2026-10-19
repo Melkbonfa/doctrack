@@ -95,14 +95,9 @@ MOTIVOS_NA = {
 }
 MOTIVO_NA_LIVRE = "outro"
 
-ACOES_AUDIT = [
-    "CREATE", "UPDATE", "DELETE", "STATUS_CHANGE", "LOGIN", "REIMPORT",
-    "DOCUMENT_CREATED", "DOCUMENT_UPDATED", "DOCUMENT_DELETED",
-    "DOCUMENT_STATUS_UPDATED", "ETAPA_COMPLETED",
-    "RESPONSAVEL_ASSIGNED", "RESPONSAVEL_REMOVED",
-    "NOTIFICATION", "USER_CONNECTED", "USER_DISCONNECTED",
-    "FIRST_ACCESS", "PASSWORD_RESET",
-]
+# Ações de auditoria (audit_logs.acao): não há lista fechada aqui. Os eventos de
+# tempo real estão em event_bus.EventType; as demais são literais nas chamadas
+# de log_action — as de acesso estão descritas em docs/funcional/acesso-usuarios.md.
 
 
 # ── USER ──────────────────────────────────────────────────────────────────────
@@ -1261,6 +1256,7 @@ class AuditLog(db.Model):
             "campo":        self.campo or "—",
             "valor_antigo": self.valor_antigo or "",
             "valor_novo":   self.valor_novo or "",
+            "ip":           self.ip or "",
             "timestamp":    self.timestamp.strftime("%d/%m/%Y %H:%M") if self.timestamp else "",
         }
 
@@ -1274,6 +1270,40 @@ class RevokedToken(db.Model):
     jti        = db.Column(db.String(64), unique=True, nullable=False, index=True)
     revoked_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
+
+# ── TRAVA DE EMERGÊNCIA (kill switch) ─────────────────────────────────────────
+
+class SistemaLock(db.Model):
+    """Linha única (id=1) com o estado da trava de emergência do sistema.
+
+    No banco e não em arquivo porque o estado precisa valer para TODOS os
+    processos que servem o app — os workers do gunicorn no Render não
+    compartilham disco, e um arquivo-sentinela travaria só o worker que o
+    enxergasse. Ver killswitch.py para quem lê e escreve esta linha.
+    """
+    __tablename__ = "sistema_lock"
+
+    id            = db.Column(db.Integer, primary_key=True)     # sempre 1
+    travado       = db.Column(db.Boolean, default=False, nullable=False)
+    travado_em    = db.Column(db.DateTime)
+    motivo        = db.Column(db.String(300), default="")
+    origem        = db.Column(db.String(60), default="")        # IP que disparou
+    destravado_em = db.Column(db.DateTime)
+
+    # Corte de sessão: todo JWT emitido ANTES deste instante é recusado. É o que
+    # transforma a trava em revogação de sessões — sem isto, quem já estava com
+    # um token válido voltaria a usá-lo intacto no destravamento.
+    tokens_validos_apos = db.Column(db.DateTime)
+
+    def to_dict(self):
+        return {
+            "travado":    bool(self.travado),
+            "travado_em": self.travado_em.isoformat() if self.travado_em else None,
+            "motivo":     self.motivo or "",
+        }
+
+
+# ── ENTREGÁVEIS DE PROJETO ───────────────────────────────────────────────────
 
 # Categorias de entregável semeadas em banco novo. A lista viva mora na tabela
 # `categorias_entregavel` (ver CategoriaEntregavel) — o gestor cria outras.

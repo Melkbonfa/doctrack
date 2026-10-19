@@ -1,4 +1,6 @@
 """Testes de autenticação JWT, login, logout, blocklist."""
+import ratelimit
+from models import AuditLog
 
 
 def test_login_success_returns_token(client):
@@ -183,3 +185,185 @@ def test_delete_soft_continua_padrao(client, admin_token, auth_headers):
     users = client.get("/api/users", headers=auth_headers(admin_token)).get_json()
     alvo = next(u for u in users if u["email"] == "soft@test.com")
     assert alvo["ativo"] is False
+
+
+# ── AUDITORIA DAS TENTATIVAS RECUSADAS ─────────────────────────────────────────
+# A validação de sistema computadorizado exige registrar as tentativas de acesso
+# de quem não está autorizado. Antes só o login certo ia para audit_logs; a
+# falha ficava no contador em memória do rate limit e sumia no reinício.
+
+IP_ATACANTE = "10.66.6.6"
+
+
+def _post(client, rota, ip=IP_ATACANTE, **corpo):
+    return client.post(rota, json=corpo, environ_base={"REMOTE_ADDR": ip})
+
+
+def _linhas(acao):
+    return AuditLog.query.filter_by(acao=acao).order_by(AuditLog.id).all()
+
+
+def _nenhuma_coluna_contem(segredo):
+    """O segredo digitado não pode aparecer em nenhum campo de nenhuma linha."""
+    for linha in AuditLog.query.all():
+        for coluna in AuditLog.__table__.columns:
+            valor = getattr(linha, coluna.name)
+            assert segredo not in str(valor or ""), \
+                f"segredo gravado em audit_logs.{coluna.name} ({linha.acao})"
+
+
+def test_login_falha_grava_email_e_ip(client):
+    res = _post(client, "/api/auth/login", email="admin@test.com", senha="errada")
+    assert res.status_code == 401
+
+    [linha] = _linhas("LOGIN_FALHA")
+    assert linha.usuario_email == "admin@test.com"
+    assert linha.usuario_id is not None              # a conta alvo fica ligada
+    assert linha.ip == IP_ATACANTE
+    assert linha.valor_novo == "senha incorreta"
+
+
+def test_login_falha_email_sem_conta_grava_o_email_informado(client):
+    res = _post(client, "/api/auth/login", email="Fantasma@Test.com ", senha="x")
+    assert res.status_code == 401
+
+    [linha] = _linhas("LOGIN_FALHA")
+    assert linha.usuario_email == "fantasma@test.com"
+    assert linha.usuario_id is None
+    assert linha.ip == IP_ATACANTE
+    assert linha.valor_novo == "e-mail sem conta ativa"
+
+
+def test_login_falha_nao_revela_se_o_email_existe(client):
+    """O motivo vai só para a auditoria; o cliente vê a mesma resposta."""
+    com_conta = _post(client, "/api/auth/login", email="admin@test.com", senha="x")
+    sem_conta = _post(client, "/api/auth/login", email="nope@test.com", senha="x")
+    assert com_conta.status_code == sem_conta.status_code == 401
+    assert com_conta.get_json() == sem_conta.get_json() == {"erro": "Email ou senha incorretos"}
+
+
+def test_login_sucesso_continua_gravando_login(client):
+    res = _post(client, "/api/auth/login", email="admin@test.com", senha="admin123")
+    assert res.status_code == 200
+
+    [linha] = _linhas("LOGIN")
+    assert linha.usuario_email == "admin@test.com"
+    assert linha.ip == IP_ATACANTE
+    assert _linhas("LOGIN_FALHA") == []
+
+
+def test_senha_digitada_nao_vai_para_a_auditoria(client):
+    senha = "Chute-Muito-Especifico-42"
+    _post(client, "/api/auth/login", email="admin@test.com", senha=senha)
+    _post(client, "/api/auth/login", email="nope@test.com", senha=senha)
+    assert len(_linhas("LOGIN_FALHA")) == 2
+    _nenhuma_coluna_contem(senha)
+
+
+def test_email_gigante_nao_estoura_a_coluna(client):
+    """usuario_email é varchar(120): no PostgreSQL estourar seria um 500."""
+    email = "a" * 500 + "@test.com"
+    res = _post(client, "/api/auth/login", email=email, senha="x")
+    assert res.status_code == 401
+    [linha] = _linhas("LOGIN_FALHA")
+    assert len(linha.usuario_email) == 120
+
+
+def test_bloqueio_grava_uma_linha_e_nao_uma_por_requisicao(client):
+    """Cada 429 virando linha faria do limite o jeito de inundar a auditoria."""
+    for _ in range(ratelimit.LIMITE_LOGIN):
+        assert _post(client, "/api/auth/login", email="admin@test.com",
+                     senha="errada").status_code == 401
+    for _ in range(4):
+        assert _post(client, "/api/auth/login", email="admin@test.com",
+                     senha="errada").status_code == 429
+
+    assert len(_linhas("LOGIN_FALHA")) == ratelimit.LIMITE_LOGIN
+    [bloqueio] = _linhas("LOGIN_BLOQUEADO")
+    assert bloqueio.usuario_email == "admin@test.com"
+    assert bloqueio.ip == IP_ATACANTE
+    assert bloqueio.valor_novo == "limite por e-mail"
+
+
+def test_bloqueio_de_outro_ip_e_outra_linha(client):
+    for ip in (IP_ATACANTE, "10.66.6.7"):
+        for _ in range(ratelimit.LIMITE_LOGIN + 2):
+            _post(client, "/api/auth/login", ip=ip, email="admin@test.com", senha="x")
+    assert sorted(l.ip for l in _linhas("LOGIN_BLOQUEADO")) == [IP_ATACANTE, "10.66.6.7"]
+
+
+def test_bloqueio_por_ip_nao_multiplica_trocando_de_email(client):
+    """A varredura que troca de e-mail a cada tentativa bate no teto por IP —
+    e trocar de e-mail não pode gerar uma linha de bloqueio por requisição."""
+    for i in range(ratelimit.LIMITE_IP):
+        assert _post(client, "/api/auth/login", email=f"varre{i}@test.com",
+                     senha="x").status_code == 401
+    for i in range(5):
+        assert _post(client, "/api/auth/login", email=f"outro{i}@test.com",
+                     senha="x").status_code == 429
+
+    [bloqueio] = _linhas("LOGIN_BLOQUEADO")
+    assert bloqueio.valor_novo == "limite por IP"
+    assert bloqueio.ip == IP_ATACANTE
+
+
+def test_ativacao_codigo_errado_grava_sem_o_codigo(client, admin_token, auth_headers):
+    _criar_convite(client, admin_token, auth_headers, email="alvo@test.com")
+    chute = "QK7ZP2XW"
+    res = _post(client, "/api/auth/primeiro-acesso",
+                email="alvo@test.com", codigo=chute, senha="senhaLonga1")
+    assert res.status_code == 400
+    assert res.get_json() == {"erro": "Código de ativação incorreto."}
+
+    [linha] = _linhas("ATIVACAO_FALHA")
+    assert linha.usuario_email == "alvo@test.com"
+    assert linha.ip == IP_ATACANTE
+    assert linha.valor_novo == "código incorreto"
+    _nenhuma_coluna_contem(chute)
+    _nenhuma_coluna_contem("senhaLonga1")
+
+
+def test_ativacao_sem_pendencia_grava_e_conta_no_limite(client):
+    """Antes esta recusa não contava no limite: uma varredura de e-mails no
+    primeiro acesso não custava nada e não deixava rastro."""
+    for _ in range(ratelimit.LIMITE_ATIVACAO):
+        res = _post(client, "/api/auth/primeiro-acesso",
+                    email="ninguem@test.com", codigo="AAAAAAAA", senha="senhaLonga1")
+        assert res.status_code == 400
+        assert "Não há primeiro acesso pendente" in res.get_json()["erro"]
+    assert _post(client, "/api/auth/primeiro-acesso", email="ninguem@test.com",
+                 codigo="AAAAAAAA", senha="senhaLonga1").status_code == 429
+
+    falhas = _linhas("ATIVACAO_FALHA")
+    assert len(falhas) == ratelimit.LIMITE_ATIVACAO
+    assert {l.valor_novo for l in falhas} == {"sem primeiro acesso pendente"}
+    assert all(l.usuario_email == "ninguem@test.com" and l.ip == IP_ATACANTE
+               for l in falhas)
+    [bloqueio] = _linhas("ATIVACAO_BLOQUEADA")
+    assert bloqueio.usuario_email == "ninguem@test.com"
+
+
+def test_ativacao_codigo_expirado_grava(client, admin_token, auth_headers):
+    from datetime import datetime, timedelta
+    from models import db, User
+
+    codigo, uid, _ = _criar_convite(client, admin_token, auth_headers, email="velho@test.com")
+    user = db.session.get(User, uid)
+    user.ativacao_expira = datetime.now() - timedelta(days=1)
+    db.session.commit()
+
+    res = _post(client, "/api/auth/primeiro-acesso",
+                email="velho@test.com", codigo=codigo, senha="senhaLonga1")
+    assert res.status_code == 400
+    assert "expirado" in res.get_json()["erro"]
+    [linha] = _linhas("ATIVACAO_FALHA")
+    assert linha.valor_novo == "código expirado"
+    _nenhuma_coluna_contem(codigo)
+
+
+def test_403_de_perfil_nao_vai_para_a_auditoria(client, leitura_token, auth_headers):
+    """Decisão registrada em auth.py: quem bate no 403 está autenticado, e o
+    front provoca esse 403 no uso normal."""
+    antes = AuditLog.query.count()
+    assert client.get("/api/users", headers=auth_headers(leitura_token)).status_code == 403
+    assert AuditLog.query.count() == antes

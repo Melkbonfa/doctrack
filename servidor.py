@@ -155,6 +155,12 @@ app.register_blueprint(custos_bp)
 from tempos import tempos_bp, init_realtime as tempos_init_realtime
 app.register_blueprint(tempos_bp)
 
+# Kill switch — trava de emergência do sistema inteiro. Registrado por ÚLTIMO de
+# propósito: o guardião abaixo precisa reconhecer os endpoints deste blueprint
+# para deixá-los passar com o sistema travado.
+import killswitch
+app.register_blueprint(killswitch.killswitch_bp)
+
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
 socketio = SocketIO(
     app,
@@ -172,6 +178,16 @@ pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
 missoes_init_realtime(socketio, publish_event, AuditLog, EventType)
 custos_init_realtime(socketio, publish_event, AuditLog, EventType)
 tempos_init_realtime(socketio, publish_event, AuditLog, EventType)
+# Só o socketio: o kill switch avisa as abas abertas na hora em que trava, mas
+# não publica evento de domínio nem escreve no barramento.
+killswitch.init_realtime(socketio)
+
+# ── TRAVA DE EMERGÊNCIA ───────────────────────────────────────────────────────
+# Primeiro before_request registrado no app, e o único global: com o sistema
+# travado nada mais roda — nem rota autenticada, nem página, nem estático.
+@app.before_request
+def _checar_kill_switch():
+    return killswitch.guardiao()
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -184,6 +200,11 @@ def add_claims(identity):
 
 @jwt.token_in_blocklist_loader
 def check_revoked(jwt_header, jwt_payload):
+    # Corte do kill switch antes da blocklist: destravar o sistema invalida de
+    # uma vez todo token emitido antes, sem precisar listar jti por jti (e sem
+    # tocar o banco de novo, porque o estado da trava vem do cache).
+    if killswitch.token_cortado(jwt_payload):
+        return True
     jti = jwt_payload.get("jti")
     if not jti:
         return False
@@ -1910,7 +1931,7 @@ def api_audit():
     if acao: query = query.filter(AuditLog.acao == acao)
     query = _filter_audit_dates(query)
     result = [l.to_dict() for l in query.limit(limit).all()]
-    if q: result = [l for l in result if q in norm(l.get("usuario")) or q in norm(l.get("entidade")) or q in norm(l.get("campo"))]
+    if q: result = [l for l in result if q in norm(l.get("usuario")) or q in norm(l.get("entidade")) or q in norm(l.get("campo")) or q in norm(l.get("ip"))]
     return jsonify(result), 200
 
 @app.route("/api/export/audit")
@@ -1938,10 +1959,18 @@ def export_audit():
             "Campo": log.campo or "",
             "ValorAntigo": log.valor_antigo or "",
             "ValorNovo": log.valor_novo or "",
+            "IP": log.ip or "",
             "Data": log.timestamp.strftime("%d/%m/%Y %H:%M:%S") if log.timestamp else ""
         })
-        
-    raw_json = json.dumps(raw_list, ensure_ascii=False)
+
+    # O JSON vai para dentro de um <script>, e parte do que ele carrega é texto
+    # de quem nem tem conta: o e-mail digitado numa tentativa de login recusada
+    # (LOGIN_FALHA) é gravado como veio. Sem escapar "<", um e-mail como
+    # "</script><script>…" fecharia o bloco e rodaria no navegador do admin —
+    # numa página que tem o JWT na URL. < é o mesmo caractere para o JS.
+    raw_json = (json.dumps(raw_list, ensure_ascii=False)
+                .replace("<", "\\u003c").replace(">", "\\u003e")
+                .replace("&", "\\u0026"))
 
     # Substitui a definição const RAW no javascript usando index para máxima segurança
     start_str = "const RAW = ["
@@ -2028,6 +2057,12 @@ def api_status():
 # ── WEBSOCKET HANDLERS ────────────────────────────────────────────────────────
 @socketio.on("connect")
 def on_connect(auth=None):
+    # O guardião do kill switch é um before_request do Flask e o handshake do
+    # Socket.IO não passa por ele — sem esta checagem o tempo real seguiria
+    # entregando eventos com o sistema travado.
+    if killswitch.travado():
+        emit("sistema_travado", {"erro": "Sistema travado"})
+        return False
     token = (auth or {}).get("token") if auth else None
     if not token:
         emit("auth_error", {"erro": "Token ausente"})

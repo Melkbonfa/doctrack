@@ -53,7 +53,9 @@ function _auditModule(l){
   if(/PROJETO|ENTREGAVEL|MENSAL|MODELO/.test(acao)) return 'projetos';
   if(/^projeto[:\s]/i.test(ent) || ent.includes('·') || entL.includes('modelo') || entL.includes('entregavel')) return 'projetos';
   // Sistema: autenticação e administração de usuários
-  if(/LOGIN|LOGOUT|PASSWORD|SENHA|RESET|TOKEN|USER|USUARIO|ROLE|PERMISSAO|ATIVACAO|CONVITE/.test(acao)) return 'sistema';
+  // KILL_SWITCH: entidade "sistema" não casa com nenhuma regra abaixo, e sem ele
+  // aqui a trava de emergência e as tentativas contra ela caíam em Documentos.
+  if(/LOGIN|LOGOUT|PASSWORD|SENHA|RESET|TOKEN|USER|USUARIO|ROLE|PERMISSAO|ATIVACAO|CONVITE|KILL_SWITCH|ACCESS/.test(acao)) return 'sistema';
   if(campo==='role' || entL.includes('usuario') || entL.includes('user') || entL.includes('auth')) return 'sistema';
   if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ent.trim())) return 'sistema'; // entidade = e-mail puro (gestão de usuário)
   // Documentos (padrão)
@@ -95,7 +97,7 @@ async function filterAudit(){
   const q=(document.getElementById('audit-search').value||'').toLowerCase();
   const a=document.getElementById('audit-filter-action').value;
   const mod=(document.getElementById('audit-filter-module')||{}).value||'';
-  if(q)logs=logs.filter(l=>(l.usuario||'').toLowerCase().includes(q)||(l.entidade||'').toLowerCase().includes(q)||(l.campo||'').toLowerCase().includes(q));
+  if(q)logs=logs.filter(l=>(l.usuario||'').toLowerCase().includes(q)||(l.entidade||'').toLowerCase().includes(q)||(l.campo||'').toLowerCase().includes(q)||(l.ip||'').toLowerCase().includes(q));
   if(a)logs=logs.filter(l=>l.acao===a);
   if(mod)logs=logs.filter(l=>_auditModule(l)===mod);
   document.getElementById('audit-list').innerHTML=logs.length?logs.map(l=>{
@@ -106,7 +108,7 @@ async function filterAudit(){
       <div class="audit-action"><span class="audit-mod-badge" style="color:${m.color};border-color:${m.color}">${m.label}</span> <span style="color:${actColor};font-family:var(--font-mono);font-size:10px">[${esc(l.acao)}]</span> <strong>${esc(l.entidade)}</strong>
         ${l.campo&&l.campo!=='—'?`<span style="color:var(--t3);font-size:10px"> (${esc(l.campo)}) </span>`:''}
         ${l.valor_antigo?' <span class="old">'+esc(l.valor_antigo)+'</span> → <span class="new">'+esc(l.valor_novo)+'</span>':l.valor_novo?' '+esc(l.valor_novo):''}
-      </div><div class="audit-time">${esc(l.timestamp)}</div>
+      </div><div class="audit-time">${esc(l.timestamp)}${l.ip?`<br><span title="IP de origem">${esc(l.ip)}</span>`:''}</div>
     </div>`}).join(''):'<div style="text-align:center;padding:28px;color:var(--t4);font-size:12px">Nenhum registro</div>';
 }
 function exportAudit() {
