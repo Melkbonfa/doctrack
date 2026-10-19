@@ -1461,6 +1461,12 @@ class Projeto(db.Model):
     data_fim_prev    = db.Column(db.String(40), default="")
     data_fim_real    = db.Column(db.String(40), default="")
     orcamento        = db.Column(db.Float, default=0.0)   # BAC – Budget At Completion
+    # Itens do modelo (chaves de ModeloEntregavel) que o projeto já conhecia ao
+    # nascer ou na última aplicação do modelo — ligados ou não. A prévia de
+    # modelo_sync só propõe criar o que NÃO está aqui: item tirado de propósito
+    # da lista, ou que nunca esteve no projeto antigo, não volta sozinho. JSON;
+    # NULL = projeto anterior a isto, resolvido pelo backfill da subida.
+    modelo_conhecidos = db.Column(db.Text, nullable=True)
 
     # Ordem definida pelo gestor (arrastando na tela). O id desempata os
     # entregáveis legados, que nasceram todos com ordem 0 — sem ele a lista

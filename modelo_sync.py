@@ -23,11 +23,18 @@ Nome e categoria não são editáveis no projeto, então sempre seguem o modelo.
 A ordem do projeto não é propagada (quem arrasta no projeto manda nela); item
 novo entra no fim da categoria.
 
+Item do modelo que o projeto NÃO tem só é proposto (criar ou vincular) se for
+novo para o projeto — fora de `Projeto.modelo_conhecidos`, a lista dos itens
+que o projeto já conhecia ao nascer ou na última aplicação. Sem isso, o item
+tirado de propósito da lista ao criar o projeto, ou que nunca existiu num
+projeto antigo, voltaria a cada prévia.
+
 Sem Flask aqui: as rotas ficam em entregaveis.py e só traduzem
 ErroPropagacao em resposta HTTP. Nada commita — quem chama decide.
 """
 import hashlib
 import json
+import unicodedata
 from datetime import datetime
 
 from sqlalchemy.orm.attributes import flag_modified
@@ -106,6 +113,32 @@ def tem_andamento(e):
     return (e.status or "pendente") != "pendente" or bool(e.historico)
 
 
+def chave_nome(texto):
+    """Nome para casar entregável com item de modelo: sem acento, maiúscula,
+    hífen/sublinhado nem espaço sobrando. A categoria fica de fora de propósito:
+    o modelo pode ter mudado o item de categoria depois que o projeto nasceu
+    (os modelos do PDR levaram vários itens de Documentação para Gestão)."""
+    s = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()
+    return " ".join(s.replace("-", " ").replace("_", " ").split())
+
+
+def conhecidos(p, itens):
+    """Chaves dos itens do modelo que o projeto já conhecia. Sem a lista (projeto
+    criado por fora da tela, antes do backfill), vale o modelo de agora: na
+    dúvida, não propõe criar nada."""
+    if p.modelo_conhecidos is None:
+        return {m.chave for m in itens}
+    try:
+        return set(json.loads(p.modelo_conhecidos) or [])
+    except (TypeError, ValueError):
+        return {m.chave for m in itens}
+
+
+def marcar_conhecidos(p, itens):
+    """O projeto passa a conhecer todos os itens de `itens` (o modelo de agora)."""
+    p.modelo_conhecidos = json.dumps(sorted(m.chave for m in itens if m.chave))
+
+
 # ── prévia ───────────────────────────────────────────────────────────────────
 
 def _itens_do_modelo(tipo):
@@ -151,17 +184,19 @@ def _mudancas_do_projeto(p, itens):
                              "categoria": e.categoria or "", "campo": campo,
                              "antes": _texto(atual[campo]), "depois": _texto(novo[campo])})
 
-    # Itens do modelo que o projeto não tem: vincula um avulso de mesmo nome e
-    # categoria (alguém já tinha criado à mão) ou cria.
+    # Itens do modelo NOVOS para o projeto (fora dos conhecidos) que ele não
+    # tem: vincula um avulso de mesmo nome (alguém já tinha criado à mão) ou
+    # cria. O que o projeto já conhecia e não tem ficou de fora de propósito.
+    known = conhecidos(p, itens)
     avulsos = {}
     for e in ents:
         if not e.modelo_chave:
-            avulsos.setdefault(((e.categoria or "").lower(), (e.tipo or "").strip().lower()), e)
+            avulsos.setdefault(chave_nome(e.tipo), e)
     for m in itens:
-        if m.chave in ligados:
+        if m.chave in ligados or m.chave in known:
             continue
         v = valores_do_modelo(m)
-        e = avulsos.pop((v["categoria"].lower(), v["tipo"].lower()), None)
+        e = avulsos.pop(chave_nome(v["tipo"]), None)
         if e is not None:
             mudancas.append({"acao": "vincular", "entregavel_id": e.id, "entregavel": e.tipo,
                              "categoria": e.categoria or "", "modelo_chave": m.chave})
@@ -339,6 +374,9 @@ def aplicar(tipo, selecao, decisoes, motivo, email):
                 vincular(e, m)
                 if e.id is not None:
                     _preservar_atualizado_em(e)
+        # O que o modelo tem agora passa a ser conhecido: o que o admin viu e
+        # não levou (projeto desmarcado não entra aqui) não volta na próxima.
+        marcar_conhecidos(p, itens)
 
         if mexeu:
             n_projetos += 1
@@ -353,16 +391,23 @@ def aplicar(tipo, selecao, decisoes, motivo, email):
 # ── vínculo dos dados anteriores ─────────────────────────────────────────────
 
 def vincular_legado():
-    """Liga entregáveis antigos aos itens do modelo do projeto pelo nome.
+    """Prepara os dados anteriores ao vínculo. Roda na subida; idempotente.
 
-    Roda na subida (idempotente). Só olha entregáveis com `modelo_origem` NULL —
-    os que existiam antes do vínculo. Casou por categoria + nome (sem
-    diferenciar maiúsculas): liga e fotografa os valores ATUAIS do modelo como
-    origem, então um peso que o projeto já tinha diferente conta como ajuste do
-    projeto e é mantido. Não casou: vira avulso ("" nos dois campos) e nunca
-    mais é avaliado — um avulso criado à mão depois com o mesmo nome não é
-    ligado em silêncio; a prévia oferece "vincular" e o admin vê.
-    Devolve (itens_de_modelo_com_chave_nova, entregaveis_ligados, avulsos).
+    1. Item de modelo sem `chave` ganha uma.
+    2. Entregável com `modelo_origem` NULL (anterior ao vínculo) vira avulso
+       provisório — o passo 3 decide se ele casa com o modelo.
+    3. Projeto com `modelo_conhecidos` NULL (anterior a isto) passa uma vez:
+       cada avulso dele casa com um item ainda livre do modelo do projeto pelo
+       NOME (chave_nome: sem categoria, acento, maiúscula). Casou: liga e
+       fotografa os valores ATUAIS do modelo como origem — categoria, nome ou
+       peso que o projeto tinha diferente contam como do projeto e ficam. Por
+       fim o projeto passa a conhecer o modelo inteiro de agora, então a prévia
+       só vai propor o que entrar no modelo daqui para frente.
+
+    Depois desse passo o projeto nunca mais é reavaliado: um avulso criado à mão
+    depois, com o mesmo nome de um item novo do modelo, não é ligado em
+    silêncio — a prévia oferece "vincular" e o admin vê.
+    Devolve (itens_de_modelo_com_chave_nova, entregaveis_ligados, projetos_avaliados).
     """
     import secrets
     sem_chave = ModeloEntregavel.query.filter(
@@ -372,34 +417,31 @@ def vincular_legado():
     if sem_chave:
         db.session.flush()
 
-    pendentes = Entregavel.query.filter(Entregavel.modelo_origem == None).all()   # noqa: E711
-    if not pendentes:
-        return len(sem_chave), 0, 0
-    por_projeto = {}
-    for e in pendentes:
-        por_projeto.setdefault(e.projeto_id, []).append(e)
+    for e in Entregavel.query.filter(Entregavel.modelo_origem == None).all():   # noqa: E711
+        _desvincular(e)
+        _preservar_atualizado_em(e)
+
     modelos = {}
-    ligados = avulsos = 0
-    for pid, ents in por_projeto.items():
-        p = db.session.get(Projeto, pid)
-        tipo = (p.tipo or "") if p else ""
+    ligados = 0
+    projetos = Projeto.query.filter(Projeto.modelo_conhecidos == None).all()   # noqa: E711
+    for p in projetos:
+        tipo = p.tipo or ""
         if tipo not in modelos:
             modelos[tipo] = _itens_do_modelo(tipo) if tipo else []
-        ja_ligados = {e.modelo_chave for e in (p.entregaveis if p else []) if e.modelo_chave}
+        itens = modelos[tipo]
+        ja_ligados = {e.modelo_chave for e in p.entregaveis if e.modelo_chave}
         livres = {}
-        for m in modelos[tipo]:
-            if m.chave in ja_ligados:
+        for m in itens:
+            if m.chave not in ja_ligados:
+                livres.setdefault(chave_nome(m.tipo), m)
+        for e in sorted(p.entregaveis, key=lambda x: (x.ordem or 0, x.id)):
+            if e.modelo_chave:
                 continue
-            v = valores_do_modelo(m)
-            livres.setdefault((v["categoria"].lower(), v["tipo"].lower()), m)
-        for e in sorted(ents, key=lambda x: (x.ordem or 0, x.id)):
-            m = livres.pop(((e.categoria or "").lower(), (e.tipo or "").strip().lower()), None)
+            m = livres.pop(chave_nome(e.tipo), None)
             if m is not None:
                 vincular(e, m)
+                _preservar_atualizado_em(e)
                 ligados += 1
-            else:
-                _desvincular(e)
-                avulsos += 1
-            _preservar_atualizado_em(e)
+        marcar_conhecidos(p, itens)
     db.session.flush()
-    return len(sem_chave), ligados, avulsos
+    return len(sem_chave), ligados, len(projetos)

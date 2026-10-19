@@ -335,6 +335,7 @@ def test_vincular_legado_liga_pelo_nome_e_e_idempotente(app, client, h):
         db.session.expire_all()
         pid = p.id
 
+        # (itens de modelo com chave nova, entregáveis ligados, projetos avaliados)
         assert modelo_sync.vincular_legado() == (1, 3, 1)
         db.session.commit()
         assert modelo_sync.vincular_legado() == (0, 0, 0)
@@ -343,3 +344,79 @@ def test_vincular_legado_liga_pelo_nome_e_e_idempotente(app, client, h):
     assert [n for n, e in ents.items() if not e["do_modelo"]] == ["Só do projeto"]
     # o peso 7 que o projeto já tinha conta como ajuste do projeto: nada a fazer
     assert _proj_previa(_previa(client, h), pid)["mudancas"] == []
+
+
+def _projeto_legado(app, tipo, itens):
+    """Projeto como estava antes do vínculo: entregáveis com origem NULL e sem
+    a lista de itens conhecidos."""
+    from models import db, Projeto, Entregavel
+    with app.app_context():
+        p = Projeto(nome=f"Legado {len(itens)}", tipo=tipo, ano=2025)
+        db.session.add(p)
+        db.session.flush()
+        for cat, nome in itens:
+            db.session.add(Entregavel(projeto_id=p.id, tipo=nome, categoria=cat))
+        db.session.flush()
+        db.session.execute(Entregavel.__table__.update()
+                           .where(Entregavel.projeto_id == p.id).values(modelo_origem=None))
+        db.session.commit()
+        return p.id
+
+
+def _rodar_backfill(app):
+    import modelo_sync
+    from models import db
+    with app.app_context():
+        r = modelo_sync.vincular_legado()
+        db.session.commit()
+        return r
+
+
+def test_legado_casa_pelo_nome_mesmo_com_categoria_diferente(app, client, h):
+    _modelo(client, h, [("Marketing", "Requisição de Projetos", {}), ("Produto", "Protótipo", {})])
+    # o projeto nasceu com o item em outra categoria e o nome escrito diferente
+    pid = _projeto_legado(app, "OEM", [("Documentação", "requisicao de  projetos"),
+                                      ("Produto", "Protótipo")])
+    _rodar_backfill(app)
+    ents = _ents(client, h, pid)
+    e = ents["requisicao de  projetos"]
+    assert e["do_modelo"] is True and e["categoria"] == "Documentação"   # a do projeto fica
+    assert _proj_previa(_previa(client, h), pid)["mudancas"] == []
+
+
+def test_legado_nao_propoe_itens_que_o_projeto_nunca_teve(app, client, h):
+    _modelo(client, h, BASE)
+    pid = _projeto_legado(app, "OEM", [("Produto", "Protótipo")])   # só 1 dos 3 itens
+    _rodar_backfill(app)
+    assert _proj_previa(_previa(client, h), pid)["mudancas"] == []
+    # o que entrar no modelo depois do backfill é novo para o projeto
+    _modelo(client, h, [("Produto", "Teste de campo", {})])
+    pv = _proj_previa(_previa(client, h), pid)
+    assert [(c["acao"], c["entregavel"]) for c in pv["mudancas"]] == [("criar", "Teste de campo")]
+
+
+def test_item_tirado_no_modal_nao_volta_na_previa(client, h):
+    _modelo(client, h, BASE)
+    modelo = client.get("/api/modelos?tipo=OEM", headers=h).get_json()["modelos"]["OEM"]
+    escolhidos = [m for m in modelo if m["tipo"] != "Manual"]   # o usuário tirou o Manual
+    pid = client.post("/api/projetos", json={"nome": "Sem manual", "tipo": "OEM", "entregaveis": [
+        {"tipo": m["tipo"], "categoria": m["categoria"], "modelo_chave": m["chave"]}
+        for m in escolhidos]}, headers=h).get_json()["projeto"]["id"]
+    assert _proj_previa(_previa(client, h), pid)["mudancas"] == []
+    _modelo(client, h, [("Produto", "Teste de campo", {})])
+    pv = _proj_previa(_previa(client, h), pid)
+    assert [c["entregavel"] for c in pv["mudancas"]] == ["Teste de campo"]   # o Manual não
+
+
+def test_aplicar_torna_o_item_conhecido_e_desmarcado_continua_vendo(client, h):
+    _modelo(client, h, BASE)
+    a, b = _projeto(client, h, "A"), _projeto(client, h, "B")
+    _modelo(client, h, [("Produto", "Teste de campo", {})])
+    assert _aplicar(client, h, _previa(client, h), [a]).status_code == 201
+    # A recebeu e passou a conhecer: apagar o item à mão não o traz de volta
+    eid = _ents(client, h, a)["Teste de campo"]["id"]
+    client.delete(f"/api/entregaveis/{eid}", headers=h)
+    pv = _previa(client, h)
+    assert _proj_previa(pv, a)["mudancas"] == []
+    # B ficou de fora da aplicação: o item continua novo para ele
+    assert [c["acao"] for c in _proj_previa(pv, b)["mudancas"]] == ["criar"]
