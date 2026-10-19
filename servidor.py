@@ -155,6 +155,11 @@ app.register_blueprint(custos_bp)
 from tempos import tempos_bp, init_realtime as tempos_init_realtime
 app.register_blueprint(tempos_bp)
 
+# Módulo Cadernos — cadernos de laboratório (substitui o OneNote do PDR), sob
+# /cadernos. Aberto pela barra lateral do PDR com ?area=pdr.
+from cadernos import cadernos_bp, init_realtime as cadernos_init_realtime
+app.register_blueprint(cadernos_bp)
+
 # Kill switch — trava de emergência do sistema inteiro. Registrado por ÚLTIMO de
 # propósito: o guardião abaixo precisa reconhecer os endpoints deste blueprint
 # para deixá-los passar com o sistema travado.
@@ -178,6 +183,7 @@ pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
 missoes_init_realtime(socketio, publish_event, AuditLog, EventType)
 custos_init_realtime(socketio, publish_event, AuditLog, EventType)
 tempos_init_realtime(socketio, publish_event, AuditLog, EventType)
+cadernos_init_realtime(socketio, publish_event, AuditLog, EventType)
 # Só o socketio: o kill switch avisa as abas abertas na hora em que trava, mas
 # não publica evento de domínio nem escreve no barramento.
 killswitch.init_realtime(socketio)
@@ -3172,6 +3178,12 @@ def _encerrar_tempos_abandonados():
     return n
 
 
+def _purgar_lixeira_cadernos():
+    """Apaga de vez o que está na lixeira dos cadernos há mais de 60 dias."""
+    from cadernos import purgar_lixeira
+    return purgar_lixeira()
+
+
 def rodar_tarefas_diarias():
     """As tarefas que precisam de uma execução por dia, em um lugar só.
 
@@ -3193,6 +3205,9 @@ def rodar_tarefas_diarias():
                      # lida por alguém. Fecha em inicio+LIMITE, então o número é
                      # o mesmo independente de quando esta etapa rodou.
                      ("tempos", _encerrar_tempos_abandonados),
+                     # Esvazia a lixeira dos cadernos (itens com mais de
+                     # CADERNOS_LIXEIRA_DIAS). Blob só sai se ficou órfão.
+                     ("cadernos", _purgar_lixeira_cadernos),
                      ("auditoria", _purgar_auditoria)):
         try:
             resultado[nome] = fn()

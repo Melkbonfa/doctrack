@@ -1187,10 +1187,15 @@ def _sha_orfao(sha, ignorar_id=None, ignorar_anexo_id=None):
     enviou, quando, com que nome) e o conteúdo é justamente o que se quis
     apagar. Quem tentar baixá-la recebe 404 em `servir_arquivo_doc`.
 
-    As DUAS tabelas contam. O blob é endereçado por conteúdo e compartilhado
-    entre elas: o mesmo PDF enviado como anexo de documento e como doc agregado
-    do equipamento ocupa um único arquivo em disco. Olhar só uma tabela faria a
-    remoção de um lado apagar o conteúdo que o outro ainda exibe.
+    As TRÊS tabelas contam. O blob é endereçado por conteúdo e compartilhado
+    entre elas: o mesmo PDF enviado como anexo de documento, como doc agregado
+    do equipamento e num caderno de laboratório ocupa um único arquivo em disco.
+    Olhar só uma tabela faria a remoção de um lado apagar o conteúdo que o outro
+    ainda exibe.
+
+    Em `caderno_arquivos` a regra é outra: segura o blob toda linha que não está
+    na lixeira, ATIVA OU NÃO — a versão anterior de um arquivo do caderno
+    continua baixável de propósito (ver cadernos/models.py:CadernoArquivo).
     """
     q = DocumentoArquivo.query.filter_by(sha256=sha, ativo=True)
     if ignorar_id is not None:
@@ -1201,7 +1206,13 @@ def _sha_orfao(sha, ignorar_id=None, ignorar_anexo_id=None):
     qa = EquipamentoArquivo.query.filter_by(sha256=sha, ativo=True)
     if ignorar_anexo_id is not None:
         qa = qa.filter(EquipamentoArquivo.id != ignorar_anexo_id)
-    return qa.first() is None
+    if qa.first() is not None:
+        return False
+
+    # Import tardio: não amarra a ordem em que os blueprints são importados.
+    from cadernos.models import CadernoArquivo
+    qc = CadernoArquivo.query.filter_by(sha256=sha, excluido_em=None)
+    return qc.first() is None
 
 
 @documentos_bp.route("/api/documentos/<int:doc_id>/arquivos", methods=["GET"])

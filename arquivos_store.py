@@ -67,6 +67,23 @@ EXT_BINARIAS = {".zip", ".7z", ".bin", ".hex", ".img", ".dfu", ".exe", ".msi"}
 MAX_BIN_MB    = int(os.environ.get("DOCTRACK_UPLOAD_BIN_MAX_MB", "500"))
 MAX_BIN_BYTES = MAX_BIN_MB * 1024 * 1024
 
+# ── Qualquer extensão (só o módulo Cadernos) ─────────────────────────────────
+# O espaço de arquivos do caderno de laboratório guarda programas e arquivos de
+# equipamento (.tlpd, .eds, .epf...) que nenhuma allowlist anteciparia. Passar
+# `permitidas=QUALQUER` é a decisão explícita, por rota, de aceitar tudo; a
+# proteção passa a ser como o arquivo é servido (sempre como download, com mime
+# genérico — ver cadernos/routes.py:conteudo_arquivo). As demais rotas continuam
+# com as allowlists delas.
+class _QualquerExtensao:
+    def __contains__(self, _ext):
+        return True
+
+    def __repr__(self):
+        return "QUALQUER"
+
+
+QUALQUER = _QualquerExtensao()
+
 # O que o navegador abre sem baixar. `.docx` entra porque o front o renderiza
 # client-side (docx.renderAsync), não porque o navegador saiba abri-lo.
 EXT_INLINE       = {".pdf", ".png", ".jpg", ".jpeg"}
