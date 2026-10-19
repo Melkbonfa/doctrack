@@ -6,6 +6,14 @@
   <title>Projetos — DocTrack</title>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <link rel="stylesheet" href="/static/entregaveis.css?v={{ asset_v }}">
+  <!-- Cronômetro global. Esta página NÃO estende base.html (tem <head> próprio),
+       então as duas linhas do widget entram na mão aqui — sem isto, Projetos
+       seria o único módulo sem cronômetro, justo onde ele mais faz sentido. -->
+  <link rel="stylesheet" href="/static/tempos-widget.css?v={{ asset_v }}">
+  <!-- Assets locais: a página precisa funcionar sem internet e sem depender de CDN
+       externo (o módulo PDR já servia Chart.js e Socket.IO assim). -->
+  <script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
+  <script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
   <!-- Arrastar para ordenar os entregáveis (o mesmo do quadro de Missões). -->
   <script src="/static/vendor/Sortable.min.js?v={{ asset_v }}"></script>
 </head>
@@ -269,6 +277,12 @@
       <div class="equip-modal-tabs" id="proj-modal-tabs" role="tablist"></div>
       <div id="proj-modal-panels"></div>
       <div class="modal-footer" style="justify-content:flex-end;gap:8px">
+        <!-- Apontar tempo no PROJETO, e não por entregável: a aba lista dezenas
+             de linhas e um botão em cada uma poluiria a tela sem ganho — quem
+             precisa da granularidade fina escolhe o entregável no próprio módulo
+             de Tempos. Some quando o módulo não alcança o perfil. -->
+        <span id="proj-tempo-total" class="modal-sub" style="margin-right:auto;align-self:center"></span>
+        <button class="btn btn-ghost btn-sm" id="proj-tempo" type="button" onclick="apontarTempoNoProjeto()" style="display:none">▶ Apontar tempo</button>
         <button class="btn btn-primary btn-sm" id="proj-modal-restore" onclick="restaurarProjetoAtual()" style="display:none">Restaurar projeto</button>
         <button class="btn btn-ghost btn-sm" id="proj-modal-add-ent" onclick="abrirFormEntregavel()" style="display:none">+ Entregável</button>
         <button class="btn btn-edit" id="proj-modal-edit" onclick="editarProjetoAtual()" style="display:none">Editar projeto</button>
@@ -554,5 +568,6 @@
   <script src="/static/common.js?v={{ asset_v }}"></script>
   <script src="/static/auth.js?v={{ asset_v }}"></script>
   <script src="/static/entregaveis.js?v={{ asset_v }}"></script>
+  <script src="/static/tempos-widget.js?v={{ asset_v }}"></script>
 </body>
 </html>

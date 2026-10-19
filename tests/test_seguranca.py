@@ -127,7 +127,7 @@ def test_tarefas_diarias_gravam_a_foto_do_dia(app):
 
         resultado = rodar_tarefas_diarias()
         assert set(resultado) == {"equipamentos", "missoes", "projetos",
-                                  "cambio", "auditoria"}
+                                  "cambio", "tempos", "auditoria"}
         hoje = date.today().isoformat()
         assert EquipamentoSnapshot.query.filter_by(data=hoje).count() >= 1
 
@@ -214,3 +214,59 @@ def test_importar_servidor_nao_prepara_banco():
     import pathlib
     wsgi = pathlib.Path(servidor.__file__).parent / "wsgi.py"
     assert "init_app()" in wsgi.read_text(encoding="utf-8")
+
+
+def test_esc_do_front_escapa_aspas_e_nao_so_os_sinais_de_tag():
+    """`esc()` precisa ser seguro dentro de ATRIBUTO, não só no corpo do HTML.
+
+    A implementação era `textContent -> innerHTML` pura. O serializador de text
+    node do HTML resolve `<`, `>` e `&`, mas NÃO as aspas — a especificação só as
+    escapa dentro de valor de atributo. E é dentro de atributo que os módulos a
+    usam (`title="' + esc(x) + '"` em tempos.js, tempos-widget.js e custos.js),
+    então um título de apontamento como
+
+        Bomba" onmouseover="..." x="
+
+    fechava o atributo e injetava um handler de evento REAL no DOM: XSS
+    armazenado que dispara no navegador de quem abrir a folha — inclusive o
+    gestor, que enxerga a de todo mundo.
+
+    O teste é textual porque não há runner de JS na suíte; a correção em si foi
+    verificada no navegador.
+    """
+    import pathlib
+    import re
+
+    raiz = pathlib.Path(__file__).resolve().parent.parent
+    js = (raiz / "static" / "common.js").read_text(encoding="utf-8")
+
+    corpo = re.search(r"function esc\(str\)\{(.*?)\n\}", js, re.S)
+    assert corpo, "função esc() não encontrada em static/common.js"
+    corpo = corpo.group(1)
+
+    assert "&quot;" in corpo, "esc() não escapa aspas duplas — XSS em atributo"
+    assert "&#39;" in corpo, "esc() não escapa aspas simples — XSS em atributo"
+    assert "textContent" in corpo, ("esc() perdeu a base por textContent, que é "
+                                    "o que cobre <, > e & sem lista manual")
+
+
+def test_titulos_de_apontamento_vao_para_atributo_via_esc():
+    """Os três pontos onde dado LIVRE de usuário entra num atributo HTML.
+
+    Um teste amplo sobre "interpolação em atributo" afoga em falso positivo: id
+    numérico, coordenada de SVG e chave de vocabulário fixo do servidor são
+    interpolação crua legítima e são a maioria esmagadora. O que precisa de
+    guarda é o caso estreito — `title=` recebendo texto que o usuário escreve —
+    e ele cabe numa lista.
+    """
+    import pathlib
+    import re
+
+    raiz = pathlib.Path(__file__).resolve().parent.parent
+    for arquivo in ("tempos.js", "tempos-widget.js"):
+        js = (raiz / "static" / arquivo).read_text(encoding="utf-8")
+        for linha in js.splitlines():
+            for m in re.finditer(r'''title="'\s*\+\s*([A-Za-z_$][\w.$]*)''', linha):
+                assert m.group(1) == "esc", (
+                    f"{arquivo}: title= recebe `{m.group(1)}` sem esc() — "
+                    f"rótulo de apontamento é texto livre do usuário")

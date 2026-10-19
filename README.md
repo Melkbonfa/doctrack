@@ -15,6 +15,7 @@ templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
 | **Entregáveis** | Acompanhamento de entregáveis de projetos por categoria, com visão mensal (PMO) |
 | **PDR** | Dashboard PDR integrado como blueprint interno (`/pdr`), acesso por flag de usuário |
 | **Custos** | Blueprint próprio (`/custos`): formação de custo de produto e projeto — NRE e COGS separados, câmbio com três papéis (referência PTAX, planejamento travada, realizada da DI), versionamento de baseline e comparativo de portfólio. Só admin/gestor |
+| **Tempos** | Blueprint próprio (`/tempos`): apontamento de horas por pessoa, amarrado a projeto, entregável, cartão de missão, equipamento ou tarefa livre. Cronômetro global presente em todos os módulos (iniciar/pausar/retomar/parar), lançamento manual retroativo, folha e relatórios. Técnico para cima |
 | **Auth/RBAC** | Autenticação JWT, papéis e permissões por área, convite com código no primeiro acesso |
 
 ## Como rodar (desenvolvimento)
@@ -49,6 +50,7 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── static/                   # CSS/JS do frontend (inclui socket-client.js e app-realtime.js)
 ├── pdr/                      # Módulo PDR (blueprint com templates/static próprios)
 ├── custos/                   # Módulo Custos (models · core de cálculo · câmbio · routes)
+├── tempos/                   # Módulo Tempos (models · core · routes; o widget global fica em static/)
 ├── migrations/               # Migrações de schema numeradas
 ├── tests/                    # Testes pytest
 ├── scripts/                  # Scripts operacionais (deploy, backup, build, importações)

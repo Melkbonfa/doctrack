@@ -1359,6 +1359,40 @@ async function salvarMoscow(valor){
 }
 
 /* ── Modal de projeto (abas por categoria) ── */
+// ── tempo (integração com o módulo Tempos) ─────────────────────────────────
+// Quem manda no cronômetro é o widget global (static/tempos-widget.js) — esta
+// página o carrega à mão porque não estende o base.html. Aqui só se dispara e se
+// lê o total; guardar estado de cronômetro aqui criaria um segundo estado
+// aparente, divergente do que o widget mostra nas outras telas.
+async function carregarTempoDoProjeto(id){
+  const btn = document.getElementById("proj-tempo");
+  const tot = document.getElementById("proj-tempo-total");
+  if (!btn || !tot) return;
+  // Sem o widget (perfil sem acesso ao módulo) o botão nem aparece — melhor que
+  // um botão que só erra quando clicado. Projeto arquivado também não aponta.
+  if (!window.DT_TEMPO || !id){ btn.style.display = "none"; tot.textContent = ""; return; }
+  btn.style.display = "inline-flex"; tot.textContent = "";
+  try{
+    const r = await api(`/tempos/api/por-ref?ref_tipo=projeto&ref_id=${id}`);
+    tot.textContent = r.linhas ? `${r.total} apontadas · ${r.pessoas} pessoa(s)` : "";
+  }catch(_){ btn.style.display = "none"; }   // 403 de perfil sem acesso cai aqui
+}
+
+async function apontarTempoNoProjeto(){
+  const p = _projDetalheAtual;
+  if (!p || !window.DT_TEMPO) return;
+  try{
+    await window.DT_TEMPO.iniciar({ref_tipo:"projeto", ref_id:p.id, titulo:p.nome||""});
+    toast("Cronômetro iniciado neste projeto");
+    carregarTempoDoProjeto(p.id);
+  }catch(e){
+    // O 409 vem com o cronômetro corrente no corpo — dizer QUAL é economiza a
+    // ida até a página de Tempos para descobrir.
+    const atual = e.corpo && e.corpo.em_curso;
+    toast(atual ? `Já há um cronômetro em curso: ${atual.rotulo}` : e.message, true);
+  }
+}
+
 async function abrirProjModal(id){
   // Recarregar o projeto que já está aberto (depois de uma edição, ou pelo
   // tempo real) mantém a aba: voltar sempre para a primeira tirava o usuário
@@ -1379,6 +1413,7 @@ async function abrirProjModal(id){
   if (addBtn) addBtn.style.display = (canEditProj() && !arquivado) ? "" : "none";
   const restoreBtn = document.getElementById("proj-modal-restore");
   if (restoreBtn) restoreBtn.style.display = (canEditProj() && arquivado) ? "" : "none";
+  carregarTempoDoProjeto(arquivado ? null : id);
   const partes = [];
   partes.push(modeloTagHtml(p));
   if (p.sku) partes.push("SKU " + esc(p.sku));

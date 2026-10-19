@@ -151,6 +151,10 @@ app.register_blueprint(missoes_bp)
 from custos import custos_bp, init_realtime as custos_init_realtime
 app.register_blueprint(custos_bp)
 
+# Módulo Tempos — apontamento de horas por pessoa/alvo, montado sob /tempos.
+from tempos import tempos_bp, init_realtime as tempos_init_realtime
+app.register_blueprint(tempos_bp)
+
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
 socketio = SocketIO(
     app,
@@ -167,6 +171,7 @@ documentos_init_realtime(socketio, publish_event, AuditLog, EventType)
 pdr_init_realtime(socketio, publish_event, AuditLog, EventType)
 missoes_init_realtime(socketio, publish_event, AuditLog, EventType)
 custos_init_realtime(socketio, publish_event, AuditLog, EventType)
+tempos_init_realtime(socketio, publish_event, AuditLog, EventType)
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -2225,6 +2230,54 @@ def _sync_schema():
             db.session.rollback()
             print(f"[WARN] Schema: índice {nome_idx} não criado — {e}")
 
+    # Tempos: o índice PARCIAL e ÚNICO que impede, no banco, dois cronômetros em
+    # curso para a mesma pessoa. Fica fora do laço acima porque `novos_indices`
+    # só sabe emitir índice simples de uma coluna — sem UNIQUE e sem WHERE.
+    #
+    # Em banco novo isto não roda: create_all() já cria a tabela com o
+    # __table_args__ inteiro. O caso coberto é a tabela existir sem o índice
+    # (checkout parcial, dump restaurado, tabela criada à mão).
+    #
+    # O de-dup vem ANTES do CREATE de propósito: com duas linhas abertas para o
+    # mesmo user_id o CREATE falha, e a falha aqui é engolida em [WARN] como no
+    # laço acima — a invariante ficaria ausente em produção sem ninguém perceber.
+    # SQLite (>= 3.8) e PostgreSQL aceitam a MESMA sintaxe.
+    if "tempo_apontamentos" in existentes:
+        if "uq_tempo_em_curso" not in {i["name"] for i
+                                       in insp.get_indexes("tempo_apontamentos")}:
+            try:
+                from tempos.core import encerrar_abandonados
+                from tempos.models import Apontamento
+
+                # Fecha as sobras mantendo a mais recente de cada pessoa. Vale-se
+                # do mesmo corte da guarda diária, então a linha sai marcada como
+                # 'guarda' e o dono a vê sinalizada na folha para corrigir.
+                encerrar_abandonados()
+                abertos = (Apontamento.query.filter(Apontamento.fim.is_(None))
+                           .order_by(Apontamento.user_id,
+                                     Apontamento.inicio.desc()).all())
+                vistos, sobras = set(), 0
+                for ap in abertos:
+                    if ap.user_id in vistos:
+                        from tempos.core import fechar
+                        fechar(ap, ap.inicio, "guarda")
+                        sobras += 1
+                    else:
+                        vistos.add(ap.user_id)
+                if sobras:
+                    db.session.commit()
+                    print(f"[WARN] Schema: {sobras} cronômetro(s) aberto(s) "
+                          f"duplicado(s) fechado(s) antes do índice único")
+
+                db.session.execute(text(
+                    "CREATE UNIQUE INDEX uq_tempo_em_curso "
+                    "ON tempo_apontamentos (user_id) WHERE fim IS NULL"))
+                db.session.commit()
+                print("[INFO] Schema: índice uq_tempo_em_curso criado")
+            except Exception as e:
+                db.session.rollback()
+                print(f"[WARN] Schema: uq_tempo_em_curso NÃO criado — {e}")
+
     # Missões: os cartões que já existiam não têm criação registrada em lugar
     # nenhum — `atualizado_em` é o limite superior conhecido e não inventa data
     # futura. Sem isso nem a idade do cartão era derivável.
@@ -3058,6 +3111,32 @@ def _purgar_auditoria():
     return n
 
 
+def _encerrar_tempos_abandonados():
+    """Fecha cronômetros que ficaram em curso além do limite operacional.
+
+    Sexta 17h, alguém vai embora. Sem esta guarda, na segunda o apontamento vale
+    64 horas — e como o número entra na soma do projeto, o relatório inteiro passa
+    a ser indefensável por causa de um clique esquecido.
+
+    Fecha em `inicio + LIMITE`, não em `agora`: o resultado não depende de quando
+    a guarda rodou, então rodar hoje, amanhã, ou nas duas vezes, produz exatamente
+    a mesma linha. É o que torna a etapa idempotente no sentido que interessa aqui
+    — não só "não duplica", mas "não muda o número".
+
+    A linha fica marcada com encerrado_por='guarda'. O sistema não adivinha uma
+    duração e esconde o palpite: ele corta, sinaliza em âmbar na folha e deixa o
+    dono corrigir (a linha é dele).
+    """
+    from tempos.core import encerrar_abandonados
+    from tempos.models import LIMITE_CRONOMETRO_H
+
+    n = encerrar_abandonados()          # user_id=None => todo mundo
+    if n:
+        print(f"[INFO] Tempos: {n} cronômetro(s) abandonado(s) encerrado(s) "
+              f"no limite de {LIMITE_CRONOMETRO_H}h")
+    return n
+
+
 def rodar_tarefas_diarias():
     """As tarefas que precisam de uma execução por dia, em um lugar só.
 
@@ -3075,6 +3154,10 @@ def rodar_tarefas_diarias():
                      # no primeiro tick após a virada, sempre antes de a PTAX
                      # daquele dia existir. Falha vira [WARN] e não trava as demais.
                      ("cambio", _sincronizar_cambio),
+                     # Corta cronômetro esquecido antes que a soma do dia seja
+                     # lida por alguém. Fecha em inicio+LIMITE, então o número é
+                     # o mesmo independente de quando esta etapa rodou.
+                     ("tempos", _encerrar_tempos_abandonados),
                      ("auditoria", _purgar_auditoria)):
         try:
             resultado[nome] = fn()
