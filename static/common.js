@@ -11,13 +11,27 @@
  */
 
 // ═══ ESCAPE DE HTML ═══
-// Implementação por textContent: o browser faz o escape, então não há lista de
-// caracteres para esquecer. Substitui as duas versões que existiam (uma por
-// regex em app.js/config.js, uma por textContent nos outros módulos).
+// Duas etapas, e a segunda não é opcional.
+//
+// 1. textContent -> innerHTML: o browser serializa o text node e resolve `<`,
+//    `>` e `&` sem lista de caracteres para esquecer.
+// 2. as ASPAS, à mão: o serializador de text node do HTML NÃO as escapa (a
+//    especificação só as escapa dentro de valor de atributo). Isso é seguro
+//    enquanto o resultado vai para o corpo do HTML, e é um buraco quando vai
+//    para dentro de um atributo — que é como quase todo módulo daqui monta
+//    `title="' + esc(x) + '"`. Sem esta linha, um título de apontamento como
+//        Bomba" onmouseover="..." x="
+//    fecha o atributo e o `onmouseover` entra no DOM como atributo de verdade:
+//    XSS armazenado disparado no navegador de quem abrir a folha — inclusive o
+//    gestor, que vê a de todo mundo. Verificado no browser, não deduzido.
+//
+// Em contexto de texto `&quot;`/`&#39;` renderizam como as aspas originais,
+// então escapar sempre não muda nada visualmente e dispensa cada call site ter
+// de saber em qual dos dois contextos está.
 function esc(str){
   const d = document.createElement('div');
   d.textContent = str == null ? '' : str;
-  return d.innerHTML;
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // Mínimo de caracteres de uma senha nova. Espelha auth.SENHA_MIN no backend —

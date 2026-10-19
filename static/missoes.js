@@ -57,6 +57,7 @@ const FILTROS={busca:"", resp:"", etiqueta:"", prioridade:"", atrasados:false,
   document.getElementById("ca-item-add").onclick=addItemChecklist;
   document.getElementById("ca-com-add").onclick=addComentario;
   document.getElementById("ca-hist-toggle").onclick=alternarHistorico;
+  document.getElementById("ca-tempo-btn").onclick=apontarTempoNoCartao;
   document.getElementById("co-salvar").onclick=salvarColuna;
   document.getElementById("btn-meus-cartoes").onclick=abrirMeusCartoes;
   document.getElementById("btn-alertas").onclick=abrirAlertas;
@@ -544,7 +545,7 @@ async function abrirModalCartao(cartaoId, colunaId){
   del.style.display=cartaoId?"":"none";
   document.getElementById("ca-link").style.display=cartaoId?"":"none";
   document.getElementById("ca-extra").style.display=cartaoId?"":"none";
-  if(cartaoId){ renderChecklist(); renderComentarios();
+  if(cartaoId){ renderChecklist(); renderComentarios(); carregarTempoDoCartao(cartaoId);
     document.getElementById("ca-historico").style.display="none";
     document.getElementById("ca-hist-toggle").textContent="▸ Histórico do cartão"; }
   await carregarRefs(c.ref_id);
@@ -720,6 +721,44 @@ async function addComentario(){
 // ── histórico do cartão ─────────────────────────────────────────────────
 const ROTULO_EVENTO={criado:"criado", movido:"movido", concluido:"concluído",
                      reaberto:"reaberto", campo:"alterado"};
+// ── tempo (integração com o módulo Tempos) ──────────────────────────────
+// Quem manda no cronômetro é o widget global (static/tempos-widget.js), presente
+// em todas as telas. Aqui só se dispara e se lê o total: guardar estado de
+// cronômetro neste arquivo criaria um segundo estado aparente, divergente do que
+// o widget mostra em todos os outros módulos.
+//
+// A direção importa. Apontar a partir do cartão é o fluxo natural — o cartão é o
+// plano, o apontamento é o registro contra ele. O inverso (lançamento de tempo
+// criando cartão) foi avaliado e recusado: o cartão nasceria concluído, num board
+// que é para planejar. Ver docs/planos/PLANO_modulo_tempos.md.
+async function carregarTempoDoCartao(cartaoId){
+  const sec=document.getElementById("ca-tempo-sec");
+  const tot=document.getElementById("ca-tempo-total");
+  // Sem o widget na página (arquivo ausente, ou perfil sem acesso ao módulo) a
+  // seção nem aparece — melhor que um botão que só erra quando clicado.
+  if(!window.DT_TEMPO){ sec.style.display="none"; return; }
+  sec.style.display=""; tot.textContent="";
+  try{
+    const r=await api(`/tempos/api/por-ref?ref_tipo=missao_cartao&ref_id=${cartaoId}`);
+    tot.textContent=r.linhas ? `${r.total} · ${r.pessoas} pessoa(s)` : "nada apontado ainda";
+  }catch(e){ sec.style.display="none"; }    // 403 de perfil sem acesso cai aqui
+}
+
+async function apontarTempoNoCartao(){
+  if(!cartaoEditando || !window.DT_TEMPO) return;
+  try{
+    await window.DT_TEMPO.iniciar({ref_tipo:"missao_cartao", ref_id:cartaoEditando.id,
+                                   titulo:cartaoEditando.titulo||""});
+    toast("Cronômetro iniciado neste cartão");
+    carregarTempoDoCartao(cartaoEditando.id);
+  }catch(e){
+    // O 409 de "já há um cronômetro em curso" vem com a linha corrente no corpo.
+    // Dizer QUAL é economiza a ida até a página de Tempos para descobrir.
+    const atual=e.corpo && e.corpo.em_curso;
+    toast(atual ? `Já há um cronômetro em curso: ${atual.rotulo}` : "Erro: "+e.message, true);
+  }
+}
+
 async function alternarHistorico(){
   const box=document.getElementById("ca-historico");
   const btn=document.getElementById("ca-hist-toggle");

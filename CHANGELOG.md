@@ -14,6 +14,21 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Módulo Tempos: apontamento de horas
+O DocTrack sabia o que foi feito, mas não quanto custou em esforço: o peso do
+entregável é estimativa e os dias de ciclo do cartão são tempo de calendário.
+
+- **Adicionado** módulo Tempos (`/tempos`, técnico para cima): cronômetro
+  (iniciar, pausar, retomar, parar) ou lançamento manual retroativo, amarrado a
+  projeto, entregável, cartão de missão, equipamento ou tarefa livre.
+- **Adicionado** widget global do cronômetro em todas as telas e "Apontar tempo"
+  no projeto, no cartão de missão e na ficha do equipamento.
+- **Adicionado** guarda diária que corta cronômetro esquecido no limite
+  operacional (marcado para o dono corrigir) e índice único que impede dois
+  cronômetros em curso para a mesma pessoa (migration 013).
+- **Corrigido** `esc()` do front não escapava aspas: texto do usuário dentro de
+  atributo (`title="..."`) permitia XSS armazenado.
+
 ### Projetos: aplicar mudanças do modelo aos projetos existentes
 Editar um modelo só valia para projetos novos: os em andamento ficavam com a
 lista antiga e não havia como atualizá-los sem refazer item por item.

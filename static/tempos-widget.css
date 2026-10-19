@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   tempos-widget.css — cronômetro global, presente em todos os módulos.
+
+   Carregado por base.html e entregaveis.html FORA de qualquer block Jinja (os
+   filhos sobrescrevem head_extra sem {{ super() }}). O DOM é criado por
+   tempos-widget.js e vive fora do #app, então nada aqui depende do boot de
+   nenhum módulo.
+
+   Empilhamento: acima da sidebar (50) e da topbar (40), abaixo de
+   .modal-overlay (9000) e .confirm-modal (9100) — o cronômetro nunca pode cobrir
+   um diálogo. E `bottom:84px` em vez de 24px porque .toast ocupa
+   bottom:24px/z-index:9999: nas mesmas coordenadas o toast desenharia por cima
+   do pill a cada ação. Deslocado para cima, os toasts empilham por baixo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#dt-tempo{
+  position:fixed; right:24px; bottom:84px; z-index:8000;
+  display:none; align-items:center; gap:10px;
+  padding:9px 12px; max-width:min(380px, calc(100vw - 48px));
+  background:var(--bg-elevated, #1b1e3a);
+  border:1px solid var(--border-soft, rgba(34,211,238,.18));
+  border-radius:var(--r-pill, 999px);
+  box-shadow:var(--shadow-lg, 0 10px 30px rgba(0,0,0,.35));
+  font-family:var(--font-body, system-ui); font-size:13px; color:var(--t2, #c7d2fe);
+}
+#dt-tempo.visivel{ display:flex; }
+
+.dt-t-ponto{
+  width:8px; height:8px; border-radius:50%; flex:0 0 auto;
+  background:var(--t4, #7884c9);
+}
+#dt-tempo.rodando .dt-t-ponto{
+  background:var(--green, #10b981);
+  animation:dt-t-pulso 2s ease-in-out infinite;
+}
+#dt-tempo.pausado .dt-t-ponto{ background:var(--amber, #f59e0b); }
+
+@keyframes dt-t-pulso{ 0%,100%{opacity:1} 50%{opacity:.35} }
+@media (prefers-reduced-motion:reduce){
+  #dt-tempo.rodando .dt-t-ponto{ animation:none; }
+}
+
+.dt-t-rel{
+  font-family:var(--font-mono, ui-monospace, Consolas, monospace);
+  font-variant-numeric:tabular-nums; font-size:14px; font-weight:600;
+  color:var(--t1, #f1f5f9); white-space:nowrap; flex:0 0 auto;
+}
+#dt-tempo.rodando .dt-t-rel{ color:var(--green, #10b981); }
+#dt-tempo.pausado .dt-t-rel{ color:var(--amber, #f59e0b); }
+
+.dt-t-alvo{
+  flex:1 1 auto; min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color:var(--t3, #94a3d4); font-size:12.5px;
+}
+
+.dt-t-btn{
+  flex:0 0 auto; width:26px; height:26px; padding:0;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:transparent; color:var(--t2, #c7d2fe);
+  border:1px solid var(--border-soft, rgba(34,211,238,.18));
+  border-radius:50%; cursor:pointer; font-size:10px; font-family:inherit;
+  transition:border-color .15s, color .15s;
+}
+.dt-t-btn:hover{ border-color:var(--cyan-brand, #06b6d4); color:var(--t1, #f1f5f9); }
+.dt-t-btn.parar:hover{ border-color:var(--red, #f43f5e); color:var(--red, #f43f5e); }
+.dt-t-btn:disabled{ opacity:.45; cursor:default; }
+.dt-t-btn:focus-visible, .dt-t-link:focus-visible{ outline:var(--focus-ring, 2px solid #22d3ee); outline-offset:2px; }
+
+.dt-t-link{
+  display:inline-flex; align-items:center; gap:8px;
+  color:var(--t3, #94a3d4); text-decoration:none; font-size:12.5px;
+  white-space:nowrap;
+}
+.dt-t-link:hover{ color:var(--t1, #f1f5f9); }
+
+/* Em telas estreitas a sidebar vira gaveta e o rodapé fica disputado: encolhe
+   para o essencial (relógio + ações) e larga o rótulo do alvo. */
+@media (max-width:640px){
+  #dt-tempo{ right:12px; bottom:72px; padding:7px 10px; gap:8px; }
+  .dt-t-alvo{ display:none; }
+}

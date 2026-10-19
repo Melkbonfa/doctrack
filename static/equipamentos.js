@@ -857,7 +857,40 @@ async function openView(id){
   const s=scores(e), f=faixa(s.ice);
   document.getElementById("eqview-body").innerHTML=renderView(e,s,f);
   document.getElementById("eqview-edit").style.display=podeEditar?"inline-flex":"none";
+  carregarTempoDoEquip(id);
   openBaseModal("eqview");
+}
+
+// ── tempo (integração com o módulo Tempos) ─────────────────────────────────
+// Quem manda no cronômetro é o widget global (static/tempos-widget.js). Aqui só
+// se dispara e se lê o total: guardar estado de cronômetro neste arquivo criaria
+// um segundo estado aparente, divergente do que o widget mostra nas outras telas.
+async function carregarTempoDoEquip(id){
+  const btn=document.getElementById("eqview-tempo");
+  const tot=document.getElementById("eqview-tempo-total");
+  // Sem o widget (arquivo ausente ou perfil sem acesso ao módulo) o botão nem
+  // aparece — melhor que um botão que só erra quando clicado.
+  if(!window.DT_TEMPO || !id){ btn.style.display="none"; tot.textContent=""; return; }
+  btn.style.display="inline-flex"; tot.textContent="";
+  try{
+    const r=await api(`/tempos/api/por-ref?ref_tipo=equipamento&ref_id=${id}`);
+    tot.textContent=r.linhas?`${r.total} já apontadas · ${r.pessoas} pessoa(s)`:"";
+  }catch(_){ btn.style.display="none"; }     // 403 de perfil sem acesso cai aqui
+}
+
+async function apontarTempoNoEquip(){
+  const e=viewEq;
+  if(!e || !window.DT_TEMPO) return;
+  try{
+    await window.DT_TEMPO.iniciar({ref_tipo:"equipamento", ref_id:e.id, titulo:e.nome||""});
+    toast("Cronômetro iniciado neste equipamento");
+    carregarTempoDoEquip(e.id);
+  }catch(err){
+    // O 409 vem com o cronômetro corrente no corpo — dizer QUAL é economiza a
+    // ida até a página de Tempos para descobrir.
+    const atual=err.corpo && err.corpo.em_curso;
+    toast(atual?`Já há um cronômetro em curso: ${atual.rotulo}`:err.message, true);
+  }
 }
 function viewEdit(){ const id=viewEq&&viewEq.id; closeModal("eqview"); if(id) abrirFicha(id,true); }
 function fecharFicha(){

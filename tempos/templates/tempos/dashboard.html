@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Tempos — DocTrack{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/tempos.css?v={{ asset_v }}">
+{%- endblock %}
+
+{% block brand_version %}TEMPOS · P&D EQUIPAMENTOS{% endblock %}
+
+{% block nav %}
+    <span class="nav-section-label">Módulo</span>
+    <button type="button" class="nav-item active" data-page="hoje">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Hoje <span class="nav-count" id="n-hoje"></span>
+    </button>
+    <button type="button" class="nav-item" data-page="folha">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Folha
+    </button>
+    <button type="button" class="nav-item" data-page="relatorios">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 16v-6M13 16v-9M18 16v-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Relatórios
+    </button>
+{%- endblock %}
+
+{% block refresh_fn %}carregarTudo(){% endblock %}
+
+{% block breadcrumb %}
+<span>DocTrack</span><span style="color:var(--t4)">/</span>
+<span>Tempos</span><span style="color:var(--t4)">/</span>
+<span class="current" id="breadcrumb-current">Hoje</span>
+{%- endblock %}
+
+{% block content %}
+
+<!-- ══════════ HOJE ══════════ -->
+<section class="page active" id="page-hoje">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Hoje</div>
+      <div class="page-sub">O cronômetro e o que já foi apontado no dia. Pausar fecha o
+        trecho; retomar abre outro na mesma sessão.</div>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-primary btn-sm" id="btn-manual">+ Lançar tempo</button>
+    </div>
+  </div>
+
+  <div id="tp-cronometro"></div>
+  <div class="tp-kpis" id="tp-kpis"></div>
+
+  <div class="card">
+    <div class="card-title">Apontamentos de hoje</div>
+    <div class="tbl-wrap">
+      <table class="tbl" id="tbl-hoje">
+        <thead><tr>
+          <th>Início</th><th>Fim</th><th>Duração</th><th>Alvo</th>
+          <th>Tipo</th><th>Nota</th><th></th>
+        </tr></thead>
+        <tbody id="tb-hoje"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ FOLHA ══════════ -->
+<section class="page" id="page-folha">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Folha</div>
+      <div class="page-sub">Todos os apontamentos do período. Gestão vê o time inteiro;
+        os demais perfis veem os próprios.</div>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-ghost btn-sm" id="btn-csv">CSV</button>
+      <button class="btn btn-ghost btn-sm" id="btn-xlsx">Excel</button>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <input type="date" class="filter-sel" id="f-de" title="De">
+    <input type="date" class="filter-sel" id="f-ate" title="Até">
+    <select class="filter-sel" id="f-tipo"><option value="">Todos os alvos</option></select>
+    <select class="filter-sel" id="f-pessoa" style="display:none"><option value="">Todo mundo</option></select>
+    <input type="search" class="search-input" id="f-q" placeholder="Buscar por título ou nota…">
+    <span class="filter-count" id="f-total"></span>
+  </div>
+
+  <div class="card">
+    <div class="tbl-wrap">
+      <table class="tbl" id="tbl-folha">
+        <thead><tr>
+          <th>Data</th><th>Pessoa</th><th>Início</th><th>Fim</th><th>Duração</th>
+          <th>Alvo</th><th>Tipo</th><th>Nota</th><th></th>
+        </tr></thead>
+        <tbody id="tb-folha"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ RELATÓRIOS ══════════ -->
+<section class="page" id="page-relatorios">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Relatórios</div>
+      <div class="page-sub">Totais do mesmo período filtrado na Folha.</div>
+    </div>
+    <div class="page-actions">
+      <select class="filter-sel" id="r-por">
+        <option value="dia">Por dia</option>
+        <option value="alvo">Por alvo</option>
+        <option value="projeto">Por projeto</option>
+        <option value="pessoa">Por pessoa</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="tp-relatorio"></div>
+</section>
+
+{%- endblock %}
+
+{% block postmain %}
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <div class="modal-title" id="modal-titulo">Lançar tempo</div>
+    <div class="modal-sub" id="modal-sub"></div>
+    <div id="modal-corpo"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="modal-salvar">Salvar</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"><span class="toast-dot" id="toast-dot"></span><span id="toast-msg"></span></div>
+{%- endblock %}
+
+{% block scripts %}
+<script src="/static/common.js?v={{ asset_v }}"></script>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/tempos.js?v={{ asset_v }}"></script>
+{%- endblock %}

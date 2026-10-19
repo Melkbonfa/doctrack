@@ -249,6 +249,11 @@
     <div id="eqview-body"></div>
     <div class="modal-footer" style="justify-content:space-between">
       <button class="btn btn-ghost btn-sm" onclick="copiarFicha()" type="button">📋 Copiar ficha</button>
+      <!-- Apontar tempo. Fica na ficha de LEITURA, não na de edição: cronometrar
+           é acompanhar o equipamento, não alterá-lo — e a de leitura é a que
+           técnico abre. Some quando o módulo Tempos não alcança o perfil. -->
+      <button class="btn btn-ghost btn-sm" id="eqview-tempo" type="button" onclick="apontarTempoNoEquip()" style="display:none">▶ Apontar tempo</button>
+      <span id="eqview-tempo-total" class="vw-sec-count" style="align-self:center"></span>
       <div style="display:flex;gap:8px;margin-left:auto">
         <button class="btn btn-ghost" onclick="closeModal('eqview')">Fechar</button>
         <button class="btn btn-primary" id="eqview-edit" onclick="viewEdit()" style="display:none">Editar</button>

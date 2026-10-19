@@ -92,6 +92,13 @@ class EventType:
     CUSTO_LANCAMENTO_DELETED = "CUSTO_LANCAMENTO_DELETED"
     CUSTO_VERSAO_CREATED = "CUSTO_VERSAO_CREATED"
 
+    # Tempos (apontamento de horas). Só as mutações de FOLHA: iniciar/pausar/
+    # parar/retomar não passam por aqui, senão cada ciclo de cronômetro viraria
+    # duas linhas em audit_logs e o event store encheria de ruído de UI.
+    TEMPO_APONTAMENTO_CREATED = "TEMPO_APONTAMENTO_CREATED"
+    TEMPO_APONTAMENTO_UPDATED = "TEMPO_APONTAMENTO_UPDATED"
+    TEMPO_APONTAMENTO_DELETED = "TEMPO_APONTAMENTO_DELETED"
+
     # Sistema / notificações
     NOTIFICATION = "NOTIFICATION"
     USER_CONNECTED = "USER_CONNECTED"
@@ -157,6 +164,14 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
     if event_type.startswith("MISSAO_"):
         rooms.append("role:gestor")
         rooms.append("role:tecnico")
+
+    # Tempos: só o dono da linha. Nada de `role:gestor` aqui — um feed ao vivo de
+    # quem começou o quê transformaria o barramento num canal de vigilância que
+    # ninguém escopou. (O admin recebe de qualquer forma pela semente da linha
+    # 124; supervisão de verdade se faz pelas rotas de resumo, sob demanda.)
+    if event_type.startswith("TEMPO_"):
+        if payload.get("user_id"):
+            rooms.append(f"user:{payload['user_id']}")
 
     if event_type == EventType.NOTIFICATION:
         # Notificações vão para o destinatário específico (ou broadcast)

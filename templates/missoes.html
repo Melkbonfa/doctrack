@@ -213,6 +213,15 @@
       <label class="fld fld-check"><input type="checkbox" id="ca-concluido"> <span>Concluído</span></label>
 
       <div class="ca-extra" id="ca-extra" style="display:none">
+        <!-- Tempo. Dentro de ca-extra de propósito: só existe para cartão já
+             salvo — não dá para cronometrar algo que ainda não tem id. A seção
+             inteira some quando o módulo Tempos não está disponível ao perfil. -->
+        <div class="ca-sec" id="ca-tempo-sec" style="display:none">
+          <div class="ca-sec-title">Tempo <span id="ca-tempo-total" class="ca-sec-count"></span></div>
+          <div class="ca-add-row">
+            <button type="button" class="btn btn-ghost btn-sm" id="ca-tempo-btn">▶ Apontar tempo neste cartão</button>
+          </div>
+        </div>
         <div class="ca-sec">
           <div class="ca-sec-title">Checklist <span id="ca-itens-resumo" class="ca-sec-count"></span></div>
           <div id="ca-itens"></div>

@@ -6,6 +6,13 @@
 <title>{% block title %}DocTrack{% endblock %}</title>
 {%- block head_meta %}{% endblock %}
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+<!-- Cronômetro global. FORA de head_extra de propósito: TODOS os filhos
+     sobrescrevem aquele bloco sem chamar super(), então um <link> lá dentro não
+     carregaria em página nenhuma. Antes de head_extra para o CSS do módulo
+     ainda poder vencer, se precisar.
+     (E sem escrever a chamada a super() entre chaves duplas nem aqui: comentário
+     de HTML não é comentário de Jinja, e a expressão seria avaliada.) -->
+<link rel="stylesheet" href="/static/tempos-widget.css?v={{ asset_v }}">
 {%- block head_extra %}{% endblock %}
 </head>
 <body>
@@ -66,5 +73,10 @@
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 {%- endblock %}
+<!-- Cronômetro global. FORA do block scripts pelo mesmo motivo do <link> acima:
+     dashboard, config, equipamentos, missoes e custos/dashboard sobrescrevem
+     esse bloco sem chamar super(). Todos eles carregam common.js e auth.js
+     dentro do próprio bloco, então getToken/esc/DT_AUTH já existem aqui. -->
+<script src="/static/tempos-widget.js?v={{ asset_v }}"></script>
 </body>
 </html>
