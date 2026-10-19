@@ -56,3 +56,12 @@ Thumbs.db
 
 # Grafo de conhecimento gerado pelo graphify (~9,6 MB, regenerável)
 graphify-out/
+
+# Material local que NAO vai para o repositorio (publico): documentos oficiais,
+# material de apresentacao e configuracao local do assistente.
+docs/oficiais/
+docs/ROTEIRO_APRESENTACAO.md
+docs/NARRACAO.md
+docs/s[0-9][0-9].mp3
+.agents/
+skills-lock.json

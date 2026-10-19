@@ -14,6 +14,45 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Documentação técnica: quatro camadas, e a metade que se gera sozinha
+O sistema tinha documentação farta de *decisão* — planos, specs, um CHANGELOG de
+36 KB, docstrings que explicam por que cada coisa é assim — e nenhuma de
+*estado*. Dava para descobrir por que uma escolha foi feita em junho, mas não o
+que o sistema é hoje sem ler 30 mil linhas de Python.
+
+- **Adicionado** `docs/referencia/` — **gerado do código** por
+  `scripts/gerar_docs.py`: as 212 rotas com método e papel exigido, o dicionário
+  das 43 tabelas (497 colunas) com os comentários de domínio do próprio
+  `models.py` e diagramas ER por domínio, a matriz papel × rota, e o inventário
+  de variáveis de ambiente. Nada aqui é escrito à mão.
+- **Adicionado** `tests/test_docs_sincronia.py`, que roda o gerador e **quebra a
+  suíte** se a referência estiver defasada. Foi a ausência disso que produziu os
+  quatro guias de implantação divergentes e a tabela do README mandando rodar um
+  script de backup já removido. Inclui um teste que trava a superfície pública
+  em seis rotas — uma sétima rota aberta passa a ser decisão consciente, não
+  acidente — e um verificador de links internos.
+- **Adicionado** `docs/arquitetura/` — visão geral com os diagramas de contexto,
+  processo e requisição; `EVENTOS.md` com as rooms e o ciclo de replay; e **10
+  ADRs** retroativos para as decisões que continuam governando o sistema:
+  caminho-no-banco, schema no startup, o event bus, página-casca, rate limit em
+  memória, kill switch, PDF no navegador, agendador embutido, blob por conteúdo
+  e o monólito modular.
+- **Adicionado** `docs/operacao/RUNBOOK.md` — subir, publicar, voltar atrás,
+  restaurar, destravar, e uma tabela de sintoma → causa → o que fazer. O que
+  estava espalhado por quatro guias.
+- **Adicionado** `docs/funcional/` — um documento por módulo com as regras de
+  negócio e as máquinas de estado. É a camada que não sai do código nem dos
+  planos: os planos dizem o que *ia* ser feito, não o que ficou.
+- **Corrigido** o README, que anunciava **9 tipos** de documento desde antes de
+  a reestruturação levar para 12 (5 do PRE + 7 de Manuais). O número certo já
+  estava no código e num comentário de `equipamentos_core.py`, que corrigira o
+  denominador do ICE justamente por causa disso.
+- **Documentado**, como efeito colateral do inventário de configuração, que
+  **23 variáveis de ambiente** que o código lê não estão no `.env.example` —
+  entre elas `DOCTRACK_AGENDADOR`, `DOCTRACK_AUDIT_RETENCAO_DIAS` e os quatro
+  limites de tentativa de `ratelimit.py`. Listadas em
+  `docs/referencia/config.md`; fechar a lista fica para outra rodada.
+
 ### Ambiente de demonstração no Render
 - **Adicionado** `render.yaml`: instância pública de amostra com Postgres
   descartável, separada do servidor interno.

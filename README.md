@@ -9,7 +9,7 @@ templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
 
 | Módulo | Descrição |
 |---|---|
-| **Documentos** | Blueprint próprio: documentos técnicos por equipamento (9 tipos), com pipelines de etapas, workflow de status, versões e auditoria |
+| **Documentos** | Blueprint próprio: documentos técnicos por equipamento (12 tipos), com pipelines de etapas, workflow de status, versões e auditoria |
 | **Equipamentos** | Entidade central: taxonomia (categoria/família/linha), dados regulatórios/fabricante e acessórios |
 | **Consumíveis** | Catálogo global com compatibilidade N:N por equipamento, tipos de consumível configuráveis e descritivo técnico com import/export por Word (.docx) |
 | **Entregáveis** | Acompanhamento de entregáveis de projetos por categoria, com visão mensal (PMO) |
@@ -55,7 +55,11 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ├── migrations/               # Migrações de schema numeradas
 ├── tests/                    # Testes pytest
 ├── scripts/                  # Scripts operacionais (deploy, backup, build, importações)
-├── docs/                     # Documentação
+├── docs/                     # Documentação (comece por docs/README.md)
+│   ├── referencia/           # GERADA do código (scripts/gerar_docs.py)
+│   ├── arquitetura/          # Visão geral, eventos e os ADRs
+│   ├── operacao/             # Runbook
+│   ├── funcional/            # Um documento por módulo
 │   ├── planos/               # Planos por módulo (PLANO_*.md)
 │   ├── superpowers/          # Planos e specs datados (AAAA-MM-DD-*.md)
 │   ├── mockups/              # Mockups HTML de telas
@@ -69,6 +73,26 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 > Material fora do escopo do software (apresentações, relatórios gerados, planilhas
 > de origem já migradas e scripts pontuais já executados) saiu do repositório na
 > limpeza de jul/2026 e está em `C:\Apps\doctrack-arquivo\`.
+
+## Documentação
+
+Comece por **[docs/README.md](docs/README.md)**. A documentação técnica está em
+quatro camadas:
+
+| Camada | Responde | Onde |
+|---|---|---|
+| Referência | quais rotas, tabelas, colunas e variáveis existem | [docs/referencia/](docs/referencia/) — **gerada do código** |
+| Arquitetura | como o sistema é montado e por quê | [docs/arquitetura/](docs/arquitetura/) (inclui 10 ADRs) |
+| Operação | o que fazer quando dói | [docs/operacao/RUNBOOK.md](docs/operacao/RUNBOOK.md) |
+| Funcional | o que cada módulo significa | [docs/funcional/](docs/funcional/) |
+
+Mexeu em rota, modelo ou variável de ambiente? Regere a referência:
+
+```powershell
+.\venv\Scripts\python scripts\gerar_docs.py
+```
+
+`tests/test_docs_sincronia.py` quebra a suíte se ela estiver defasada.
 
 ## Deploy
 
@@ -86,6 +110,7 @@ Scripts úteis (rodar a partir da raiz do projeto):
 | Backup do banco (PostgreSQL) | `.\scripts\gerar_backup.ps1` |
 | Build executável (PyInstaller) | `.\scripts\build_exe.ps1` |
 | Publicar para fora da rede (túnel) | `.\scripts\setup_cloudflared.ps1` |
+| Regerar a referência técnica | `.\venv\Scripts\python scripts\gerar_docs.py` |
 
 > `scripts\backup_doctrack.ps1` foi removido junto com a migração para o PostgreSQL.
 > Esta tabela ainda o listava; seguir a linha antiga gerava um backup vazio, porque o

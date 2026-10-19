@@ -31,8 +31,29 @@ python servidor.py
 1. **Branch** a partir de `main`: `feat/...`, `fix/...` ou `chore/...`.
 2. Implementar + **commits locais** descritivos (não dar push enquanto valida).
 3. Validar na **homologação** (esta máquina, banco isolado).
-4. Atualizar `CHANGELOG.md` e `VERSION`.
-5. Após aprovação: merge em `main`, tag de versão e deploy para produção.
+4. Atualizar a **documentação** (ver abaixo).
+5. Atualizar `CHANGELOG.md` e `VERSION`.
+6. Após aprovação: merge em `main`, tag de versão e deploy para produção.
+
+## Documentação, no passo 4
+
+A documentação técnica está em [docs/](README.md), em quatro camadas. O que fazer
+depende do que você mexeu:
+
+| Você mexeu em | Faça |
+|---|---|
+| rota, modelo, variável de ambiente | `python scripts/gerar_docs.py` |
+| regra de negócio de um módulo | atualize [`funcional/<modulo>.md`](funcional/) |
+| algo estrutural (novo mecanismo, nova premissa) | acrescente um ADR em [`arquitetura/decisoes/`](arquitetura/decisoes/) |
+| deploy, backup, operação | atualize [`operacao/RUNBOOK.md`](operacao/RUNBOOK.md) |
+
+A primeira linha é obrigatória e verificada: `tests/test_docs_sincronia.py`
+falha se a referência gerada estiver defasada. As outras três dependem de
+disciplina — nenhum teste sabe se um documento funcional está certo.
+
+> Modelo novo em `models.py` **derruba o gerador** de propósito, até você
+> declarar a que domínio ele pertence em `DOMINIOS` (`scripts/gerar_docs.py`).
+> É a decisão mais barata de tomar na hora em que o modelo nasce.
 
 ## Versionamento (SemVer)
 
