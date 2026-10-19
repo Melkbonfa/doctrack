@@ -14,6 +14,98 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Celular: a navegação que faltava e os botões que estavam fora da tela
+Segundo passe de celular, medido no navegador a 375px tela por tela — as sete
+páginas do app, cada aba e cada modal. O primeiro passe (abaixo) arrumou a
+página; este arruma os **controles**, e o que ele encontrou não era acabamento.
+
+- **Corrigido** a gaveta lateral em **Tempos**, **Custos** e **PDR**, onde ela
+  nunca abriu. A gaveta é declarada em template e ligada em JavaScript, e as duas
+  metades moravam em arquivos diferentes: Tempos e Custos tinham o ☰ na tela sem
+  nada por trás dele, e o PDR — que tem `<head>` e corpo próprios — tinha a
+  `<nav>` e o CSS do botão, mas nunca o botão. No aparelho os três módulos eram
+  becos sem saída: sem navegação, sem "Voltar aos módulos", sem "Sair".
+- **Corrigido** a gaveta de **Equipamentos** e **Missões**, que abria e não
+  fechava ao tocar num item — ficava cobrindo a página que o toque acabara de
+  trocar.
+- **Adicionado** `static/nav-mobile.js`, dono único da gaveta, carregado por
+  `_pwa_head.html` (o único parcial que alcança as sete páginas: o PDR não
+  carrega `common.js`). Substitui **quatro** cópias da mesma função, que já
+  tinham divergido. Fecha por delegação de evento, e não item a item no
+  carregamento: em Missões os itens da gaveta **são** as missões e nascem depois
+  do fetch, então a versão antiga nunca ligava nenhum deles.
+- **Corrigido** cinco barras de ação que não quebram linha. Como a trava de
+  `overflow-x:hidden` do primeiro passe recorta o que passa da borda, o botão
+  não ficava feio — ficava **inalcançável**. Medido, botão a botão: "+ Novo
+  equipamento" terminava em 476px numa tela de 375; "Resetar senha", "Desativar"
+  e "Excluir" de **toda** linha de usuário, entre 464 e 622px; "Fechar" e
+  "Editar" da ficha do equipamento; a aba "Modelos" de Projetos; e seis dos sete
+  botões da missão na barra do topo, o último em 695px.
+- **Corrigido** a folha inferior dos **dezenove** modais que nascem com
+  `style="max-width:96vw"` no HTML: estilo inline vence seletor, então a folha
+  ficava com 7,5px de sobra de cada lado e os cantos arredondados de cima
+  flutuando longe da borda.
+- **Corrigido** os alvos de toque do rodapé do hub e do sub-hub — 16px de altura,
+  e são os únicos controles das duas telas de entrada do sistema.
+- **Adicionado** `tests/test_nav_mobile.py` (8 testes): um exige o botão e o
+  fundo escuro no HTML de toda página que tem gaveta, o outro exige que quem os
+  liga continue sendo um só. `tests/test_pwa.py` passou a cobrir também
+  `/custos`, `/tempos` e `/pdr`, que faltavam na lista.
+
+### Acesso de fora da Loccus: túnel do Cloudflare e app de celular (PWA)
+O DocTrack só existia dentro da rede: `waitress` em `http://<ip>:5000`, sem TLS.
+A opção óbvia — subir uma cópia para a nuvem — está descartada pelo próprio
+código: o banco guarda o **caminho** dos documentos, e os arquivos vivem em
+`\\loccus-srv03\Projetos$\Engenharia` (ver `caminhos.py`). Uma cópia hospedada
+fora não abre um único documento. Então o que viaja é a conexão, não a
+aplicação: o servidor continua exatamente onde está.
+
+- **Adicionado** `scripts/setup_cloudflared.ps1` — instala o `cloudflared` como
+  serviço do Windows e confere o `.env` antes de publicar. A conexão é de
+  **saída**: nenhuma porta de entrada aberta na borda, nenhum IP público. O
+  script **não baixa** o binário de propósito; ele verifica e instrui.
+- **Adicionado** build PWA: `manifest.webmanifest`, service worker, ícones,
+  tela offline e o parcial `templates/_pwa_head.html`. O app instala na tela
+  inicial do celular — mesmo deploy, sem loja, sem build separado.
+- **Adicionado** `docs/ACESSO_REMOTO.md` com o caminho completo, e
+  `tests/test_pwa.py` + `tests/test_acesso_remoto.py` (29 testes).
+
+- **Corrigido** (segurança) o IP do cliente, agora em `utils.ip_do_cliente()`,
+  fonte única para audit log, rate limit e kill switch. O `cloudflared` roda na
+  **mesma máquina** que o app, então sem `TRUST_PROXY` toda requisição chega de
+  `127.0.0.1` — e o dano não é o log impreciso. Os limites de `ratelimit.py` são
+  **por IP**: fundidos num IP só, viram **globais**. `DOCTRACK_LIMITE_KILLSWITCH`
+  é 3, então três tentativas erradas de **qualquer um** trancariam a rota de
+  desbloqueio para **todos** — e num incidente real o atacante queima as três de
+  propósito para impedir o administrador de destravar. Passa a ler
+  `CF-Connecting-IP`, o único cabeçalho que sobrevive ao túnel: o `x_for=1` do
+  ProxyFix lê a última entrada do `X-Forwarded-For`, que atrás da Cloudflare é o
+  edge, não a pessoa. Sem `TRUST_PROXY` nada muda — cabeçalho continua ignorado.
+
+- **Corrigido** a conversão de tabela em cartão no celular, que **nunca havia
+  funcionado**. `style.css` transforma cada linha em cartão a partir de 780px,
+  mas `table{min-width:1200px}` é global e `min-width` vence `max-width`: os
+  cartões nasciam com 1200px dentro de um container de 345px, com 855px de cada
+  um fora da tela. Medido no navegador, não deduzido.
+- **Corrigido** as onze tabelas montadas em JS que ficam fora de `.tbl-wrap`
+  (das doze do sistema, só a do dashboard tem o wrapper): estouravam a largura
+  da página e faziam o corpo rolar na horizontal. Agora rolam dentro da própria
+  caixa.
+- **Corrigido** o zoom automático do iOS: `.form-input` (14px), `.search-input`
+  (13px) e `.filter-sel` (12px) estavam abaixo dos 16px em que o Safari do
+  iPhone dá zoom sozinho a cada toque num campo, e sai do zoom ao desfocar — a
+  tela pulava a cada interação.
+- **Corrigido** alvos de toque abaixo de 44px, a área segura do iPhone (entalhe
+  e barra de gestos) no app instalado, e o modal, que ocupava 90% da largura com
+  margem de topo e virava caixa espremida no celular — agora é folha inferior.
+
+O service worker **não cacheia `/api/*`** em hipótese nenhuma, e nunca usa o
+cache como reserva para resposta de **erro** do servidor (só para falha de
+rede). É o que mantém a trava de emergência honesta: travado, tudo responde 423,
+e um cache no caminho esconderia exatamente o que a trava existe para mostrar.
+Ao ver um 423 o worker apaga o que tiver guardado. Verificado no navegador com o
+sistema travado de verdade.
+
 ### Módulo Cadernos: cadernos de laboratório do PDR
 Os cadernos de laboratório viviam no OneNote, com os arquivos dos testes
 espalhados no SharePoint.

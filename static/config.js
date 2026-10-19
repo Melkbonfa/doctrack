@@ -286,19 +286,7 @@ document.addEventListener('keydown',(e)=>{
 });
 
 // ═══ SIDEBAR (mobile) ═══
-const _sidebarToggle=document.getElementById('sidebar-toggle');
-const _sidebarBackdrop=document.getElementById('sidebar-backdrop');
-const _sidebar=document.getElementById('sidebar-nav');
-function toggleSidebar(force){
-  if(!_sidebar)return;
-  const willOpen=force!==undefined?force:!_sidebar.classList.contains('open');
-  _sidebar.classList.toggle('open',willOpen);
-  if(_sidebarBackdrop)_sidebarBackdrop.classList.toggle('open',willOpen);
-  if(_sidebarToggle)_sidebarToggle.setAttribute('aria-expanded',String(willOpen));
-}
-_sidebarToggle?.addEventListener('click',()=>toggleSidebar());
-_sidebarBackdrop?.addEventListener('click',()=>toggleSidebar(false));
-document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>{if(window.innerWidth<=900)toggleSidebar(false)}));
+// Em static/nav-mobile.js, dono único carregado por _pwa_head.html.
 
 // ═══ DELEGAÇÃO DE EVENTOS (ações de usuário, filtros) ═══
 document.body.addEventListener('click',(e)=>{

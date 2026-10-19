@@ -1133,9 +1133,9 @@ const MODAIS_SEM_FECHAR_FORA=new Set(["modal-eq","modal-consview","modal-consedi
 document.querySelectorAll(".modal-overlay").forEach(m=>m.addEventListener("click",e=>{ if(e.target!==m) return; if(MODAIS_SEM_FECHAR_FORA.has(m.id)) return; closeModal(m.id.replace("modal-","")); }));
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") document.querySelectorAll(".modal-overlay.open").forEach(m=>{ if(m.id==="modal-eq") fecharFicha(); else closeModal(m.id.replace("modal-","")); }); });
 document.querySelectorAll(".nav-item[data-page]").forEach(el=>el.addEventListener("click",()=>navigate(el.dataset.page)));
-const _st=document.getElementById("sidebar-toggle"), _sb=document.getElementById("sidebar-backdrop"), _sn=document.getElementById("sidebar-nav");
-function toggleSidebar(f){ const open=f!==undefined?f:!_sn.classList.contains("open"); _sn.classList.toggle("open",open); _sb.classList.toggle("open",open); }
-_st&&_st.addEventListener("click",()=>toggleSidebar()); _sb&&_sb.addEventListener("click",()=>toggleSidebar(false));
+// Gaveta lateral do celular: static/nav-mobile.js. Esta cópia abria e nunca
+// fechava ao tocar num item — no celular a gaveta cobria a página que o toque
+// acabara de trocar.
 
 // ── tempo real ──────────────────────────────────────────────────────────────
 // A dimensão documental é 1/3 do ICE: homologar um documento no módulo

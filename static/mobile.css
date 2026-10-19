@@ -1,0 +1,350 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   mobile.css — passe de celular do DocTrack, focado em CONSULTA.
+
+   Carregado por templates/_pwa_head.html em todas as páginas do app, DEPOIS do
+   CSS do módulo — a ordem é o que permite corrigir aqui sem espalhar !important
+   por style.css.
+
+   O que este arquivo NÃO é: uma reescrita responsiva. style.css já tinha a
+   fundação certa — gaveta lateral a ≤900px e tabela virando cartão a ≤780px —
+   e nada disso é refeito aqui. Este arquivo fecha o que faltava para o app ser
+   usável de fato num aparelho, que é outra lista:
+
+     1. tabela montada em JS fora de .tbl-wrap (11 das 12 do sistema);
+     2. zoom automático do iOS ao tocar num campo;
+     3. área segura do iPhone (entalhe e barra inferior) no app instalado;
+     4. alvos de toque menores que o mínimo de 44px;
+     5. modal desenhado para mouse ocupando 90% de uma tela de 6 polegadas;
+     6. barras de ação que não quebram linha — botões inteiros fora da tela.
+
+   Escopo: quase tudo aqui vive dentro de @media (max-width:900px), o mesmo
+   corte em que style.css recolhe a sidebar. No desktop este arquivo é inerte.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. ÁREA SEGURA (iPhone com entalhe, app instalado) ─────────────────────
+   Só vale no app instalado: no navegador a barra do Safari já ocupa esse
+   espaço, e somar o inset ali empurraria o conteúdo para baixo sem motivo.
+   Por isso o display-mode: standalone no seletor. */
+@media (display-mode: standalone) {
+  .topbar        { padding-top: env(safe-area-inset-top, 0px); }
+  .sidebar       { padding-top: env(safe-area-inset-top, 0px); }
+  .sidebar-toggle{ top: calc(14px + env(safe-area-inset-top, 0px)); }
+  /* A barra de gestos do iPhone come os últimos ~34px da tela. Sem isto o
+     último item de qualquer lista fica embaixo dela e não dá para tocar. */
+  .content       { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
+  #dt-tempo      { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (max-width: 900px) {
+
+  /* ── 2. TABELA MONTADA EM JS FORA DE .tbl-wrap ────────────────────────────
+     Doze <table> do sistema nascem em JS (equipamentos 6, missões 3,
+     projetos 2, dashboard 1) e só a do dashboard fica dentro de .tbl-wrap.
+     As outras onze não pegam a conversão em cartões de style.css:780 e, pior,
+     empurram a largura da página inteira — o corpo passa a rolar na
+     horizontal e todo o layout desanda.
+
+     `display:block` + `overflow-x:auto` faz a própria tabela virar a caixa de
+     rolagem, sem depender de um wrapper no HTML que não existe. O custo é
+     honesto: a tabela deixa de distribuir as colunas pela largura (vira uma
+     caixa rolável) e o cabeçalho rola junto. Para CONSULTA — que é o escopo
+     acordado para o celular — resolve; para edição pesada continua valendo o
+     desktop.
+
+     `:not(.tbl-wrap table)` preserva o que já funciona: onde há wrapper, a
+     conversão em cartões de style.css é melhor que rolagem lateral e fica. */
+  .content table:not(.tbl-wrap table) {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+    /* `min-width:0` NÃO é redundante com o max-width acima, e é a linha que faz
+       a regra inteira funcionar: style.css:417 põe `min-width:1200px` em TODA
+       <table> do sistema, e min-width vence max-width na cascata. Sem zerar
+       aqui, a tabela continua com 1200px de largura, o excesso é recortado pelo
+       overflow do .content e some — verificado no browser a 375px: a caixa
+       media 1200px dentro de um pai de 347px. */
+    min-width: 0;
+    /* Sem isto as células quebram em muitas linhas e a tabela fica ilegível
+       justamente por caber. Melhor rolar do lado do que espremer. */
+    white-space: nowrap;
+  }
+
+  /* ── 2b. O CARTÃO DE 1200px ───────────────────────────────────────────────
+     style.css:901 converte cada <tr> em cartão a partir de 780px, e é a coisa
+     certa a fazer. Só que a <table> continua com o `min-width:1200px` da
+     regra global — então os cartões nascem com 1200px dentro de um container
+     de 345px e 855px de cada um ficam fora da tela. Medido no browser: a
+     conversão em cartões nunca chegou a funcionar num aparelho de verdade.
+
+     Zerar o min-width é seguro exatamente aqui e não antes: no formato de
+     cartão não existe mais grade de colunas para espremer, cada célula é uma
+     linha de rótulo + valor. Entre 781px e 900px a tabela segue em formato de
+     tabela e o `overflow-x` do .tbl-wrap continua sendo a resposta certa —
+     por isso este bloco casa o corte de 780px de style.css em vez do de 900px
+     que rege o resto deste arquivo. */
+  @media (max-width: 780px) {
+    .tbl-wrap table { min-width: 0; width: 100%; }
+  }
+
+  /* Trava de segurança: nada dentro do conteúdo pode alargar a página. É o que
+     impede uma linha larga solta (um <pre>, um caminho UNC, um gráfico) de
+     recriar a rolagem horizontal do corpo que o bloco acima acabou de tirar. */
+  #app, .main, .content { max-width: 100vw; overflow-x: hidden; }
+
+  /* Caminho de rede não tem espaço para quebrar e é o texto mais longo do
+     sistema (\\loccus-srv03\Projetos$\Engenharia\...). Sem isto ele é o
+     principal responsável por estourar a largura. */
+  .content code, .content pre, .caminho, [class*="caminho"] {
+    word-break: break-all;
+    white-space: normal;
+  }
+
+  /* Gráficos do Chart.js: o canvas tem width/height em atributo e ignora o
+     container se ninguém mandar o contrário. */
+  .content canvas { max-width: 100%; height: auto; }
+
+  /* ── 3. ZOOM AUTOMÁTICO DO iOS ────────────────────────────────────────────
+     O Safari do iPhone dá zoom na página ao focar um campo com font-size
+     abaixo de 16px — e sai do zoom sozinho ao desfocar, então a tela fica
+     pulando a cada toque. Os três campos do sistema estão abaixo do limite:
+     .form-input 14px, .search-input 13px, .filter-sel 12px.
+
+     16px é o mínimo exato que desarma o comportamento. A alternativa seria
+     `maximum-scale=1` no viewport, que resolveria isto proibindo o usuário de
+     dar zoom em QUALQUER coisa — inclusive num desenho técnico. Não vale. */
+  .form-input, .search-input, .filter-sel,
+  input, select, textarea { font-size: 16px; }
+
+  /* ── 4. ALVOS DE TOQUE ────────────────────────────────────────────────────
+     44px é o mínimo do guia da Apple e ~9mm de polpa de dedo. Os botões do
+     sistema estão desenhados para o mouse: .btn dá ~35px de altura e
+     .btn-sm ~29px. `min-height` (e não `height`) para não achatar o que já é
+     maior nem quebrar quem tem duas linhas. */
+  .btn, .btn-sm, .topbar-icon-btn, .sidebar-refresh,
+  .nav-item, button, [role="button"] { min-height: 44px; }
+
+  .btn, .btn-sm { padding-top: 10px; padding-bottom: 10px; }
+  .topbar-icon-btn { min-width: 44px; }
+
+  /* O ☰ e o avatar da topbar são os dois controles presentes em toda tela. */
+  .sidebar-toggle { width: 44px; height: 44px; }
+
+  /* Espaço entre itens da barra de filtros: encostados, o dedo erra o vizinho. */
+  .filter-bar { gap: 10px; }
+
+  /* ── 5. MODAL COMO FOLHA INFERIOR ─────────────────────────────────────────
+     .modal é `max-width:520px; width:90%; margin:6vh auto; padding:28px`. Numa
+     tela de 390px isso vira uma caixa de 351px com 56px dos 390 gastos só em
+     respiro lateral, e 6vh de margem no topo que some assim que o teclado
+     abre. O padrão de celular é a folha: colada embaixo, largura cheia, rolando
+     por dentro. */
+  .modal-overlay { align-items: flex-end; }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    border-radius: 16px 16px 0 0;
+    /* Teto, não altura: diálogo curto continua curto. O resto rola por dentro
+       do próprio modal, e não da página atrás dele. */
+    max-height: 92vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* A regra de style.css que alarga modais marcados para 620px não faz sentido
+     aqui — todos já são de largura cheia pela seção 8. */
+
+  /* ── 6. GAVETA LATERAL ────────────────────────────────────────────────────
+     A sidebar tem 240px fixos, o que num aparelho de 360px deixa a página
+     atrás como uma tira de 120px. Mais larga, a gaveta lê como tela. */
+  .sidebar { width: min(292px, 86vw); overflow-y: auto; }
+
+  /* Rolagem da página congelada com a gaveta aberta: sem isto o toque para
+     fechar a gaveta rola o conteúdo atrás. */
+  body:has(.sidebar-backdrop.open) { overflow: hidden; }
+
+  /* ── 7. BARRAS DE AÇÃO QUE NÃO QUEBRAM LINHA ──────────────────────────────
+     Cinco barras do sistema são `display:flex` sem `flex-wrap`. No desktop
+     sobra largura e ninguém nota; a 375px o excesso simplesmente sai da tela —
+     e como o `overflow-x:hidden` da trava de segurança acima recorta o que
+     passa, o botão não fica feio, fica INALCANÇÁVEL. Medido no navegador a
+     375px, botão a botão:
+
+       .page-actions   "+ Novo equipamento" terminava em 476px  (Equipamentos)
+                       "+ Novo consumível"                467px  (Consumíveis)
+                       "+ Nova composição"                398px  (Custos)
+       .uc-actions     "Resetar senha", "Desativar" e "Excluir" de TODA linha
+                       de usuário, entre 464px e 622px           (Configurações)
+       .modal-footer   "Fechar" (377px) e "Editar" (454px) da ficha do
+                       equipamento — os dois botões que fecham a ficha
+       .ent-tabs       a aba "Modelos" terminava em 378px        (Projetos)
+       .topbar-actions seis botões da missão, o último em 695px  (Missões)
+
+     Quebrar linha resolve as três primeiras. As duas últimas não podem quebrar
+     e estão logo abaixo, cada uma com o seu motivo. */
+  .page-actions, .uc-actions, .modal-footer, .user-card { flex-wrap: wrap; }
+
+  /* O cartão de usuário precisa das duas linhas: quebrar só a fila de botões
+     baixou "Excluir" de 622px para 402px, e ele continuava fora da tela —
+     porque o cartão em si é um flex de cinco itens (avatar, nome, papel, último
+     acesso, ações) que também não quebrava, e a fila começava já em 295px.
+     Com a base de 100% a fila ganha a própria linha, sob os dados do usuário. */
+  .uc-actions { flex-basis: 100%; }
+
+  /* .ent-tabs é uma fila de abas: quebrada em duas linhas ela deixa de ler como
+     fila e a linha de baixo fica órfã sob a borda inferior que separa as abas
+     do conteúdo. Rolar de lado é o padrão de aba em celular — e são só 27px de
+     excesso, então a última aba já aparece pela metade, que é a própria dica de
+     que há mais. */
+  .ent-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .ent-tabs::-webkit-scrollbar { display: none; }
+  .ent-tabs .ent-tab { flex: none; }
+
+  /* .topbar tem `height:62px` fixo e é `position:sticky`: quebrar linha aqui
+     empurraria o conteúdo da barra para fora da própria barra. Então rola de
+     lado, pelo mesmo raciocínio das abas.
+
+     `min-width:0` é o que faz a rolagem existir: sem ele o item flex adota a
+     largura do conteúdo (695px na missão) e não há o que rolar — some tudo à
+     direita de novo. E `flex:none` nos filhos porque, com a caixa agora podendo
+     encolher, os botões seriam espremidos em vez de rolar. */
+  .topbar-actions {
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Sem barra de rolagem visível: numa faixa de 62px ela comeria altura útil.
+       O aviso de que há mais fica por conta do botão cortado ao meio na borda —
+       e um desbotamento na direita foi tentado e desfeito, porque `mask-image`
+       vale sempre, inclusive nas barras que cabem inteiras: em Documentos ele
+       esmaecia o avatar, que não tem nada depois de si. */
+    scrollbar-width: none;
+  }
+  .topbar-actions::-webkit-scrollbar { display: none; }
+  .topbar-actions > * { flex: none; }
+
+  /* A migalha de pão é o outro lado da mesma barra: sem encolher, ela rouba a
+     largura que a fila de botões precisa para rolar. Medido em Missões: dos
+     299px úteis da barra ela ficava com 109 e sobravam 190 para sete botões —
+     dois e meio à vista.
+
+     `flex-shrink:2` faz o encolhimento sair daqui primeiro, e só quando há
+     disputa: numa barra que já cabe (Documentos, Tempos, PDR) nada encolhe e a
+     migalha continua inteira. O piso de 64px é para o nome da tela não virar
+     só reticências. */
+  .breadcrumb { min-width: min(64px, 100%); flex-shrink: 2; overflow: hidden; }
+  .breadcrumb .current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── 8. O `max-width` INLINE DOS MODAIS ───────────────────────────────────
+     Dezenove modais nascem com `style="width:820px;max-width:96vw"` no HTML.
+     A regra da seção 5 põe `max-width:100%`, mas estilo inline vence qualquer
+     seletor — então a folha inferior ficava com 96vw: 7,5px de sobra de cada
+     lado, com os cantos arredondados de cima flutuando longe da borda. Não é
+     folha nem diálogo, é um híbrido que parece defeito.
+
+     Este é o único `!important` do arquivo e não há alternativa: só ele vence
+     um atributo `style`. Trocar os dezenove templates seria mexer em dezenove
+     lugares para obter o mesmo efeito, e o próximo modal a nascer voltaria a
+     copiar o padrão de 96vw dos vizinhos. `width` não precisa do reforço: o
+     `820px` inline é apenas um teto que este `max-width` já corta. */
+  .modal { max-width: 100% !important; }
+}
+
+/* Telas bem estreitas (≤480px): o respiro lateral de 18px vira 14px e as
+   colunas de KPI que ainda tentavam ficar lado a lado empilham. */
+@media (max-width: 480px) {
+  .content { padding: 16px 14px 32px; }
+  .topbar  { padding-left: 62px; padding-right: 14px; }
+  .kpi-ring-val { font-size: 26px; }
+  /* Migalha de pão inteira não cabe; o item atual é o que importa — e só ele.
+     A regra antiga preservava também o primeiro item, que em toda página é a
+     palavra "DocTrack": o nome do app, já presente no cabeçalho da gaveta e na
+     tela inicial do aparelho. Numa barra em que Missões disputa 299px entre a
+     migalha e sete botões, ele custava metade do espaço da migalha para não
+     dizer nada — com o nome da missão, que é a informação útil, cortado em
+     reticências ao lado. */
+  .breadcrumb > *:not(.current) { display: none; }
+}
+
+/* ═══ RODAPÉ DO HUB E DO SUB-HUB ══════════════════════════════════════════
+   `Configurações`, `Tema` e `Sair` são <a> soltos num `.foot` — não pegam a
+   regra de 44px da seção 4, que cobre `.btn` e `button`. Medidos a 375px: 16px
+   de altura, e o `Sair` com 20px de largura. São os únicos controles das duas
+   telas de entrada do sistema, e a de sair é a que mais falta faz num aparelho
+   emprestado. `inline-flex` porque um <a> é inline e ignora altura. */
+@media (max-width: 900px) {
+  .foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 8px; }
+  .foot a {
+    display: inline-flex; align-items: center;
+    /* `min-width` também: "Sair" tem quatro letras e parava em 40px de largura
+       mesmo já com os 44 de altura. */
+    min-height: 44px; min-width: 44px; padding: 0 10px;
+    /* O `margin-left:10px` de hub.html/subhub.html empurrava só de um lado e
+       agora briga com o gap. Zerado: o gap dá o mesmo respiro dos dois. */
+    margin-left: 0;
+  }
+}
+
+/* ═══ CONVITE DE INSTALAÇÃO (static/pwa.js) ═══════════════════════════════
+   Fora de media query: o JS só monta o banner abaixo de 820px (ver
+   podeConvidar()), então o corte já está feito lá e duplicá-lo aqui seria
+   mais um número para os dois lados discordarem. */
+.pwa-banner {
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  /* Acima do cronômetro (8000) e abaixo de .modal-overlay (9000): o convite
+     nunca pode cobrir um diálogo. Mesma lógica do cabeçalho de
+     tempos-widget.css. */
+  z-index: 8500;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px;
+  background: var(--bg-elevated, #1b1e3a);
+  border: 1px solid var(--border-mid, rgba(34,211,238,.28));
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.45));
+  font-family: var(--font-body, system-ui);
+  animation: pwa-banner-entra .22s ease both;
+}
+
+@keyframes pwa-banner-entra {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pwa-banner { animation: none; }
+}
+
+.pwa-banner-msg {
+  margin: 0;
+  font-size: 13.5px; line-height: 1.5;
+  color: var(--t2, #c7d2fe);
+}
+
+.pwa-banner-acoes { display: flex; gap: 10px; justify-content: flex-end; }
+
+.pwa-banner-btn {
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  min-height: 44px; padding: 10px 18px;
+  border-radius: 9px; cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border-soft, rgba(34,211,238,.18));
+  color: var(--t3, #8b93b8);
+}
+.pwa-banner-btn-ok {
+  background: var(--cyan-brand, #06b6d4);
+  border-color: var(--cyan-brand, #06b6d4);
+  color: #04121a;
+}
+
+/* Com o banner na tela, o cronômetro sobe para não ficar atrás dele. A classe
+   é posta e tirada por pwa.js. */
+body.pwa-banner-visivel #dt-tempo {
+  bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+}

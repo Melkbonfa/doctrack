@@ -2456,19 +2456,10 @@ document.getElementById('confirm-ok')?.addEventListener('click',()=>_confirmReso
 document.getElementById('confirm-cancel')?.addEventListener('click',()=>_confirmReject&&_confirmReject());
 document.getElementById('confirm-modal')?.addEventListener('click',(e)=>{if(e.target.id==='confirm-modal')_confirmReject&&_confirmReject()});
 
-const _sidebarToggle=document.getElementById('sidebar-toggle');
-const _sidebarBackdrop=document.getElementById('sidebar-backdrop');
-const _sidebar=document.getElementById('sidebar-nav');
-function toggleSidebar(force){
-  if(!_sidebar)return;
-  const willOpen=force!==undefined?force:!_sidebar.classList.contains('open');
-  _sidebar.classList.toggle('open',willOpen);
-  _sidebarBackdrop.classList.toggle('open',willOpen);
-  _sidebarToggle.setAttribute('aria-expanded',String(willOpen));
-}
-_sidebarToggle?.addEventListener('click',()=>toggleSidebar());
-_sidebarBackdrop?.addEventListener('click',()=>toggleSidebar(false));
-document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>{if(window.innerWidth<=900)toggleSidebar(false)}));
+// A gaveta lateral do celular mora em static/nav-mobile.js — dono único, carregado
+// por _pwa_head.html. Esta era uma de quatro cópias da mesma função; as outras três
+// tinham divergido (duas não fechavam ao tocar num item) e outros três módulos não
+// tinham cópia nenhuma, com o ☰ inerte na tela.
 
 let _sortState={col:null,dir:1};
 function makeSortable(){

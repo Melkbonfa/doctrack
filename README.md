@@ -85,10 +85,31 @@ Scripts úteis (rodar a partir da raiz do projeto):
 | Deploy/atualização no servidor | `.\scripts\deploy_windows.ps1` |
 | Backup do banco (PostgreSQL) | `.\scripts\gerar_backup.ps1` |
 | Build executável (PyInstaller) | `.\scripts\build_exe.ps1` |
+| Publicar para fora da rede (túnel) | `.\scripts\setup_cloudflared.ps1` |
 
 > `scripts\backup_doctrack.ps1` foi removido junto com a migração para o PostgreSQL.
 > Esta tabela ainda o listava; seguir a linha antiga gerava um backup vazio, porque o
 > script copiava o `doctrack.db` do SQLite. Use `gerar_backup.ps1`.
+
+## Acesso de fora da rede (e pelo celular)
+
+O DocTrack é publicado por **túnel do Cloudflare**: a conexão parte do servidor
+para fora, então nenhuma porta de entrada é aberta na borda da Loccus e nenhum
+IP público é exposto. O servidor **continua dentro da rede** — e isso não é
+detalhe: o banco guarda o *caminho* dos documentos, não os arquivos (eles vivem
+em `\\loccus-srv03\Projetos$\Engenharia`), então uma cópia hospedada fora não abriria documento nenhum.
+
+```powershell
+.\scripts\setup_cloudflared.ps1 -Token "ey..." -Hostname "doctrack.seudominio.com"
+```
+
+Com HTTPS no ar, o app fica **instalável no celular** (PWA): "Adicionar à tela
+de início" e ele abre em tela cheia, com ícone próprio. Mesmo deploy, sem loja e
+sem build separado. O passe de celular é focado em **consulta**; edição pesada
+segue no desktop.
+
+Guia completo, incluindo o que muda no `.env` ao publicar (`TRUST_PROXY=1` deixa
+de ser opcional): **[docs/ACESSO_REMOTO.md](docs/ACESSO_REMOTO.md)**.
 
 ## Trava de emergência (kill switch)
 
