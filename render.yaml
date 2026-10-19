@@ -1,0 +1,74 @@
+# render.yaml — Blueprint do ambiente de DEMONSTRAÇÃO do DocTrack.
+#
+# Descreve uma instância PÚBLICA de amostra, para apresentar a plataforma fora da
+# rede da Loccus. NÃO substitui o servidor interno, que continua no Windows via
+# NSSM (ver scripts/deploy_windows.ps1). Três diferenças definem este ambiente:
+#
+#   * banco Postgres descartável, provisionado aqui mesmo;
+#   * `scripts/seed_demo.py` no start, que preenche Entregáveis, Missões e
+#     Consumíveis — os três módulos que sobem vazios num banco novo;
+#   * nenhum acesso ao share da engenharia, então as rotas de arquivo em rede
+#     (caminhos.py) não têm o que abrir. É esperado: a amostra vive no banco.
+#
+# Como aplicar: Render → New → Blueprint → apontar para este repositório.
+# A versão do Python vem do arquivo `.python-version` na raiz.
+
+databases:
+  - name: doctrack-demo-db
+    plan: free            # expira ~30 dias após a criação — recriar se a demo passar disso
+    databaseName: doctrack
+    user: doctrack
+    region: virginia
+    ipAllowList: []       # sem acesso externo: só o serviço web, pela rede interna
+
+services:
+  - type: web
+    name: doctrack-demo
+    runtime: python
+    plan: free            # dorme após 15 min ociosos; a primeira visita depois disso demora
+    region: virginia      # precisa ser a MESMA do banco, senão não há rede interna
+    branch: main
+    healthCheckPath: /api/version   # rota pública e barata (não passa por JWT)
+    buildCommand: pip install -r requirements.txt
+    # O seed vem antes do gunicorn e sai em ~1s quando a amostra já está no
+    # banco — o custo só aparece no primeiro deploy, não a cada vez que o
+    # serviço acorda. `wsgi:app` (e não `servidor:app`) porque é o wsgi.py que
+    # prepara o schema e sobe o agendador.
+    #
+    # 1 worker com threads, e não vários processos: o Socket.IO está em
+    # async_mode="threading" e o plano free tem 512 MB, que não comportam duas
+    # cópias do pandas. O transporte cai para long-polling — suficiente aqui.
+    # `;` e não `&&`: se o seed falhar, o gunicorn sobe assim mesmo. A demo sem
+    # os dados de amostra ainda dá para apresentar; a demo fora do ar, não.
+    startCommand: >-
+      python scripts/seed_demo.py ;
+      gunicorn --worker-class gthread --workers 1 --threads 8
+      --timeout 120 --access-logfile - --bind 0.0.0.0:$PORT wsgi:app
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: doctrack-demo-db
+          property: connectionString
+      # Gerada pelo Render, nunca commitada. Trocar derruba as sessões ativas.
+      - key: JWT_SECRET
+        generateValue: true
+      # O Render termina o TLS num proxy à frente do app. Sem isto o audit log
+      # gravaria o IP do proxy no lugar do IP de quem acessou.
+      - key: TRUST_PROXY
+        value: "1"
+      # Aberto porque a demo é servida na mesma origem do front — não há
+      # navegador cruzando domínio aqui. No servidor interno, liste as origens.
+      - key: CORS_ORIGINS
+        value: "*"
+      # Autoriza o seed a preencher campos vazios dos equipamentos e documentos
+      # que vieram das planilhas (categoria, dados regulatórios, dono, prazo).
+      # É o que tira o dashboard de equipamentos do zero absoluto. Ausente no
+      # servidor interno de propósito: lá esses campos são preenchidos por gente.
+      - key: DOCTRACK_SEED_DEMO
+        value: "1"
+      # A base inteira usa datetime.now() naive (models.py, servidor.py). Sem
+      # isto o contêiner roda em UTC e "hoje" no servidor não é "hoje" para quem
+      # usa: o snapshot diário já virava de dia cedo demais, e com o módulo de
+      # Tempos um cronômetro das 22h cairia no dia seguinte na folha de ponto.
+      - key: TZ
+        value: America/Sao_Paulo

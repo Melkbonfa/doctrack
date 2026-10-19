@@ -14,6 +14,13 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Ambiente de demonstração no Render
+- **Adicionado** `render.yaml`: instância pública de amostra com Postgres
+  descartável, separada do servidor interno.
+- **Adicionado** `scripts/seed_demo.py`: preenche Entregáveis, Missões e
+  Consumíveis, que sobem vazios num banco novo. Idempotente; só roda na demo.
+- **Adicionado** `.python-version` (o Render usa para escolher o Python).
+
 ### Celular: a navegação que faltava e os botões que estavam fora da tela
 Segundo passe de celular, medido no navegador a 375px tela por tela — as sete
 páginas do app, cada aba e cada modal. O primeiro passe (abaixo) arrumou a
