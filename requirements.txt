@@ -20,3 +20,6 @@ psycopg2-binary>=2.9.9
 # O app não usa: o PDF do dashboard é montado no navegador com jsPDF.
 matplotlib>=3.7.0
 jinja2>=3.1.0
+# Relatório .docx da exportação dos Cadernos (cadernos/relatorio_docx.py).
+# Puxa o lxml. Pillow (já presente pelo matplotlib) reduz as imagens largas.
+python-docx>=1.1

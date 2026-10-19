@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Cadernos — DocTrack{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/vendor/ckeditor5/ckeditor5.css?v=48.5.2">
+<link rel="stylesheet" href="/static/cadernos.css?v={{ asset_v }}">
+{%- endblock %}
+
+{% block brand_version %}<span id="cd-brand">CADERNOS · P&D</span>{% endblock %}
+
+{% block nav %}
+    <a class="nav-item" id="cd-voltar-area" href="/pdr/" style="text-decoration:none">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="cd-voltar-rotulo">Voltar ao PDR</span>
+    </a>
+    <span class="nav-section-label">Cadernos</span>
+    <div id="cd-lista-cadernos" class="cd-lista-cadernos"></div>
+    <button type="button" class="nav-item cd-novo-caderno" id="btn-novo-caderno" hidden>
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Novo caderno
+    </button>
+    <button type="button" class="nav-item cd-novo-caderno" id="btn-importar-onenote" hidden>
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Importar do OneNote
+    </button>
+{%- endblock %}
+
+{% block refresh_fn %}recarregarTudo(){% endblock %}
+
+{% block breadcrumb %}
+<span>DocTrack</span><span style="color:var(--t4)">/</span>
+<span id="cd-bc-area">Cadernos</span><span style="color:var(--t4)">/</span>
+<span class="current" id="breadcrumb-current">—</span>
+{%- endblock %}
+
+{% block topbar_actions %}
+        <div class="cd-busca">
+          <input type="search" id="cd-busca" placeholder="Buscar nos cadernos…" autocomplete="off" aria-label="Buscar nos cadernos">
+          <div class="cd-busca-res" id="cd-busca-res" hidden></div>
+        </div>
+        <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema" style="padding:6px 10px;font-size:14px;line-height:1">🌙</button>
+        <div class="user-avatar" style="width:32px;height:32px;font-size:12px;cursor:pointer" id="top-avatar" onclick="location.href='/hub'" title="Voltar aos módulos">A</div>
+{%- endblock %}
+
+{% block content %}
+<div class="cd-layout" id="cd-layout">
+
+  <!-- ══════════ ÁRVORE: seções e páginas ══════════ -->
+  <aside class="cd-arvore" aria-label="Seções e páginas">
+    <div class="cd-arvore-topo">
+      <span class="cd-caderno-cor" id="cd-caderno-cor"></span>
+      <div class="cd-caderno-nome" id="cd-caderno-nome">Escolha um caderno</div>
+      <button class="cd-icone" id="btn-menu-caderno" title="Opções do caderno" aria-label="Opções do caderno" hidden>⋯</button>
+    </div>
+    <div class="cd-arvore-corpo" id="cd-arvore"></div>
+    <div class="cd-arvore-pe" id="cd-arvore-pe" hidden>
+      <button class="btn btn-ghost btn-sm" id="btn-nova-secao">+ Seção</button>
+      <button class="btn btn-ghost btn-sm" id="btn-novo-grupo">+ Grupo</button>
+      <button class="btn btn-ghost btn-sm" id="btn-lixeira" title="Lixeira do caderno">🗑</button>
+    </div>
+  </aside>
+
+  <!-- ══════════ PÁGINA ══════════ -->
+  <section class="cd-pagina" id="cd-pagina" aria-live="polite">
+    <div class="cd-vazio" id="cd-vazio">
+      <div class="cd-vazio-titulo">Nenhuma página aberta</div>
+      <div class="cd-vazio-sub">Escolha um caderno à esquerda e uma página na lista. Para começar um
+        caderno novo, use <b>Novo caderno</b>.</div>
+    </div>
+
+    <div class="cd-pag" id="cd-pag" hidden>
+      <div class="cd-pag-barra">
+        <div class="cd-pag-caminho" id="cd-pag-caminho"></div>
+        <div class="cd-pag-acoes">
+          <span class="cd-status" id="cd-status"></span>
+          <button class="btn btn-ghost btn-sm" id="btn-exportar" title="Exportar para a liderança: zip com o relatório em Word, as imagens e os arquivos">Exportar zip</button>
+          <button class="btn btn-ghost btn-sm" id="btn-versoes">Versões</button>
+          <button class="btn btn-ghost btn-sm" id="btn-link" title="Copiar link desta página">🔗</button>
+          <button class="btn btn-ghost btn-sm" id="btn-menu-pagina" title="Mais ações">⋯</button>
+          <button class="btn btn-primary btn-sm" id="btn-editar">Editar</button>
+          <button class="btn btn-primary btn-sm" id="btn-concluir" hidden>Concluir edição</button>
+        </div>
+      </div>
+
+      <div class="cd-trava" id="cd-trava" hidden></div>
+
+      <div class="cd-folha">
+        <div class="cd-titulo-area">
+          <div class="cd-titulo" id="cd-titulo"></div>
+          <input class="cd-titulo-input" id="cd-titulo-input" maxlength="300" hidden aria-label="Título da página">
+          <div class="cd-meta" id="cd-meta"></div>
+        </div>
+
+        <div class="cd-ficha" id="cd-ficha" hidden></div>
+
+        <div class="cd-leitura ck-content" id="cd-leitura"></div>
+        <div class="cd-editor-host" id="cd-editor-host" hidden>
+          <div id="cd-editor"></div>
+          <div class="cd-contagem" id="cd-contagem"></div>
+        </div>
+      </div>
+
+      <div class="cd-arquivos" id="cd-arquivos-pagina"></div>
+    </div>
+  </section>
+</div>
+{%- endblock %}
+
+{% block postmain %}
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal cd-modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <div class="modal-title" id="modal-titulo"></div>
+    <div class="modal-sub" id="modal-sub"></div>
+    <div id="modal-corpo"></div>
+    <div class="modal-footer" id="modal-rodape">
+      <button class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="modal-salvar">Salvar</button>
+    </div>
+  </div>
+</div>
+<div class="cd-menu" id="cd-menu" hidden role="menu"></div>
+<input type="file" id="cd-input-arquivo" multiple hidden>
+<input type="file" id="cd-input-versao" hidden>
+<div class="toast" id="toast"><span class="toast-dot" id="toast-dot"></span><span id="toast-msg"></span></div>
+{%- endblock %}
+
+{% block scripts %}
+<script src="/static/common.js?v={{ asset_v }}"></script>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/vendor/Sortable.min.js"></script>
+<script src="/static/vendor/ckeditor5/ckeditor5.umd.js?v=48.5.2"></script>
+<script src="/static/vendor/ckeditor5/translations/pt-br.umd.js?v=48.5.2"></script>
+<script src="/static/cadernos.js?v={{ asset_v }}"></script>
+{%- endblock %}

@@ -14,6 +14,19 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Módulo Cadernos: cadernos de laboratório do PDR
+Os cadernos de laboratório viviam no OneNote, com os arquivos dos testes
+espalhados no SharePoint.
+
+- **Adicionado** módulo Cadernos (`/cadernos`, aberto pela barra do PDR):
+  cadernos → grupos de seções → seções → páginas, editor completo (CKEditor 5),
+  versões de página, membros por caderno e lixeira com expurgo em 60 dias.
+- **Adicionado** arquivos de qualquer extensão presos à página, à seção ou ao
+  caderno, com versões, no mesmo blob store dos documentos.
+- **Adicionado** importação dos cadernos do OneNote (scripts em
+  `scripts/onenote/` e `scripts/importar_onenote.py`) e exportação para a
+  liderança em `.zip` com relatório Word (`python-docx`).
+
 ### Auditoria: tentativas de acesso recusadas
 A validação de sistema computadorizado exige registrar as tentativas de acesso
 de quem não está autorizado. Só o login certo ia para `audit_logs`; a falha
