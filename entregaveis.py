@@ -442,7 +442,11 @@ def criar_projeto():
     # Item que veio do modelo (pelo modal ou pela cópia automática) nasce ligado
     # a ele — é o que permite aplicar mudanças do modelo depois. Chave que não é
     # do modelo deste tipo, ou repetida, vira avulso.
-    do_modelo = {m.chave: m for m in ModeloEntregavel.query.filter_by(tipo_projeto=tipo)}
+    itens_modelo = ModeloEntregavel.query.filter_by(tipo_projeto=tipo).all()
+    do_modelo = {m.chave: m for m in itens_modelo}
+    # O projeto nasce conhecendo o modelo inteiro, inclusive o que foi tirado da
+    # lista no modal: a prévia de aplicação não deve propor de volta.
+    modelo_sync.marcar_conhecidos(p, itens_modelo)
     for pos, it in enumerate(_entregaveis_do_payload(data.get("entregaveis"), tipo)):
         nome_ent = (it.get("tipo") or "").strip()
         if not nome_ent:

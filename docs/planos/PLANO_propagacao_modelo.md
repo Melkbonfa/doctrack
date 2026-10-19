@@ -43,12 +43,24 @@ seria pelo nome, que quebra ao renomear.
 - `mudancas_modelo_itens` — uma linha por alteração (ou "mantido"): projeto,
   entregável (id e nome, porque pode ter sido apagado), ação, campo, antes,
   depois.
+- `projetos.modelo_conhecidos` (migration 021) — JSON com as chaves dos itens
+  do modelo que o projeto já conhecia ao nascer ou na última aplicação,
+  ligados ou não. `NULL` só em projeto anterior a isto; a subida resolve.
 
-Dados existentes: `servidor._vincular_entregaveis_ao_modelo()` (e a migration
-020, para SQLite) ligam cada entregável ao item de mesma categoria + nome do
-modelo do projeto, gravando os valores **atuais** do modelo como origem. Onde o
-projeto já tinha peso diferente, conta como ajuste do projeto. O que não casa
-vira avulso.
+Dados existentes: `servidor._vincular_entregaveis_ao_modelo()` (e as
+migrations 020 e 021, para SQLite) ligam cada entregável ao item do modelo do
+projeto de mesmo **nome** — ignorando categoria, acento, maiúscula, hífen e
+espaço —, gravando os valores **atuais** do modelo como origem. Categoria,
+nome ou peso que o projeto tinha diferente contam como do projeto e ficam. O
+que não casa vira avulso. Por fim o projeto passa a conhecer o modelo inteiro
+de agora.
+
+> **Por que a 021 existe.** A primeira versão (020) exigia nome **e**
+> categoria iguais e não tinha a lista de conhecidos. Na produção a primeira
+> prévia propôs criar ~1.760 entregáveis: os modelos do PDR tinham mudado
+> itens de Documentação para Gestão depois que os projetos nasceram (ficaram
+> avulsos e "faltando"), e itens que os projetos do PDE nunca tiveram
+> pareciam novos.
 
 ### Comparação de três lados (`modelo_sync._mudancas_do_projeto`)
 
@@ -61,8 +73,9 @@ vira avulso.
 
 Nome e categoria não são editáveis no projeto: sempre seguem o modelo. A
 **ordem** do projeto não é propagada; item novo entra no fim da categoria.
-Item do modelo que o projeto não tem: **vincular** se houver avulso de mesmo
-nome e categoria; senão **criar**. Entregável ligado a item que não existe mais
+Item do modelo que o projeto não tem **e não conhecia**: **vincular** se houver
+avulso de mesmo nome (sem olhar categoria); senão **criar**. O que o projeto já
+conhecia e não tem ficou de fora de propósito e não é proposto. Entregável ligado a item que não existe mais
 no modelo (inclusive porque o projeto trocou de modelo): **saiu do modelo**.
 
 ### Fluxo

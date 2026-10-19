@@ -2183,6 +2183,9 @@ def _sync_schema():
             ("orcamento",        "FLOAT DEFAULT 0"),
             ("tipo",             "VARCHAR(20) DEFAULT ''"),
             ("status",           "VARCHAR(20) DEFAULT 'execucao' NOT NULL"),
+            # Sem default de propósito: NULL marca o projeto anterior à lista de
+            # itens conhecidos, que _vincular_entregaveis_ao_modelo resolve.
+            ("modelo_conhecidos", "TEXT"),
         ],
         "entregaveis": [
             ("data_inicio",    "VARCHAR(10) DEFAULT ''"),
@@ -3137,15 +3140,17 @@ def _seed_categorias_entregavel():
 
 
 def _vincular_entregaveis_ao_modelo():
-    """Dá chave aos itens de modelo antigos e liga os entregáveis anteriores ao
-    vínculo ao item de mesmo nome do modelo do projeto (ver
-    modelo_sync.vincular_legado). Espelha a migration 020. Idempotente."""
+    """Dá chave aos itens de modelo antigos, liga os entregáveis anteriores ao
+    vínculo ao item de mesmo nome do modelo do projeto e registra o que cada
+    projeto antigo já conhece do modelo (ver modelo_sync.vincular_legado).
+    Espelha as migrations 020 e 021. Idempotente."""
     import modelo_sync
-    chaves, ligados, avulsos = modelo_sync.vincular_legado()
+    chaves, ligados, projetos = modelo_sync.vincular_legado()
     db.session.commit()
-    if chaves or ligados or avulsos:
+    if chaves or ligados or projetos:
         print(f"[INFO] Projetos: vínculo com o modelo — {chaves} item(ns) de modelo "
-              f"com chave nova, {ligados} entregável(is) ligado(s), {avulsos} avulso(s)")
+              f"com chave nova, {ligados} entregável(is) ligado(s) pelo nome, "
+              f"{projetos} projeto(s) com a lista de itens conhecidos")
 
 
 def _snapshot_projetos_do_dia():

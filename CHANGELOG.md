@@ -14,6 +14,19 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Projetos: a prévia de "Aplicar aos projetos" só propõe o que é novo
+Na produção, a primeira prévia propôs criar ~1.760 entregáveis que ninguém
+tinha pedido: a ligação dos entregáveis antigos exigia nome e categoria iguais
+(e os modelos do PDR tinham mudado itens de categoria), e item do modelo que o
+projeto não tinha parecia novo mesmo quando o projeto nunca o teve.
+
+- **Corrigido** os entregáveis antigos casam com o modelo pelo nome, ignorando
+  categoria, acento e maiúsculas; categoria e nome do projeto ficam.
+- **Adicionado** `projetos.modelo_conhecidos` (migration 021): os itens do
+  modelo que o projeto já conhecia ao nascer ou na última aplicação. A prévia
+  só propõe criar ou vincular o que entrou no modelo depois — o item tirado de
+  propósito da lista ao criar o projeto não volta.
+
 ### Documentação técnica: quatro camadas, e a metade que se gera sozinha
 O sistema tinha documentação farta de *decisão* — planos, specs, um CHANGELOG de
 36 KB, docstrings que explicam por que cada coisa é assim — e nenhuma de
