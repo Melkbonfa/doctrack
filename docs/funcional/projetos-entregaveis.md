@@ -81,9 +81,17 @@ recusada e a prévia é refeita. Cada aplicação fica no **Histórico** do mode
 auditoria geral. Aplicar não conta como atualização do entregável (o alerta de
 projeto parado não é enganado). A ordem do projeto não é propagada.
 
-Entregáveis anteriores a este recurso foram ligados ao modelo **pelo nome**
-(categoria + nome) na subida do servidor; o que não casou ficou avulso, e
-avulso nunca é tocado pela aplicação.
+**Só o que é novo para o projeto é proposto.** Cada projeto guarda os itens do
+modelo que já conhecia ao nascer ou na última aplicação (`modelo_conhecidos`).
+Item do modelo que o projeto não tem só aparece na prévia (criar ou vincular)
+se entrou no modelo **depois** disso — o item tirado de propósito da lista ao
+criar o projeto não volta. Projeto desmarcado numa aplicação continua vendo os
+itens novos na próxima.
+
+Entregáveis anteriores a este recurso foram ligados ao modelo **pelo nome**, na
+subida do servidor, ignorando categoria, acento e maiúsculas (o modelo pode ter
+mudado o item de categoria depois); categoria e nome do projeto ficam como
+estão. O que não casou ficou avulso, e avulso nunca é tocado pela aplicação.
 
 **Tipos de projeto** (`tipos_projeto`) são cadastráveis: `OEM` e `Revenda` vêm
 semeados, e admin/gestor criam outros na aba **Modelos** (ou pelo "+ novo tipo"

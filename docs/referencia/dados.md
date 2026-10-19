@@ -6,7 +6,7 @@
 
 # Dicionário de dados
 
-**54** tabelas, **627** colunas, agrupadas em **10** domínios.
+**54** tabelas, **628** colunas, agrupadas em **10** domínios.
 
 Os textos da coluna *Nota* são os comentários do próprio `models.py` — é onde o conhecimento de domínio deste sistema está escrito.
 
@@ -826,6 +826,7 @@ erDiagram
         VARCHAR data_fim_prev
         VARCHAR data_fim_real
         FLOAT orcamento
+        TEXT modelo_conhecidos
     }
     tipos_projeto {
         INTEGER id PK
@@ -988,7 +989,7 @@ Modelo `ProjetoSnapshot`. 10 colunas.
 
 ### `projetos`
 
-Modelo `Projeto`. 18 colunas.
+Modelo `Projeto`. 19 colunas.
 
 | Coluna | Tipo | Nulo | Chave | Padrão | Nota |
 |---|---|---|---|---|---|
@@ -1010,6 +1011,7 @@ Modelo `Projeto`. 18 colunas.
 | `data_fim_prev` | VARCHAR(40) | sim | — | `''` |  |
 | `data_fim_real` | VARCHAR(40) | sim | — | `''` |  |
 | `orcamento` | FLOAT | sim | — | `0.0` | BAC – Budget At Completion |
+| `modelo_conhecidos` | TEXT | sim | — | — | Itens do modelo (chaves de ModeloEntregavel) que o projeto já conhecia ao nascer ou na última aplicação do modelo — ligados ou não. A prévia de modelo_sync só propõe criar o que NÃO está aqui: item tirado de propósito da lista, ou que nunca esteve no projeto antigo, não volta sozinho. JSON; NULL = projeto anterior a isto, resolvido pelo backfill da subida. |
 
 ### `tipos_projeto`
 
