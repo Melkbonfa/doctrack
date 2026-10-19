@@ -2108,9 +2108,18 @@ def _sync_schema():
             ("peso",           "FLOAT DEFAULT 1"),
             ("data_inicio_prev", "VARCHAR(10) DEFAULT ''"),
             ("data_fim_prev",    "VARCHAR(10) DEFAULT ''"),
+            # Sem backfill: tudo nasce 0 e o id desempata, que é a ordem que a
+            # tela já mostrava. Ver migration 018.
+            ("ordem",            "INTEGER DEFAULT 0"),
+            # Vínculo com o modelo (migration 020). `modelo_origem` entra SEM
+            # default de propósito: NULL marca a linha anterior ao vínculo, que
+            # _vincular_entregaveis_ao_modelo resolve logo em seguida.
+            ("modelo_chave",     "VARCHAR(32) DEFAULT ''"),
+            ("modelo_origem",    "TEXT"),
         ],
         "modelos_entregavel": [
             ("peso", "FLOAT DEFAULT 1"),
+            ("chave", "VARCHAR(32)"),   # preenchida por _vincular_entregaveis_ao_modelo
         ],
         # Área do modelo (projetos unificados). Os tipos que já existem são todos
         # do PDE — era o único departamento com o módulo. Ver migration 017.
@@ -2977,6 +2986,38 @@ def _seed_tipos_projeto():
     print(f"[INFO] Projetos: {len(nomes)} tipo(s) de projeto semeado(s)")
 
 
+def _seed_categorias_entregavel():
+    """Semeia as categorias de entregável (só quando a tabela está vazia): as
+    padrão mais qualquer nome já gravado em entregáveis ou modelos, pelo mesmo
+    motivo de _seed_tipos_projeto. Espelha a migration 019. Idempotente."""
+    from models import (CategoriaEntregavel, Entregavel, ModeloEntregavel,
+                        CATEGORIAS_ENTREGAVEL)
+    if CategoriaEntregavel.query.count() > 0:
+        return
+    nomes = list(CATEGORIAS_ENTREGAVEL)
+    em_uso = ([r[0] for r in db.session.query(Entregavel.categoria).distinct()]
+              + [r[0] for r in db.session.query(ModeloEntregavel.categoria).distinct()])
+    for nome in em_uso:
+        if nome and nome not in nomes:
+            nomes.append(nome)
+    for ordem, nome in enumerate(nomes):
+        db.session.add(CategoriaEntregavel(nome=nome, ordem=ordem))
+    db.session.commit()
+    print(f"[INFO] Projetos: {len(nomes)} categoria(s) de entregável semeada(s)")
+
+
+def _vincular_entregaveis_ao_modelo():
+    """Dá chave aos itens de modelo antigos e liga os entregáveis anteriores ao
+    vínculo ao item de mesmo nome do modelo do projeto (ver
+    modelo_sync.vincular_legado). Espelha a migration 020. Idempotente."""
+    import modelo_sync
+    chaves, ligados, avulsos = modelo_sync.vincular_legado()
+    db.session.commit()
+    if chaves or ligados or avulsos:
+        print(f"[INFO] Projetos: vínculo com o modelo — {chaves} item(ns) de modelo "
+              f"com chave nova, {ligados} entregável(is) ligado(s), {avulsos} avulso(s)")
+
+
 def _snapshot_projetos_do_dia():
     """Foto do dia dos projetos ativos.
 
@@ -3069,6 +3110,8 @@ def init_app(app_=None):
             _sync_schema()
             _seed_tipos_consumivel()
             _seed_tipos_projeto()
+            _seed_categorias_entregavel()
+            _vincular_entregaveis_ao_modelo()
             # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
             from sqlalchemy import text
             db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))

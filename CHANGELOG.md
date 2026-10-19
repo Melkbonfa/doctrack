@@ -14,6 +14,63 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Projetos: aplicar mudanças do modelo aos projetos existentes
+Editar um modelo só valia para projetos novos: os em andamento ficavam com a
+lista antiga e não havia como atualizá-los sem refazer item por item.
+
+- **Adicionado** botão **Aplicar aos projetos…** na aba Modelos (só admin):
+  pop-up de controle de mudança com a prévia por projeto, escolha dos projetos,
+  decisão caso a caso para item com andamento que saiu do modelo (apagar,
+  manter como avulso ou N/A), motivo obrigatório e confirmação explícita.
+- **Adicionado** comparação de três lados (origem × modelo × projeto): onde o
+  projeto ajustou peso ou responsável, o valor do projeto é mantido.
+- **Adicionado** histórico de aplicações por modelo (admin/gestor), com o
+  antes/depois de cada projeto, e registro na auditoria.
+- **Adicionado** vínculo entregável → item de modelo (`modelos_entregavel.chave`,
+  `entregaveis.modelo_chave`/`modelo_origem`) e tabelas `mudancas_modelo` /
+  `mudancas_modelo_itens` (migration 020; o servidor cria na subida e liga os
+  entregáveis existentes pelo nome).
+- **Corrigido** o "+ Novo projeto" perdia o peso dos itens do modelo: o projeto
+  nascia com peso 1 em tudo.
+
+### Projetos: ordem dos itens do modelo
+Na aba Modelos, só as categorias tinham ↑/↓; os itens de cada modelo ficavam
+na ordem em que foram cadastrados.
+
+- **Adicionado** ↑/↓ em cada item do modelo, movendo dentro da mesma
+  categoria (os itens das outras não saem do lugar). É a ordem que o projeto
+  novo herda; projetos já criados não mudam.
+- **Adicionado** rota `PUT /api/modelos/ordem` (admin/gestor), que recebe
+  todos os itens do modelo na nova ordem.
+
+### Projetos: categorias de entregável cadastráveis
+As categorias (Produto, Sistema, Documentação, Capacitação, Marketing) eram
+fixas no código. Não havia como criar uma nova.
+
+- **Adicionado** admin/gestor criam categorias pela opção "+ Nova categoria…"
+  no próprio seletor de categoria (novo entregável, entregáveis iniciais do
+  projeto, itens de modelo). A categoria criada já fica escolhida.
+- **Adicionado** card "Categorias de entregável" na aba Modelos: uso de cada
+  uma, ordem (↑/↓, que é a ordem das abas no projeto), renomear (propaga para
+  entregáveis e modelos sem contar como atualização) e excluir (só sem uso, e
+  nunca a última).
+- **Adicionado** tabela `categorias_entregavel` (migration 019; o servidor cria
+  e semeia na subida, com as cinco padrão mais qualquer nome já em uso) e as
+  rotas `/api/categorias-entregavel`. Entregável e item de modelo passam a
+  recusar categoria fora do cadastro.
+
+### Projetos: ordem dos entregáveis por arrasto
+Os entregáveis apareciam na ordem em que foram cadastrados, sem como mudar.
+
+- **Adicionado** admin/gestor arrastam um entregável para mudar a posição dele
+  dentro da categoria, no modal do projeto e na ficha do Dashboard. No
+  celular, o arrasto começa com um toque longo.
+- **Adicionado** coluna `entregaveis.ordem` (migration 018; o servidor cria na
+  subida) e a rota `PUT /api/projetos/<id>/entregaveis/ordem`. Entregáveis que
+  já existem ficam na ordem de hoje; projeto novo herda a ordem do modelo.
+- **Corrigido** recarregar o modal do projeto (depois de uma edição ou por
+  tempo real) voltava sempre para a primeira aba.
+
 ### Projetos: exports pela situação, não pelo avanço
 O PDF do portfólio decidia se um projeto estava concluído pelo avanço: só com
 100%. Um projeto que o gestor deu como **Concluído** no campo Situação, com 99%,

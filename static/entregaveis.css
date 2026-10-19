@@ -26,6 +26,16 @@ body.theme-light .ent-charts .card::before{display:none}
 .ent-row:last-child{border-bottom:none}
 .ent-row:hover{background:var(--bg-hover)}
 .ent-row .quem{font-size:12px;color:var(--t3);display:inline-flex;align-items:center;gap:8px}
+.ent-row-nome{display:inline-flex;align-items:center;gap:8px;min-width:0}
+/* Ordem por arrasto (ver ativarOrdemEntregaveis): a alça aparece no hover,
+   como o ✕ de excluir; no toque não há hover, então fica sempre visível. */
+.ent-row-alca{display:inline-flex;color:var(--t4);margin-left:-2px;cursor:grab;
+  opacity:0;transition:opacity .12s}
+.ent-row:hover .ent-row-alca{opacity:1}
+@media (hover:none){.ent-row-alca{opacity:.7}}
+.ent-row-chosen{background:var(--bg-hover)}
+/* O vão onde o entregável vai cair: a mesma linha, apagada e tracejada. */
+.ent-row.ent-row-ghost{opacity:.45;background:transparent;outline:1px dashed var(--border-hi);outline-offset:-1px}
 
 /* ── Popover de edição ── */
 .ent-pop{position:fixed;inset:0;background:rgba(10,12,30,.65);display:flex;align-items:center;
@@ -257,9 +267,59 @@ select.input{cursor:pointer}
   color:var(--cyan);padding:0;font-family:var(--font-body)}
 .pf-lnk:hover{text-decoration:underline}
 
-/* ── Diálogos pequenos centralizados (confirmação, edição de modelo, novo entregável, tipo) ── */
-#modal-confirm-ent.open,#modal-modelo-form.open,#modal-ent-form.open,#modal-tipo-form.open{align-items:center}
-#modal-confirm-ent .modal,#modal-modelo-form .modal,#modal-ent-form .modal,#modal-tipo-form .modal{margin:auto}
+/* ── Diálogos pequenos centralizados (confirmação, edição de modelo, novo entregável, tipo, categoria) ── */
+#modal-confirm-ent.open,#modal-modelo-form.open,#modal-ent-form.open,#modal-tipo-form.open,#modal-cat-form.open{align-items:center}
+#modal-confirm-ent .modal,#modal-modelo-form .modal,#modal-ent-form .modal,#modal-tipo-form .modal,#modal-cat-form .modal{margin:auto}
+/* setas de ordem das categorias: a da ponta fica apagada, não some (a linha não pula) */
+.modelos-acts .lnk:disabled{opacity:.3;cursor:default;text-decoration:none}
+
+/* ── Aplicar modelo aos projetos (controle de mudança) e histórico ── */
+.modal.prop-modal{max-width:780px;width:94%}
+.prop-body{max-height:52vh;overflow-y:auto;margin-top:12px;padding-right:4px}
+.prop-topo{font-size:12.5px;color:var(--t3);margin-bottom:10px}
+.prop-proj{border:1px solid var(--border-soft);border-radius:var(--r);margin-bottom:10px;background:var(--bg-void)}
+.prop-proj-off .prop-linhas{opacity:.45}
+.prop-proj-head{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border-dim);flex-wrap:wrap}
+.prop-proj-nome{font-weight:700;color:var(--t1);font-size:13.5px}
+.prop-chips{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.prop-chip{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:var(--r-pill);border:1px solid var(--border-soft);color:var(--t2)}
+.prop-chip-criar,.prop-chip-vincular{color:#6ee7b7;border-color:rgba(52,211,153,.35)}
+.prop-chip-remover{color:#fda4af;border-color:rgba(248,113,113,.35)}
+.prop-chip-mantido{color:var(--t4)}
+.prop-linhas{padding:4px 12px 8px}
+.prop-linha,.hm-linha{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-dim);font-size:12.5px;flex-wrap:wrap}
+.prop-linha:last-child,.hm-linha:last-child{border-bottom:none}
+.prop-linha-mantido{color:var(--t4)}
+.prop-acao{flex:0 0 auto;min-width:92px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--cyan)}
+.prop-acao-criar,.prop-acao-criado,.prop-acao-vincular,.prop-acao-vinculado{color:#6ee7b7}
+.prop-acao-remover,.prop-acao-apagado{color:#fda4af}
+.prop-acao-mantido,.prop-acao-desvinculado,.prop-acao-na{color:var(--t4)}
+.prop-ent{color:var(--t1);font-weight:600;flex:0 1 auto}
+.prop-cat{font-weight:400;color:var(--t4);font-size:11px;margin-left:6px}
+.prop-det{flex:1 1 240px;color:var(--t3);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.prop-det b{color:var(--t1)}
+.prop-antes{text-decoration:line-through;color:var(--t4)}
+.prop-decisao{flex:0 0 auto;width:auto;min-width:230px;padding:5px 8px;font-size:12px}
+.prop-decisao.prop-falta{border-color:rgba(248,113,113,.6)}
+.prop-emdia{font-size:12px;color:var(--t4);padding:6px 2px}
+.prop-ciente{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--t2);cursor:pointer;line-height:1.45}
+.prop-ciente input{margin-top:3px}
+.prop-falta{font-size:11.5px;color:var(--t4)}
+.hm-item{border:1px solid var(--border-soft);border-radius:var(--r);margin-bottom:8px;background:var(--bg-void)}
+.hm-head{appearance:none;border:none;background:none;width:100%;text-align:left;cursor:pointer;padding:10px 12px;
+  display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-family:var(--font-body);color:var(--t2)}
+.hm-quando{font-size:12px;color:var(--t3);grid-row:span 2}
+.hm-motivo{font-size:13px;font-weight:600;color:var(--t1)}
+.hm-quem{font-size:11.5px;color:var(--t4)}
+.hm-det{padding:2px 12px 10px}
+.hm-proj{margin-top:8px}
+.hm-proj-nome{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--t3);padding-bottom:2px;border-bottom:1px solid var(--border-dim)}
+@media (max-width:640px){
+  .prop-chips{margin-left:0}
+  .prop-decisao{min-width:0;width:100%}
+  .hm-head{grid-template-columns:1fr}
+  .hm-quando{grid-row:auto}
+}
 
 /* ── Selo de projeto arquivado (card) ── */
 .proj-arch-tag{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;

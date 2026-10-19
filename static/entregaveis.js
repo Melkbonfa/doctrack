@@ -1,6 +1,6 @@
 /* Entregáveis por Projeto — lógica da página */
 /* TOKEN_KEY, token(), esc(), norm() e o par de tema vêm de static/common.js. */
-const CATEGORIAS = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"];
+let _categorias = [];   // categorias de entregável cadastradas: [{id, nome, entregaveis, itens_modelo}]
 let _tipos = [];   // tipos de projeto cadastrados: [{id, nome, projetos, itens_modelo}]
 let _projetos = [], _projAtualId = null, _popEntregavel = null;
 let _resumo = null, _projetosAll = [], _charts = {};
@@ -871,8 +871,9 @@ function renderFichaProjeto(p){
     ? `<table class="evm-table"><thead><tr><th>Mês</th><th class="num">Custo acumulado</th></tr></thead><tbody>${custos.map(s => `<tr><td>${_fmtComp(s.competencia)}</td><td class="num">${_money(s.custo_acumulado)}</td></tr>`).join("")}</tbody></table>`
     : `<div class="evm-empty">Nenhum custo lançado. Use a aba Projetos → abrir o projeto → “+ Lançar custo”.</div>`;
 
+  const ordenavel = canEditProj() && p.ativo !== false;
   const tarefas = (p.categorias || []).filter(c => (c.entregaveis || []).length).map(c =>
-    `<div class="ficha-cat"><div class="ficha-cat-title">${esc(c.categoria)}</div>${c.entregaveis.map(projRowHtml).join("")}</div>`).join("");
+    `<div class="ficha-cat"><div class="ficha-cat-title">${esc(c.categoria)}</div><div class="ent-lista">${c.entregaveis.map(e => projRowHtml(e, ordenavel)).join("")}</div></div>`).join("");
 
   host.innerHTML = `
     <div class="ficha-head">
@@ -905,6 +906,7 @@ function renderFichaProjeto(p){
     </div>
     <div class="card"><div class="card-title">Entregáveis por categoria</div>${tarefas || '<div class="evm-empty">Sem entregáveis.</div>'}</div>`;
 
+  ativarOrdemEntregaveis("ficha", ordenavel ? host.querySelectorAll(".ficha-cat .ent-lista") : [], p.id);
   renderCurvaS(p.serie_mensal || [], "curva-s-ficha");
   renderStatusDonut(conc, prog, pend, "donut-ficha", "donut-ficha-center", "legend-ficha");
   renderTendencia(p.tendencia || [], "tend-ficha");
@@ -1358,6 +1360,14 @@ async function salvarMoscow(valor){
 
 /* ── Modal de projeto (abas por categoria) ── */
 async function abrirProjModal(id){
+  // Recarregar o projeto que já está aberto (depois de uma edição, ou pelo
+  // tempo real) mantém a aba: voltar sempre para a primeira tirava o usuário
+  // da categoria em que estava trabalhando — e logo depois de arrastar um
+  // entregável, parecia que a mudança tinha sumido.
+  const reabrindo = _projAtualId === id
+    && document.getElementById("modal-projeto").classList.contains("open");
+  const abaAntes = reabrindo
+    ? (document.querySelector("#proj-modal-tabs .equip-modal-tab.active") || {}).textContent : null;
   _projAtualId = id;
   const p = await api("/api/projetos/" + id);
   _projDetalheAtual = p;
@@ -1389,12 +1399,16 @@ async function abrirProjModal(id){
   document.getElementById("proj-modal-sub").innerHTML = sub;
 
   const cats = (p.categorias || []).filter(c => (c.entregaveis || []).length);
+  const ativa = Math.max(0, cats.findIndex(c => c.categoria === abaAntes));
+  const ordenavel = canEditProj() && !arquivado;
   document.getElementById("proj-modal-tabs").innerHTML = cats.map((c, i) =>
-    `<button type="button" class="equip-modal-tab${i===0?" active":""}" data-tab="cat${i}" onclick="switchProjTab('cat${i}')">${esc(c.categoria)}</button>`
+    `<button type="button" class="equip-modal-tab${i===ativa?" active":""}" data-tab="cat${i}" onclick="switchProjTab('cat${i}')">${esc(c.categoria)}</button>`
   ).join("");
-  document.getElementById("proj-modal-panels").innerHTML = cats.map((c, i) =>
-    `<div class="equip-tab-panel${i===0?" active":""}" id="proj-panel-cat${i}">${c.entregaveis.map(projRowHtml).join("")}</div>`
+  const paineis = document.getElementById("proj-modal-panels");
+  paineis.innerHTML = cats.map((c, i) =>
+    `<div class="equip-tab-panel${i===ativa?" active":""}" id="proj-panel-cat${i}">${c.entregaveis.map(e => projRowHtml(e, ordenavel)).join("")}</div>`
   ).join("");
+  ativarOrdemEntregaveis("modal", ordenavel ? paineis.querySelectorAll(".equip-tab-panel") : [], p.id);
 
   renderPmoSection(p);
 
@@ -1551,7 +1565,8 @@ function _attrJson(v){
   return JSON.stringify(v).replace(/'/g, "&#39;").replace(/</g, "\\u003c");
 }
 
-function projRowHtml(e){
+/* `ordenavel`: a linha ganha a alça de arrastar (ver ativarOrdemEntregaveis). */
+function projRowHtml(e, ordenavel){
   let badgeCls = "sg-pendente", statusLabel = "Pendente", extra = "";
   if (e.status === "concluido"){ badgeCls = "sg-finalizado"; statusLabel = "Concluído"; }
   else if (e.status === "em_progresso"){ badgeCls = "sg-progresso"; statusLabel = (e.percentual ?? 0) + "%"; }
@@ -1565,10 +1580,63 @@ function projRowHtml(e){
     ? `<span class="sg-badge" title="Peso (esforço relativo)">×${e.peso}</span>` : "";
   const atraso = e.atrasado
     ? `<span class="sg-badge" style="color:#fda4af;border-color:rgba(248,113,113,.35)" title="Passou do término previsto">atrasado</span>` : "";
-  return `<div class="ent-row" onclick='abrirPop(${_attrJson(e)})'>
-    <span>${esc(e.tipo)}</span>
+  const alca = ordenavel
+    ? `<span class="ent-row-alca" title="Arraste para mudar a ordem" aria-hidden="true"><svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><circle cx="2" cy="2" r="1.3"/><circle cx="6" cy="2" r="1.3"/><circle cx="2" cy="7" r="1.3"/><circle cx="6" cy="7" r="1.3"/><circle cx="2" cy="12" r="1.3"/><circle cx="6" cy="12" r="1.3"/></svg></span>`
+    : "";
+  return `<div class="ent-row" data-id="${e.id}" onclick='abrirPop(${_attrJson(e)})'>
+    <span class="ent-row-nome">${alca}${esc(e.tipo)}</span>
     <span class="quem">${esc(quem)} ${peso}${atraso} <span class="sg-badge ${badgeCls}"${extra}>${statusLabel}</span>${delBtn}</span>
   </div>`;
+}
+
+/* ── Ordem dos entregáveis (arrastar) ──
+   A linha inteira é a alça, como numa playlist; os pontinhos só avisam que dá
+   para arrastar. No toque o arrasto espera um toque longo — senão a lista não
+   rolaria. Cada lista é uma categoria: arrastar muda a ordem, nunca a
+   categoria. As instâncias são destruídas a cada redesenho porque o Sortable
+   guarda todas numa lista global. */
+let _sortEnt = { modal: [], ficha: [] };
+let _arrastandoEnt = false, _arrastoEntFim = 0;
+
+function ativarOrdemEntregaveis(onde, listas, pid){
+  _sortEnt[onde].forEach(s => s.destroy());
+  _sortEnt[onde] = [];
+  if (typeof Sortable === "undefined") return;   // vendor não carregou: a lista só fica fixa
+  listas.forEach(lista => {
+    _sortEnt[onde].push(new Sortable(lista, {
+      draggable: ".ent-row", filter: ".ent-row-del", preventOnFilter: false,
+      animation: 150, delay: 250, delayOnTouchOnly: true,
+      ghostClass: "ent-row-ghost", chosenClass: "ent-row-chosen",
+      onStart: () => { _arrastandoEnt = true; },
+      onEnd: (ev) => {
+        _arrastandoEnt = false;
+        _arrastoEntFim = Date.now();
+        if (ev.oldIndex !== ev.newIndex) salvarOrdemEntregaveis(pid, lista, onde);
+      },
+    }));
+  });
+}
+
+async function salvarOrdemEntregaveis(pid, lista, onde){
+  const ids = [...lista.querySelectorAll(".ent-row")].map(r => parseInt(r.dataset.id, 10));
+  try{
+    await api(`/api/projetos/${pid}/entregaveis/ordem`, { method:"PUT", body: JSON.stringify({ ids }) });
+    // Modal e ficha guardam cada um a sua cópia do projeto (o relatório em PDF
+    // lê dela): as duas passam a ter a ordem nova.
+    [_projDetalheAtual, _fichaProj].forEach(p => { if (p && p.id === pid) _aplicarOrdemEntregaveis(p, ids); });
+  }catch(err){
+    toast(err.message, true);
+    // A tela já mostra a ordem nova; volta para a que ficou no servidor.
+    (onde === "modal" ? abrirProjModal(pid) : setDashProj(pid)).catch(()=>{});
+  }
+}
+
+function _aplicarOrdemEntregaveis(p, ids){
+  const pos = new Map(ids.map((id, i) => [id, i]));
+  (p.categorias || []).forEach(c => {
+    if ((c.entregaveis || []).some(e => pos.has(e.id)))
+      c.entregaveis.sort((a, b) => (pos.get(a.id) ?? ids.length) - (pos.get(b.id) ?? ids.length));
+  });
 }
 
 function switchProjTab(tab){
@@ -1658,11 +1726,64 @@ function renderBaselines(p){
       </div>`).join("");
 }
 
-/* Preenche um <select> com as categorias de entregável. */
+/* ── Categorias de entregável ──
+   Eram fixas no código (Produto, Sistema, Documentação, Capacitação,
+   Marketing); agora vêm do cadastro. O gestor cria outras pelo próprio
+   seletor ("+ Nova categoria…") ou pela aba Modelos. */
+const _CAT_NOVA = "__nova__";       // valor da opção "+ Nova categoria…"
+const _CAT_SELECTS = ["pf-ent-cat", "ef-cat", "mdf-cat", "mod-add-cat"];
+const _CATEGORIAS_PADRAO = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"];
+let _catCadastro = false;   // a lista veio do cadastro (dá para criar/renomear/excluir)?
+
+function _catNomes(){ return _categorias.map(c => c.nome); }
+
+/* Não falha: sem o cadastro (servidor que ainda não tem a rota, ou erro de
+   rede) a tela segue com as categorias padrão, só sem poder criar outras. */
+async function loadCategorias(){
+  try{
+    const data = await api("/api/categorias-entregavel");
+    _categorias = data.categorias || [];
+    _catCadastro = true;
+  }catch(e){
+    if (!_categorias.length) _categorias = _CATEGORIAS_PADRAO.map(nome => ({ nome }));
+  }
+  return _categorias;
+}
+
+/* Preenche um <select> com as categorias de entregável. Uma categoria fora do
+   cadastro (dado legado) entra como opção extra, como em _fillTipoSelect.
+   Opções via DOM, e não innerHTML — o nome é digitado pelo usuário. */
 function _fillCatSelect(id, sel){
   const el = document.getElementById(id);
   if (!el) return;
-  el.innerHTML = CATEGORIAS.map(c => `<option value="${c}" ${c===sel?"selected":""}>${c}</option>`).join("");
+  const nomes = _catNomes();
+  const extra = (sel && !nomes.includes(sel)) ? [new Option(sel, sel)] : [];
+  const nova = (canEditProj() && _catCadastro) ? [new Option("+ Nova categoria…", _CAT_NOVA)] : [];
+  el.replaceChildren(...extra, ...nomes.map(c => new Option(c, c)), ...nova);
+  el.value = sel || nomes[0] || "";
+  el.dataset.anterior = el.value;
+  el.onchange = () => _onCatSelectChange(el);
+}
+
+/* Escolher "+ Nova categoria…" abre o cadastro; o seletor volta ao valor de
+   antes até a categoria existir (cancelar não deixa a opção marcada). */
+function _onCatSelectChange(el){
+  if (el.value !== _CAT_NOVA){ el.dataset.anterior = el.value; return; }
+  el.value = el.dataset.anterior || "";
+  abrirFormCategoria(null, el.id);
+}
+
+/* Repreenche os seletores de categoria abertos. `trocas`: {id do select: valor}
+   força o valor de um deles; `renomeada` ([antigo, novo]) acompanha a troca de
+   nome nos que estavam nela. */
+function _refreshCatSelects(trocas = {}, renomeada = null){
+  _CAT_SELECTS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let v = id in trocas ? trocas[id] : el.value;
+    if (renomeada && v === renomeada[0]) v = renomeada[1];
+    _fillCatSelect(id, v);
+  });
 }
 
 /* ── Tipos de projeto ──
@@ -1754,7 +1875,10 @@ async function onTipoProjetoChange(){
   try{
     const data = await api("/api/modelos?tipo=" + encodeURIComponent(tipo));
     const itens = (data.modelos && data.modelos[tipo]) || [];
-    _pfEntregaveis = itens.map(m => ({ tipo: m.tipo, categoria: m.categoria, responsaveis: m.responsavel_padrao || "" }));
+    // A chave liga o entregável ao item do modelo (para aplicar mudanças do
+    // modelo depois); o peso ia sendo perdido aqui e o projeto nascia com 1.
+    _pfEntregaveis = itens.map(m => ({ tipo: m.tipo, categoria: m.categoria, peso: m.peso,
+                                       responsaveis: m.responsavel_padrao || "", modelo_chave: m.chave }));
     if (hint) hint.textContent = `Lista-padrão de ${tipo} carregada. Remova ou adicione itens antes de criar.`;
     pfRenderEntList();
   }catch(err){ toast(err.message, true); }
@@ -1767,7 +1891,7 @@ function abrirFormProjeto(){
   document.getElementById("pf-arquivar").style.display = "none";
   // Editor de entregáveis: só na criação
   _pfEntregaveis = [];
-  _fillCatSelect("pf-ent-cat", "Produto");
+  _fillCatSelect("pf-ent-cat");
   document.getElementById("pf-tipo").disabled = false;
   document.getElementById("pf-ent-wrap").style.display = "";
   pfRenderEntList();
@@ -1798,7 +1922,7 @@ function fecharFormProjeto(){ _fecharModal("modal-proj-form"); _formProjId = nul
 async function _recarregarTudo(){
   // Os modelos vêm antes: outra pessoa pode ter criado, renomeado ou mudado a
   // área de um, e a grade pinta a etiqueta a partir deles.
-  await loadTipos().catch(()=>{});
+  await Promise.all([loadTipos().catch(()=>{}), loadCategorias()]);
   await Promise.all([
     loadProjetos().catch(()=>{}),
     loadKpis().catch(()=>{}),
@@ -1876,8 +2000,8 @@ function abrirFormEntregavel(){
   if (!_projAtualId) return;
   // categoria padrão = aba ativa no detalhe, se houver
   const tabAtiva = document.querySelector("#proj-modal-tabs .equip-modal-tab.active");
-  const catAtual = (tabAtiva && tabAtiva.textContent.trim()) || "Produto";
-  _fillCatSelect("ef-cat", CATEGORIAS.includes(catAtual) ? catAtual : "Produto");
+  const catAtual = (tabAtiva && tabAtiva.textContent.trim()) || "";
+  _fillCatSelect("ef-cat", _catNomes().includes(catAtual) ? catAtual : "");
   document.getElementById("ef-nome").value = "";
   document.getElementById("ef-peso").value = "1";
   document.getElementById("ef-ini-prev").value = "";
@@ -1929,12 +2053,13 @@ function _tipoAtual(){ return _tipos.find(t => t.nome === _modelosTipoAtual) || 
 function _plural(n, um, varios){ return `${n} ${n === 1 ? um : varios}`; }
 
 async function loadModelos(){
-  const [data] = await Promise.all([api("/api/modelos"), loadTipos()]);
+  const [data] = await Promise.all([api("/api/modelos"), loadTipos(), loadCategorias()]);
   _modelosCache = data.modelos || {};
   // o tipo selecionado pode ter sido renomeado/excluído (inclusive por outra pessoa)
   if (!_tipoAtual()) _modelosTipoAtual = _tipos.length ? _tipos[0].nome : "";
   renderModelosToggle();
   renderModelos();
+  renderCategorias();
 }
 
 function renderModelosToggle(){
@@ -1975,6 +2100,8 @@ function renderModelosInfo(){
   const a = _areaInfo(t.area);
   host.innerHTML = `<span>Modelo <b>${esc(t.nome)}</b> · ${esc(a.nome)} · ${uso}</span>`
     + (canEditProj() ? `<span class="modelos-acts">
+        ${_souAdmin() ? `<button type="button" class="lnk" onclick="abrirPropagacao()" title="Levar as mudanças deste modelo aos projetos ativos">Aplicar aos projetos…</button>` : ""}
+        <button type="button" class="lnk" onclick="abrirHistoricoModelo()">Histórico</button>
         <button type="button" class="lnk" onclick="abrirFormTipo(${t.id})">Editar</button>
         <button type="button" class="lnk lnk-danger" onclick="tipoExcluir(${t.id})">Excluir modelo</button>
       </span>` : "");
@@ -2084,17 +2211,21 @@ function renderModelos(){
   // agrupa por categoria
   const grupos = {};
   itens.forEach(m => (grupos[m.categoria] = grupos[m.categoria] || []).push(m));
-  const cats = CATEGORIAS.filter(c => grupos[c]).concat(
-    Object.keys(grupos).filter(c => !CATEGORIAS.includes(c)));
+  const nomes = _catNomes();
+  const cats = nomes.filter(c => grupos[c]).concat(
+    Object.keys(grupos).filter(c => !nomes.includes(c)));
   let html = "";
   cats.forEach(c => {
     html += `<div class="modelos-cat"><div class="modelos-cat-head">${esc(c)}</div>`;
-    html += grupos[c].map(m =>
+    const ult = grupos[c].length - 1;
+    html += grupos[c].map((m, i) =>
       `<div class="modelos-row">
         <span class="modelos-nome">${esc(m.tipo)}</span>
         ${(m.peso != null && m.peso !== 1) ? `<span class="modelos-resp" title="Peso padrão (esforço)">×${m.peso}</span>` : ""}
         <span class="modelos-resp">${esc(m.responsavel_padrao || "—")}</span>
         ${pode ? `<span class="modelos-acts">
+          <button type="button" class="lnk" onclick="moverModelo(${m.id},-1)" ${i === 0 ? "disabled" : ""} title="Mover para cima" aria-label="Mover ${esc(m.tipo)} para cima">↑</button>
+          <button type="button" class="lnk" onclick="moverModelo(${m.id},1)" ${i === ult ? "disabled" : ""} title="Mover para baixo" aria-label="Mover ${esc(m.tipo)} para baixo">↓</button>
           <button type="button" class="lnk" onclick="modeloEditar(${m.id})">Editar</button>
           <button type="button" class="lnk lnk-danger" onclick="modeloExcluir(${m.id})">Excluir</button>
         </span>` : ""}
@@ -2102,10 +2233,12 @@ function renderModelos(){
     html += `</div>`;
   });
   if (!itens.length) html = `<div class="per-vazio" style="padding:16px 0">Nenhum item neste modelo ainda.</div>`;
+  // a categoria escolhida sobrevive ao redesenho: quem cadastra vários itens
+  // seguidos costuma pôr todos na mesma
+  const catAntes = (document.getElementById("mod-add-cat") || {}).value;
   if (pode){
-    const opts = CATEGORIAS.map(c => `<option value="${c}">${c}</option>`).join("");
     html += `<div class="modelos-add">
-      <select class="form-input" id="mod-add-cat" aria-label="Categoria">${opts}</select>
+      <select class="form-input" id="mod-add-cat" aria-label="Categoria"></select>
       <input class="form-input" id="mod-add-nome" placeholder="Nome do entregável" aria-label="Nome do entregável"
              onkeydown="if(event.key==='Enter'){event.preventDefault();modeloAdicionar();}">
       <input class="form-input" id="mod-add-resp" placeholder="Responsável padrão (opcional)" aria-label="Responsável padrão">
@@ -2115,6 +2248,109 @@ function renderModelos(){
     </div>`;
   }
   host.innerHTML = html;
+  if (pode) _fillCatSelect("mod-add-cat", nomes.includes(catAntes) ? catAntes : "");
+}
+
+/* Cadastro de categorias na aba Modelos: uso, ordem, renomear e excluir. */
+function renderCategorias(){
+  const host = document.getElementById("cats-body");
+  if (!host) return;
+  const pode = canEditProj() && _catCadastro;
+  const novo = document.getElementById("btn-nova-cat");
+  if (novo) novo.style.display = pode ? "" : "none";
+  const ult = _categorias.length - 1;
+  host.innerHTML = _categorias.map((c, i) => {
+    const uso = [c.entregaveis ? _plural(c.entregaveis, "entregável", "entregáveis") : "",
+                 c.itens_modelo ? _plural(c.itens_modelo, "item de modelo", "itens de modelo") : ""]
+                .filter(Boolean).join(" · ") || "sem uso";
+    // Índice no onclick, e não o nome: o nome é digitado pelo usuário.
+    return `<div class="modelos-row">
+      <span class="modelos-nome">${esc(c.nome)}</span>
+      <span class="modelos-resp">${uso}</span>
+      ${pode ? `<span class="modelos-acts">
+        <button type="button" class="lnk" onclick="moverCategoria(${i},-1)" ${i === 0 ? "disabled" : ""} title="Mover para cima" aria-label="Mover ${esc(c.nome)} para cima">↑</button>
+        <button type="button" class="lnk" onclick="moverCategoria(${i},1)" ${i === ult ? "disabled" : ""} title="Mover para baixo" aria-label="Mover ${esc(c.nome)} para baixo">↓</button>
+        <button type="button" class="lnk" onclick="abrirFormCategoria(${c.id})">Renomear</button>
+        <button type="button" class="lnk lnk-danger" onclick="categoriaExcluir(${c.id})">Excluir</button>
+      </span>` : ""}
+    </div>`;
+  }).join("") || `<div class="per-vazio" style="padding:16px 0">Nenhuma categoria cadastrada.</div>`;
+}
+
+let _catEditId = null, _catOrigemSel = null;
+
+/* Com `id` renomeia; sem, cria. `origemSel`: id do <select> de onde veio o
+   "+ Nova categoria…" — ao salvar, a categoria nova já fica escolhida nele. */
+function abrirFormCategoria(id, origemSel){
+  const c = id ? _categorias.find(x => x.id === id) : null;
+  if (id && !c) return;
+  _catEditId = c ? c.id : null;
+  _catOrigemSel = origemSel || null;
+  const usos = c ? (c.entregaveis || 0) + (c.itens_modelo || 0) : 0;
+  document.getElementById("ctf-title").textContent = c ? "Renomear categoria" : "Nova categoria";
+  document.getElementById("ctf-sub").textContent = !c ? "Vale para todos os modelos e projetos"
+    : usos ? `O nome novo vale também para ${_plural(usos, "item que já usa", "itens que já usam")} esta categoria`
+    : "Nenhum item usa esta categoria ainda";
+  document.getElementById("ctf-nome").value = c ? c.nome : "";
+  _abrirModal("modal-cat-form");
+  setTimeout(() => document.getElementById("ctf-nome").focus(), 60);
+}
+
+function fecharFormCategoria(){ _fecharModal("modal-cat-form"); _catEditId = null; _catOrigemSel = null; }
+
+async function salvarFormCategoria(){
+  const nome = document.getElementById("ctf-nome").value.trim();
+  if (!nome){ toast("Informe o nome da categoria", true); return; }
+  const editId = _catEditId, origem = _catOrigemSel;
+  try{
+    if (editId){
+      const antigo = (_categorias.find(x => x.id === editId) || {}).nome;
+      const salva = (await api("/api/categorias-entregavel/" + editId,
+        { method: "PUT", body: JSON.stringify({ nome }) })).categoria;
+      fecharFormCategoria();
+      toast("Categoria renomeada");
+      await loadCategorias();
+      _refreshCatSelects({}, [antigo, salva.nome]);
+    } else {
+      const salva = (await api("/api/categorias-entregavel",
+        { method: "POST", body: JSON.stringify({ nome }) })).categoria;
+      fecharFormCategoria();
+      toast("Categoria criada");
+      await loadCategorias();
+      _refreshCatSelects(origem ? { [origem]: salva.nome } : {});
+    }
+    if (_abaAtual === "modelos") await loadModelos();
+  }catch(err){ toast(err.message, true); }
+}
+
+async function moverCategoria(i, delta){
+  const ids = _categorias.map(c => c.id);
+  const j = i + delta;
+  if (j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  try{
+    await api("/api/categorias-entregavel/ordem", { method: "PUT", body: JSON.stringify({ ids }) });
+    await loadModelos();
+  }catch(err){ toast(err.message, true); }
+}
+
+async function categoriaExcluir(id){
+  const c = _categorias.find(x => x.id === id);
+  if (!c) return;
+  if (c.entregaveis || c.itens_modelo){
+    const uso = [c.entregaveis ? _plural(c.entregaveis, "entregável", "entregáveis") + " (contando projetos arquivados)" : "",
+                 c.itens_modelo ? _plural(c.itens_modelo, "item de modelo", "itens de modelo") : ""]
+                .filter(Boolean).join(" e ");
+    toast(`"${c.nome}" está em uso por ${uso}. Renomeie em vez de excluir, ou tire esses itens dela antes.`, true);
+    return;
+  }
+  if (!(await confirmar(`Excluir a categoria "${c.nome}"?`,
+        {title:"Excluir categoria", okLabel:"Excluir"}))) return;
+  try{
+    await api("/api/categorias-entregavel/" + id, { method: "DELETE" });
+    toast("Categoria excluída");
+    await loadModelos();
+  }catch(err){ toast(err.message, true); }
 }
 
 async function modeloAdicionar(){
@@ -2145,7 +2381,7 @@ function modeloEditar(mid){
   document.getElementById("mdf-nome").value = m.tipo || "";
   document.getElementById("mdf-resp").value = m.responsavel_padrao || "";
   document.getElementById("mdf-peso").value = m.peso != null ? m.peso : 1;
-  document.getElementById("mdf-sub").textContent = `Modelo ${_modelosTipoAtual} · projetos já criados não são afetados`;
+  document.getElementById("mdf-sub").textContent = `Modelo ${_modelosTipoAtual} · projetos já criados só mudam quando um administrador aplicar o modelo a eles`;
   _abrirModal("modal-modelo-form");
   setTimeout(() => document.getElementById("mdf-nome").focus(), 60);
 }
@@ -2170,11 +2406,29 @@ async function salvarModeloForm(){
   }catch(err){ toast(err.message, true); }
 }
 
+/* Troca o item com o vizinho da mesma categoria (a tela agrupa por categoria,
+   mas a ordem gravada é a do modelo inteiro — os demais itens não se mexem). */
+async function moverModelo(mid, delta){
+  const tipo = _modelosTipoAtual;
+  const itens = _modelosCache[tipo] || [];
+  const i = itens.findIndex(m => m.id === mid);
+  if (i < 0) return;
+  let j = i + delta;
+  while (j >= 0 && j < itens.length && itens[j].categoria !== itens[i].categoria) j += delta;
+  if (j < 0 || j >= itens.length) return;
+  const ids = itens.map(m => m.id);
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  try{
+    await api("/api/modelos/ordem", { method: "PUT", body: JSON.stringify({ tipo_projeto: tipo, ids }) });
+    await loadModelos();
+  }catch(err){ toast(err.message, true); await loadModelos().catch(()=>{}); }
+}
+
 async function modeloExcluir(mid){
   const itens = _modelosCache[_modelosTipoAtual] || [];
   const m = itens.find(x => x.id === mid);
   const nome = m ? m.tipo : "este item";
-  if (!(await confirmar(`Remover "${nome}" do modelo ${_modelosTipoAtual}? Projetos já criados não são afetados.`,
+  if (!(await confirmar(`Remover "${nome}" do modelo ${_modelosTipoAtual}? Projetos já criados só mudam quando um administrador aplicar o modelo a eles.`,
         {title:"Remover item do modelo", okLabel:"Remover"}))) return;
   try{
     await api("/api/modelos/" + mid, { method: "DELETE" });
@@ -2182,6 +2436,249 @@ async function modeloExcluir(mid){
     await loadModelos();
   }catch(err){ toast(err.message, true); }
 }
+
+/* ── Aplicar o modelo aos projetos (controle de mudança, só admin) ──
+   A prévia vem pronta do servidor (modelo_sync.calcular_previa); aqui o admin
+   escolhe os projetos, decide o destino dos itens que saíram do modelo, informa
+   o motivo e confirma. Cada projeto volta com a `versao` da prévia: se alguém
+   mexer no modelo ou no projeto no meio do caminho, o servidor recusa (409) e
+   a prévia é refeita. */
+function _souAdmin(){ return (_meuRole || userRole()) === "admin"; }
+
+let _prop = null;   // { tipo, previa, marcados:Set<pid>, decisoes:{eid: decisao} }
+
+const _PROP_ROTULO = {
+  criar: "Novo", vincular: "Vincular", renomeado: "Renomear", categoria: "Categoria",
+  peso: "Peso", responsavel: "Responsável", mantido: "Mantido", remover: "Saiu do modelo",
+};
+const _PROP_RESUMO = {
+  criar: ["novo", "novos"], vincular: ["vínculo", "vínculos"], renomeado: ["renomeado", "renomeados"],
+  categoria: ["mudança de categoria", "mudanças de categoria"], peso: ["peso", "pesos"],
+  responsavel: ["responsável", "responsáveis"], remover: ["removido", "removidos"],
+  mantido: ["ajuste mantido", "ajustes mantidos"],
+};
+const _PROP_CAMPO = { tipo: "Nome", categoria: "Categoria", peso: "Peso", responsavel: "Responsável" };
+
+async function abrirPropagacao(){
+  if (!_souAdmin()) return;
+  _prop = { tipo: _modelosTipoAtual, previa: null, marcados: new Set(), decisoes: {} };
+  document.getElementById("prop-title").textContent = `Aplicar modelo ${_prop.tipo} aos projetos`;
+  document.getElementById("prop-motivo").value = "";
+  document.getElementById("prop-ciente").checked = false;
+  document.getElementById("prop-body").innerHTML = `<div class="per-vazio" style="padding:16px 0">Comparando o modelo com os projetos…</div>`;
+  _abrirModal("modal-propagacao");
+  await _carregarPrevia();
+}
+
+function fecharPropagacao(){ _fecharModal("modal-propagacao"); _prop = null; }
+
+async function _carregarPrevia(){
+  try{
+    const pv = await api("/api/modelos/propagacao/previa?tipo=" + encodeURIComponent(_prop.tipo));
+    _prop.previa = pv;
+    // Marcado por padrão quem tem alteração; decisões anteriores ficam se o
+    // entregável ainda está na prévia (refazer a prévia não apaga o que o admin já escolheu).
+    const eids = new Set();
+    _prop.marcados = new Set(pv.projetos.filter(p => p.alteracoes || p.mudancas.length).map(p => p.id));
+    pv.projetos.forEach(p => p.mudancas.forEach(c => {
+      if (c.acao === "remover"){
+        eids.add(String(c.entregavel_id));
+        if (!c.andamento && !_prop.decisoes[c.entregavel_id]) _prop.decisoes[c.entregavel_id] = "apagar";
+      }
+    }));
+    Object.keys(_prop.decisoes).forEach(k => { if (!eids.has(String(k))) delete _prop.decisoes[k]; });
+    renderPropagacao();
+  }catch(err){
+    document.getElementById("prop-body").innerHTML = `<div class="per-vazio" style="padding:16px 0">${esc(err.message)}</div>`;
+  }
+}
+
+function _propLinha(c){
+  const rot = `<span class="prop-acao prop-acao-${c.acao}">${_PROP_ROTULO[c.acao] || esc(c.acao)}</span>`;
+  const nome = `<span class="prop-ent">${esc(c.entregavel)}<span class="prop-cat">${esc(c.categoria || "")}</span></span>`;
+  let det = "";
+  if (c.acao === "criar"){
+    det = `entra no fim de ${esc(c.categoria)}${c.peso !== 1 ? ` · peso ${c.peso}` : ""}${c.responsavel ? ` · ${esc(c.responsavel)}` : ""}`;
+  } else if (c.acao === "vincular"){
+    det = "já existe no projeto com o mesmo nome — passa a seguir o modelo";
+  } else if (c.acao === "mantido"){
+    det = `${_PROP_CAMPO[c.campo] || c.campo}: o projeto tem <b>${esc(c.antes || "—")}</b>, o modelo agora diz ${esc(c.depois || "—")}. Fica o do projeto (foi ajustado nele).`;
+  } else if (c.acao === "remover"){
+    const d = _prop.decisoes[c.entregavel_id] || "";
+    const st = { pendente: "pendente", em_progresso: "em andamento", concluido: "concluído", na: "N/A" }[c.status] || c.status;
+    det = `<span class="prop-st">${c.andamento ? `<b>tem andamento</b> (${esc(st)})` : "sem andamento"}</span>
+      <select class="form-input prop-decisao${c.andamento && !d ? " prop-falta" : ""}" aria-label="Destino de ${esc(c.entregavel)}"
+              onchange="propDecidir(${c.entregavel_id}, this.value)">
+        ${c.andamento ? `<option value=""${d ? "" : " selected"}>Escolha o destino…</option>` : ""}
+        <option value="apagar"${d === "apagar" ? " selected" : ""}>Apagar do projeto${c.andamento ? " (perde o histórico)" : ""}</option>
+        <option value="manter"${d === "manter" ? " selected" : ""}>Manter no projeto (vira avulso)</option>
+        <option value="na"${d === "na" ? " selected" : ""}>Marcar como N/A</option>
+      </select>`;
+  } else {
+    det = `<span class="prop-antes">${esc(c.antes || "—")}</span> → <b>${esc(c.depois || "—")}</b>`;
+  }
+  return `<div class="prop-linha${c.acao === "mantido" ? " prop-linha-mantido" : ""}">${rot}${nome}<span class="prop-det">${det}</span></div>`;
+}
+
+function renderPropagacao(){
+  const host = document.getElementById("prop-body");
+  const pv = _prop && _prop.previa;
+  if (!host || !pv) return;
+  const comMud = pv.projetos.filter(p => p.mudancas.length);
+  const emDia = pv.projetos.filter(p => !p.mudancas.length);
+  let html = `<div class="prop-topo">${pv.projetos.length
+    ? `${_plural(comMud.length, "projeto tem", "projetos têm")} diferença com o modelo, de ${_plural(pv.projetos.length, "projeto ativo", "projetos ativos")}.`
+    : "Nenhum projeto ativo usa este modelo."} Projetos arquivados, concluídos e cancelados não entram.</div>`;
+  html += comMud.map(p => {
+    const marcado = _prop.marcados.has(p.id);
+    const resumo = Object.entries(p.resumo).map(([a, n]) =>
+      `<span class="prop-chip prop-chip-${a}">${n} ${(_PROP_RESUMO[a] || [a, a])[n === 1 ? 0 : 1]}</span>`).join("");
+    const ordem = { remover: 0, criar: 1, vincular: 2, renomeado: 3, categoria: 4, peso: 5, responsavel: 6, mantido: 7 };
+    const linhas = p.mudancas.slice().sort((a, b) => (ordem[a.acao] ?? 9) - (ordem[b.acao] ?? 9)).map(_propLinha).join("");
+    return `<div class="prop-proj${marcado ? "" : " prop-proj-off"}">
+      <label class="prop-proj-head">
+        <input type="checkbox" ${marcado ? "checked" : ""} onchange="propMarcar(${p.id}, this.checked)">
+        <span class="prop-proj-nome">${esc(p.nome)}</span>
+        <span class="prop-chips">${resumo}</span>
+      </label>
+      <div class="prop-linhas">${linhas}</div>
+    </div>`;
+  }).join("");
+  if (emDia.length){
+    html += `<div class="prop-emdia">Já em dia com o modelo: ${emDia.map(p => esc(p.nome)).join(", ")}</div>`;
+  }
+  host.innerHTML = html;
+  _propAtualizarRodape();
+}
+
+function propMarcar(pid, on){
+  if (on) _prop.marcados.add(pid); else _prop.marcados.delete(pid);
+  renderPropagacao();
+}
+
+function propDecidir(eid, valor){
+  if (valor) _prop.decisoes[eid] = valor; else delete _prop.decisoes[eid];
+  renderPropagacao();
+}
+
+/* Totais do que vai ser aplicado e o que ainda falta para liberar o botão. */
+function _propPendencias(){
+  const pv = _prop && _prop.previa;
+  const out = { projetos: 0, alteracoes: 0, apagar: 0, faltaDecidir: 0 };
+  if (!pv) return out;
+  pv.projetos.filter(p => _prop.marcados.has(p.id)).forEach(p => {
+    out.projetos++;
+    p.mudancas.forEach(c => {
+      if (c.acao === "mantido") return;
+      out.alteracoes++;
+      if (c.acao === "remover"){
+        const d = _prop.decisoes[c.entregavel_id];
+        if (!d) out.faltaDecidir++;
+        else if (d === "apagar") out.apagar++;
+      }
+    });
+  });
+  return out;
+}
+
+function _propAtualizarRodape(){
+  const t = _propPendencias();
+  const motivo = document.getElementById("prop-motivo").value.trim();
+  const ciente = document.getElementById("prop-ciente");
+  document.getElementById("prop-ciente-txt").innerHTML = t.projetos
+    ? `Confirmo a aplicação de <b>${_plural(t.alteracoes, "alteração", "alterações")}</b> em <b>${_plural(t.projetos, "projeto", "projetos")}</b>`
+      + (t.apagar ? `, incluindo <b>${_plural(t.apagar, "entregável apagado", "entregáveis apagados")}</b>` : "")
+      + `. A mudança fica registrada no histórico com o meu nome e o motivo.`
+    : "Marque ao menos um projeto.";
+  const falta = [];
+  if (!t.projetos) falta.push("marque ao menos um projeto");
+  if (t.faltaDecidir) falta.push(`decida o destino de ${_plural(t.faltaDecidir, "item", "itens")} com andamento`);
+  if (motivo.length < 5) falta.push("informe o motivo");
+  if (!ciente.checked) falta.push("confirme a caixa acima");
+  document.getElementById("prop-falta").textContent = falta.length ? "Falta: " + falta.join(" · ") : "";
+  document.getElementById("prop-ok").disabled = falta.length > 0;
+}
+
+async function confirmarPropagacao(){
+  const t = _propPendencias();
+  if (!_prop || !t.projetos || t.faltaDecidir) return;
+  const projetos = {};
+  _prop.previa.projetos.filter(p => _prop.marcados.has(p.id)).forEach(p => { projetos[p.id] = p.versao; });
+  const btn = document.getElementById("prop-ok");
+  btn.disabled = true;
+  try{
+    const r = await api("/api/modelos/propagacao", { method: "POST", body: JSON.stringify({
+      tipo: _prop.tipo, projetos, decisoes: _prop.decisoes,
+      motivo: document.getElementById("prop-motivo").value.trim() }) });
+    const m = r.mudanca;
+    fecharPropagacao();
+    toast(`Modelo aplicado: ${_plural(m.n_alteracoes, "alteração", "alterações")} em ${_plural(m.n_projetos, "projeto", "projetos")}`);
+    loadProjetos().catch(()=>{});
+    await loadModelos();
+  }catch(err){
+    toast(err.message, true);
+    // Prévia desatualizada (409) ou projeto que saiu do alcance: refaz e deixa revisar.
+    if (_prop){ await _carregarPrevia(); }
+  }
+}
+
+/* ── Histórico de aplicações do modelo ── */
+async function abrirHistoricoModelo(){
+  const tipo = _modelosTipoAtual;
+  document.getElementById("hm-title").textContent = `Histórico de mudanças — Modelo ${tipo}`;
+  const host = document.getElementById("hm-body");
+  host.innerHTML = `<div class="per-vazio" style="padding:16px 0">Carregando…</div>`;
+  _abrirModal("modal-hist-modelo");
+  try{
+    const d = await api("/api/modelos/propagacao/historico?tipo=" + encodeURIComponent(tipo));
+    host.innerHTML = d.mudancas.length ? d.mudancas.map(m =>
+      `<div class="hm-item" id="hm-${m.id}">
+        <button type="button" class="hm-head" onclick="hmAbrir(${m.id})" aria-expanded="false">
+          <span class="hm-quando">${esc(m.feito_em)}</span>
+          <span class="hm-motivo">${esc(m.motivo)}</span>
+          <span class="hm-quem">${esc(m.feito_por)} · ${_plural(m.n_alteracoes, "alteração", "alterações")} em ${_plural(m.n_projetos, "projeto", "projetos")}</span>
+        </button>
+        <div class="hm-det" hidden></div>
+      </div>`).join("")
+      : `<div class="per-vazio" style="padding:16px 0">Nenhuma mudança deste modelo foi aplicada aos projetos ainda.</div>`;
+  }catch(err){ host.innerHTML = `<div class="per-vazio" style="padding:16px 0">${esc(err.message)}</div>`; }
+}
+
+const _HM_ACAO = {
+  criado: "Criado", vinculado: "Vinculado ao modelo", renomeado: "Renomeado", categoria: "Categoria",
+  peso: "Peso", responsavel: "Responsável", mantido: "Mantido (ajuste do projeto)",
+  apagado: "Apagado", na: "Marcado N/A", desvinculado: "Mantido como avulso",
+};
+
+async function hmAbrir(mid){
+  const item = document.getElementById("hm-" + mid);
+  const det = item.querySelector(".hm-det");
+  const head = item.querySelector(".hm-head");
+  if (!det.hidden){ det.hidden = true; head.setAttribute("aria-expanded", "false"); return; }
+  det.hidden = false;
+  head.setAttribute("aria-expanded", "true");
+  if (det.dataset.ok) return;
+  det.innerHTML = `<div class="per-vazio">Carregando…</div>`;
+  try{
+    const d = await api("/api/modelos/propagacao/" + mid);
+    det.innerHTML = d.projetos.map(g => `<div class="hm-proj"><div class="hm-proj-nome">${esc(g.projeto)}</div>`
+      + g.itens.map(i => {
+        const st = s => ({ pendente: "Pendente", em_progresso: "Em andamento", concluido: "Concluído", na: "N/A" }[s] || s || "—");
+        const campo = _PROP_CAMPO[i.campo] ? `${_PROP_CAMPO[i.campo]}: ` : "";
+        const valor = i.acao === "criado" ? `em ${esc(i.depois)}`
+          : i.acao === "apagado" ? `estava ${esc(st(i.antes))}`
+          : i.acao === "na" ? `${esc(st(i.antes))} → N/A`
+          : i.acao === "mantido" ? `${campo}ficou <b>${esc(i.antes || "—")}</b> (o modelo dizia ${esc(i.depois || "—")})`
+          : (i.antes || i.depois) ? `${campo}<span class="prop-antes">${esc(i.antes || "—")}</span> → <b>${esc(i.depois || "—")}</b>` : "";
+        return `<div class="hm-linha${i.acao === "mantido" ? " prop-linha-mantido" : ""}">
+          <span class="prop-acao prop-acao-${i.acao}">${_HM_ACAO[i.acao] || esc(i.acao)}</span>
+          <span class="prop-ent">${esc(i.entregavel)}</span><span class="prop-det">${valor}</span></div>`;
+      }).join("") + `</div>`).join("");
+    det.dataset.ok = "1";
+  }catch(err){ det.innerHTML = `<div class="per-vazio">${esc(err.message)}</div>`; }
+}
+
+function fecharHistoricoModelo(){ _fecharModal("modal-hist-modelo"); }
 
 /* ── Lançamento mensal (PMO) ── */
 let _mensalEditComp = null;
@@ -2283,6 +2780,7 @@ async function excluirMensal(){
 
 /* ── Popover de edição ── */
 function abrirPop(e){
+  if (Date.now() - _arrastoEntFim < 300) return;   // clique fantasma de quem acabou de arrastar
   _popEntregavel = e;
   document.getElementById("pop-titulo").textContent = e.tipo;
   document.getElementById("pop-status").value = e.status;
@@ -2405,6 +2903,11 @@ document.getElementById("modal-modelo-form").addEventListener("click", (e) => {
 document.getElementById("modal-tipo-form").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) fecharFormTipo();
 });
+// `?.`: a página pode vir de um HTML anterior ao cadastro de categorias (o JS
+// é servido do disco na hora; o template fica em cache até o serviço reiniciar).
+document.getElementById("modal-cat-form")?.addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) fecharFormCategoria();
+});
 document.getElementById("cf-ok").addEventListener("click", () => _fecharConfirm(true));
 document.getElementById("cf-cancel").addEventListener("click", () => _fecharConfirm(false));
 document.getElementById("modal-confirm-ent").addEventListener("click", (e) => {
@@ -2423,8 +2926,11 @@ document.addEventListener("keydown", (e) => {
   // o sino é a camada mais leve: sai primeiro, antes de fechar qualquer modal
   if (sinoAberto()){ fecharSino(); document.getElementById("sino-btn").focus(); return; }
   if (document.getElementById("modal-confirm-ent").classList.contains("open")){ _fecharConfirm(false); return; }
-  // o de tipo vem antes do formulário de projeto: abre por cima dele
-  if (document.getElementById("modal-tipo-form").classList.contains("open")) fecharFormTipo();
+  // os de tipo e de categoria vêm antes dos formulários: abrem por cima deles
+  if (document.getElementById("modal-cat-form")?.classList.contains("open")) fecharFormCategoria();
+  else if (document.getElementById("modal-propagacao")?.classList.contains("open")) fecharPropagacao();
+  else if (document.getElementById("modal-hist-modelo")?.classList.contains("open")) fecharHistoricoModelo();
+  else if (document.getElementById("modal-tipo-form").classList.contains("open")) fecharFormTipo();
   else if (document.getElementById("modal-modelo-form").classList.contains("open")) fecharModeloForm();
   else if (document.getElementById("modal-ent-form").classList.contains("open")) fecharFormEntregavel();
   else if (document.getElementById("modal-mensal").classList.contains("open")) fecharModalMensal();
@@ -2451,6 +2957,7 @@ function conectarSocket(){
     const recarregar = () => {                 // agrupa rajadas de eventos
       clearTimeout(pendente);
       pendente = setTimeout(() => {
+        if (_arrastandoEnt){ recarregar(); return; }   // redesenhar agora derrubaria o arrasto
         _recarregarTudo().catch(()=>{});
         if (_projAtualId && document.getElementById("modal-projeto").classList.contains("open"))
           abrirProjModal(_projAtualId).catch(()=>{});
@@ -2478,7 +2985,7 @@ function _temJsPDF(){
     // Os modelos vêm antes: o filtro (da URL ou do último uso) é validado
     // contra eles, e é ele que recorta todas as chamadas abaixo.
     _filtro = _lerFiltroInicial();
-    await loadTipos().catch(()=>{});
+    await Promise.all([loadTipos().catch(()=>{}), loadCategorias()]);
     _normalizarFiltro();
     _salvarFiltro();
     renderFiltroModelos();
