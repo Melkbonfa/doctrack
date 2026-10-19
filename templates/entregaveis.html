@@ -6,10 +6,8 @@
   <title>Projetos — DocTrack</title>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <link rel="stylesheet" href="/static/entregaveis.css?v={{ asset_v }}">
-  <!-- Assets locais: a página precisa funcionar sem internet e sem depender de CDN
-       externo (o módulo PDR já servia Chart.js e Socket.IO assim). -->
-  <script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
-  <script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
+  <!-- Arrastar para ordenar os entregáveis (o mesmo do quadro de Missões). -->
+  <script src="/static/vendor/Sortable.min.js?v={{ asset_v }}"></script>
 </head>
 <body>
   <div class="app-shell" style="display:block">
@@ -195,7 +193,7 @@
           <div class="modelos-head">
             <div>
               <div class="card-title" style="margin:0">Modelos de entregáveis</div>
-              <p class="muted" style="margin:4px 0 0">Cada modelo pertence a uma área e tem a lista-padrão de entregáveis usada ao criar um projeto dele. Editar aqui só afeta projetos criados depois.</p>
+              <p class="muted" style="margin:4px 0 0">Cada modelo pertence a uma área e tem a lista-padrão de entregáveis usada ao criar um projeto dele. Editar aqui vale para os projetos criados depois; para levar a mudança aos projetos em andamento, um administrador usa <b>Aplicar aos projetos…</b></p>
             </div>
             <div class="modelos-tipos">
               <div class="modelos-tipo-toggle" id="modelos-tipo-toggle" role="tablist"></div>
@@ -205,6 +203,17 @@
           <!-- Tipo selecionado: uso + renomear/excluir (ver renderModelosInfo) -->
           <div class="modelos-tipo-info" id="modelos-tipo-info"></div>
           <div id="modelos-body"><div class="loading-state"><div class="spinner"></div>Carregando…</div></div>
+        </div>
+        <!-- Categorias valem para todos os modelos: cadastro à parte (ver renderCategorias) -->
+        <div class="card" style="margin-top:14px">
+          <div class="modelos-head">
+            <div>
+              <div class="card-title" style="margin:0">Categorias de entregável</div>
+              <p class="muted" style="margin:4px 0 0">Valem para todos os modelos e projetos. A ordem daqui é a das abas no detalhe do projeto.</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btn-nova-cat" type="button" onclick="abrirFormCategoria()" style="display:none">+ Nova categoria</button>
+          </div>
+          <div id="cats-body"></div>
         </div>
       </div><!-- /aba-modelos -->
 
@@ -388,7 +397,7 @@
   <div class="modal-overlay" id="modal-modelo-form" role="dialog" aria-modal="true" aria-labelledby="mdf-title" aria-hidden="true">
     <div class="modal" style="width:460px" tabindex="-1">
       <div class="modal-title" id="mdf-title">Editar item do modelo</div>
-      <div class="modal-sub" id="mdf-sub">Projetos já criados não são afetados</div>
+      <div class="modal-sub" id="mdf-sub">Projetos já criados só mudam quando um administrador aplicar o modelo a eles</div>
       <div class="g2">
         <div class="form-group"><label class="form-label" for="mdf-cat">Categoria</label><select class="form-input" id="mdf-cat"></select></div>
         <div class="form-group"><label class="form-label" for="mdf-resp">Responsável padrão</label><input class="form-input" id="mdf-resp" placeholder="Opcional"></div>
@@ -415,6 +424,49 @@
       <div class="form-group" id="tf-copiar-wrap"><label class="form-label" for="tf-copiar">Lista de entregáveis</label>
         <select class="form-input" id="tf-copiar"></select></div>
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharFormTipo()">Cancelar</button><button class="btn btn-primary" onclick="salvarFormTipo()">Salvar</button></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/renomear categoria de entregável. Também abre por cima dos
+       formulários que têm o seletor de categoria ("+ Nova categoria…"). -->
+  <div class="modal-overlay" id="modal-cat-form" role="dialog" aria-modal="true" aria-labelledby="ctf-title" aria-hidden="true" style="z-index:9200">
+    <div class="modal" style="width:420px" tabindex="-1">
+      <div class="modal-title" id="ctf-title">Nova categoria</div>
+      <div class="modal-sub" id="ctf-sub">Vale para todos os modelos e projetos</div>
+      <div class="form-group"><label class="form-label" for="ctf-nome">Nome *</label>
+        <input class="form-input" id="ctf-nome" maxlength="40" placeholder="Ex.: Regulatório"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();salvarFormCategoria();}"></div>
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharFormCategoria()">Cancelar</button><button class="btn btn-primary" onclick="salvarFormCategoria()">Salvar</button></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Aplicar o modelo aos projetos (controle de mudança, só admin) -->
+  <div class="modal-overlay" id="modal-propagacao" role="dialog" aria-modal="true" aria-labelledby="prop-title" aria-hidden="true">
+    <div class="modal prop-modal" tabindex="-1">
+      <div class="modal-title" id="prop-title">Aplicar modelo aos projetos</div>
+      <div class="modal-sub">Controle de mudança. Revise o que muda em cada projeto antes de confirmar: onde o projeto ajustou peso ou responsável, o valor dele é mantido.</div>
+      <div id="prop-body" class="prop-body"></div>
+      <div class="form-group" style="margin-top:14px"><label class="form-label" for="prop-motivo">Motivo da mudança *</label>
+        <textarea class="form-input" id="prop-motivo" rows="2" maxlength="500"
+                  placeholder="Ex.: inclusão do teste de campo exigido pela nova norma" oninput="_propAtualizarRodape()"></textarea></div>
+      <label class="prop-ciente"><input type="checkbox" id="prop-ciente" onchange="_propAtualizarRodape()"> <span id="prop-ciente-txt"></span></label>
+      <div class="modal-footer" style="justify-content:space-between;align-items:center">
+        <span class="prop-falta" id="prop-falta" aria-live="polite"></span>
+        <span style="display:inline-flex;gap:10px">
+          <button class="btn btn-ghost" onclick="fecharPropagacao()">Cancelar</button>
+          <button class="btn btn-danger" id="prop-ok" onclick="confirmarPropagacao()" disabled>Aplicar mudança</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Histórico de aplicações do modelo -->
+  <div class="modal-overlay" id="modal-hist-modelo" role="dialog" aria-modal="true" aria-labelledby="hm-title" aria-hidden="true">
+    <div class="modal prop-modal" tabindex="-1">
+      <div class="modal-title" id="hm-title">Histórico de mudanças</div>
+      <div class="modal-sub">Cada vez que um administrador aplicou este modelo aos projetos: quem, quando, por quê e o que mudou em cada projeto.</div>
+      <div id="hm-body" class="prop-body"></div>
+      <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharHistoricoModelo()">Fechar</button></div>
     </div>
   </div>
 

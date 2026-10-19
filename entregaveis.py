@@ -20,13 +20,27 @@ Rotas:
                                         (admin/gestor; técnico só nos seus)
   DELETE /api/entregaveis/<id>        — excluir entregável (admin/gestor)
   POST   /api/projetos/<id>/entregaveis — adicionar entregável (admin/gestor)
+  PUT    /api/projetos/<id>/entregaveis/ordem — reordenar (admin/gestor)
   GET    /api/entregaveis/responsaveis — usuários atribuíveis (picker)
   GET    /api/tipos-projeto           — tipos de projeto cadastrados (com uso)
   POST   /api/tipos-projeto           — criar tipo (admin/gestor)
   PUT    /api/tipos-projeto/<id>      — renomear tipo / trocar área (admin/gestor)
   DELETE /api/tipos-projeto/<id>      — excluir tipo sem projetos (admin/gestor)
+  GET    /api/categorias-entregavel   — categorias de entregável (com uso)
+  POST   /api/categorias-entregavel   — criar categoria (admin/gestor)
+  PUT    /api/categorias-entregavel/ordem — reordenar (admin/gestor)
+  PUT    /api/categorias-entregavel/<id>  — renomear categoria (admin/gestor)
+  DELETE /api/categorias-entregavel/<id>  — excluir categoria sem uso (admin/gestor)
   GET    /api/modelos                 — modelos de entregáveis por tipo de projeto
   POST   /api/modelos                 — adicionar item de modelo (admin/gestor)
+  PUT    /api/modelos/ordem           — reordenar itens de um modelo (admin/gestor)
+  GET    /api/modelos/propagacao/previa — o que aplicar o modelo faria em cada
+                                        projeto ativo dele (admin)
+  POST   /api/modelos/propagacao      — aplica o modelo aos projetos escolhidos,
+                                        com motivo (admin)
+  GET    /api/modelos/propagacao/historico — aplicações de um modelo
+  GET    /api/modelos/propagacao/<id> — detalhe de uma aplicação, por projeto
+  GET    /api/projetos/<id>/mudancas-modelo — aplicações que mexeram no projeto
   PUT    /api/modelos/<id>            — editar item de modelo (admin/gestor)
   DELETE /api/modelos/<id>            — excluir item de modelo (admin/gestor)
   GET    /api/entregaveis/resumo      — KPIs e visão por responsável
@@ -42,15 +56,18 @@ from datetime import datetime
 
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import bindparam
 from sqlalchemy.orm import selectinload
 
 from models import (db, Projeto, Entregavel, EntregavelHistorico, ProjetoMensal,
-                    ProjetoBaseline, ModeloEntregavel, TipoProjeto, User,
-                    CATEGORIAS_ENTREGAVEL, STATUS_ENTREGAVEL, MOSCOW,
+                    ProjetoBaseline, ModeloEntregavel, TipoProjeto,
+                    CategoriaEntregavel, User, MudancaModelo, MudancaModeloItem,
+                    CATEGORIA_ENTREGAVEL_MAX, STATUS_ENTREGAVEL, MOSCOW,
                     TIPO_PROJETO_MAX, STATUS_PROJETO, STATUS_PROJETO_ABERTO,
                     AREA_PROJETO_LEGADO, _parse_iso)
 from areas import AREAS, AREA_SLUGS
 from auth import require_role, get_client_ip
+import modelo_sync
 
 entregaveis_bp = Blueprint("entregaveis", __name__)
 
@@ -123,6 +140,28 @@ def _areas_dos_tipos():
     tipo vazio ou desconhecido cai em AREA_PROJETO_LEGADO."""
     return {t.nome.lower(): (t.area or AREA_PROJETO_LEGADO)
             for t in TipoProjeto.query.all()}
+
+
+def _categorias():
+    """Nomes das categorias de entregável cadastradas, na ordem de exibição."""
+    return [c.nome for c in CategoriaEntregavel.query
+            .order_by(CategoriaEntregavel.ordem, CategoriaEntregavel.id).all()]
+
+
+def _categoria_do_payload(valor, cats, atual=None):
+    """Valida a categoria contra o cadastro (`cats` = _categorias()). Devolve
+    (nome, erro). Vazio cai na primeira categoria; maiúsculas não importam
+    ("produto" vira "Produto"). `atual` passa mesmo fora do cadastro — dado
+    legado não trava a edição, igual ao tipo do projeto."""
+    nome = " ".join((valor or "").split())
+    if not nome:
+        return (cats[0] if cats else "Produto"), None
+    if nome == atual:
+        return nome, None
+    nome = {c.lower(): c for c in cats}.get(nome.lower())
+    if nome:
+        return nome, None
+    return None, f"categoria inválida. Use: {', '.join(cats)}"
 
 
 def _area_invalida(valor):
@@ -340,7 +379,7 @@ def _entregaveis_do_payload(itens, tipo):
     if not tipo:
         return []
     return [{"tipo": m.tipo, "categoria": m.categoria, "peso": m.peso,
-             "responsaveis": m.responsavel_padrao}
+             "responsaveis": m.responsavel_padrao, "modelo_chave": m.chave}
             for m in (ModeloEntregavel.query
                       .filter_by(tipo_projeto=tipo)
                       .order_by(ModeloEntregavel.ordem, ModeloEntregavel.id).all())]
@@ -399,25 +438,36 @@ def criar_projeto():
     db.session.flush()   # garante p.id para anexar os entregáveis
 
     email = get_jwt_identity()
-    for it in _entregaveis_do_payload(data.get("entregaveis"), tipo):
+    cats = _categorias()
+    # Item que veio do modelo (pelo modal ou pela cópia automática) nasce ligado
+    # a ele — é o que permite aplicar mudanças do modelo depois. Chave que não é
+    # do modelo deste tipo, ou repetida, vira avulso.
+    do_modelo = {m.chave: m for m in ModeloEntregavel.query.filter_by(tipo_projeto=tipo)}
+    for pos, it in enumerate(_entregaveis_do_payload(data.get("entregaveis"), tipo)):
         nome_ent = (it.get("tipo") or "").strip()
         if not nome_ent:
             continue
         peso = _parse_peso(it.get("peso"))
         if peso is None:
             return jsonify({"erro": f"peso inválido em '{nome_ent}' (use número > 0)"}), 400
+        categoria, err = _categoria_do_payload(it.get("categoria"), cats)
+        if err:
+            return jsonify({"erro": f"{err} (em '{nome_ent}')"}), 400
         ini_prev, err1 = _parse_data(it.get("data_inicio_prev"))
         fim_prev, err2 = _parse_data(it.get("data_fim_prev"))
         if err1 or err2:
             return jsonify({"erro": f"datas previstas inválidas em '{nome_ent}'"}), 400
         e = Entregavel(
-            projeto_id=p.id, tipo=nome_ent,
-            categoria=(it.get("categoria") or "Produto").strip(),
+            projeto_id=p.id, tipo=nome_ent, categoria=categoria,
             status=(it.get("status") or "pendente"),
             peso=peso,
             data_inicio_prev=ini_prev, data_fim_prev=fim_prev,
             responsaveis=(it.get("responsaveis") or "").strip(),
+            ordem=pos,            # a ordem do modelo (ou do modal) vira a do projeto
             atualizado_por=email)
+        m = do_modelo.pop(it.get("modelo_chave") or "", None)
+        if m is not None:
+            modelo_sync.vincular(e, m)
         p.entregaveis.append(e)   # coleção + sessão (o avanço lê a coleção)
         db.session.flush()
         _aplicar_responsaveis(e, it.get("responsaveis_ids"))
@@ -441,15 +491,11 @@ def detalhe_projeto(pid):
     if role == "tecnico" and not any(_responsavel_por(e, user) for e in p.entregaveis):
         return jsonify({"erro": "Sem acesso a este projeto"}), 403
 
-    grupos = {c: [] for c in CATEGORIAS_ENTREGAVEL}
-    extras = {}
+    # Abas na ordem do cadastro; categoria fora dele (legado) vai para o fim.
+    grupos = {c: [] for c in _categorias()}
     for e in p.entregaveis:
-        (grupos if e.categoria in grupos else extras).setdefault(e.categoria, [])
-        (grupos.get(e.categoria) if e.categoria in grupos
-         else extras[e.categoria]).append(e.to_dict())
-    categorias = [{"categoria": c, "entregaveis": grupos[c]}
-                  for c in CATEGORIAS_ENTREGAVEL if grupos[c]]
-    categorias += [{"categoria": c, "entregaveis": v} for c, v in extras.items()]
+        grupos.setdefault(e.categoria, []).append(e.to_dict())
+    categorias = [{"categoria": c, "entregaveis": v} for c, v in grupos.items() if v]
     d = p.to_dict(com_pmo=True, com_financeiro=pode_ver_financeiro(role))
     d["categorias"] = categorias
     return jsonify(d)
@@ -927,12 +973,16 @@ def adicionar_entregavel(pid):
     if err1 or err2:
         return jsonify({"erro": err1 or err2}), 400
 
-    categoria = (data.get("categoria") or "Produto").strip()
+    categoria, err = _categoria_do_payload(data.get("categoria"), _categorias())
+    if err:
+        return jsonify({"erro": err}), 400
     email = get_jwt_identity()
+    ultima = max((x.ordem or 0 for x in p.entregaveis), default=-1)
     e = Entregavel(projeto_id=p.id, tipo=tipo, categoria=categoria,
                    status=(data.get("status") or "pendente"),
                    peso=peso, data_inicio_prev=ini_prev, data_fim_prev=fim_prev,
                    responsaveis=(data.get("responsaveis") or "").strip(),
+                   ordem=ultima + 1,      # entra no fim da lista
                    atualizado_por=email)
     p.entregaveis.append(e)   # entra na coleção: o avanço/snapshot já contam com ele
     db.session.flush()
@@ -960,6 +1010,51 @@ def excluir_entregavel(eid):
           {"entregavel_id": eid, "projeto_id": pid, "avanco_projeto": projeto.avanco},
           email, entidade=f"{nome} · {tipo}")
     return jsonify({"ok": True, "avanco_projeto": projeto.avanco})
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/entregaveis/ordem", methods=["PUT"])
+@require_role("admin", "gestor")
+def reordenar_entregaveis(pid):
+    """Reordena entregáveis do projeto. Corpo: {"ids": [...]} na nova ordem.
+
+    `ids` pode ser só parte do projeto — na tela, a aba de uma categoria. Os
+    itens trocam de lugar apenas entre as posições que já ocupavam: o resto do
+    projeto fica parado, e um entregável que outra pessoa criou enquanto esta
+    arrastava não é empurrado para lugar nenhum.
+    """
+    p = _get_projeto(pid)
+    ids = (request.get_json(silent=True) or {}).get("ids")
+    if (not isinstance(ids, list) or not ids
+            or not all(type(i) is int for i in ids)):
+        return jsonify({"erro": "ids deve ser a lista de ids dos entregáveis"}), 400
+    if len(set(ids)) != len(ids):
+        return jsonify({"erro": "ids repetidos"}), 400
+    atuais = list(p.entregaveis)                     # já vem em (ordem, id)
+    pos = {e.id: i for i, e in enumerate(atuais)}    # normaliza: legado é tudo 0
+    fora = [i for i in ids if i not in pos]
+    if fora:
+        return jsonify({"erro": f"entregáveis que não são deste projeto: {fora}"}), 400
+    for vaga, eid in zip(sorted(pos[i] for i in ids), ids):
+        pos[eid] = vaga
+
+    # UPDATE direto, e não pelo ORM: `atualizado_em` tem onupdate, e mudar a
+    # ordem não é mexer no entregável — senão o alerta de projeto parado e o
+    # "atualizado em" da tela passariam a contar uma arrumação de lista como
+    # trabalho feito.
+    tbl = Entregavel.__table__
+    mudou = [{"b_id": e.id, "b_ordem": pos[e.id]}
+             for e in atuais if (e.ordem or 0) != pos[e.id]]
+    if mudou:
+        db.session.execute(
+            tbl.update().where(tbl.c.id == bindparam("b_id"))
+               .values(ordem=bindparam("b_ordem"), atualizado_em=tbl.c.atualizado_em),
+            mudou)
+    db.session.commit()
+
+    if mudou:
+        _emit("PROJETO_UPDATED", {"projeto_id": p.id}, get_jwt_identity(),
+              campo="ordem_entregaveis", entidade=f"Projeto:{p.nome}")
+    return jsonify({"ids": sorted(pos, key=pos.get)})
 
 
 # ── TIPOS DE PROJETO (cadastro: OEM, Revenda e os que o gestor criar) ────────
@@ -1107,6 +1202,146 @@ def excluir_tipo_projeto(tid):
     return jsonify({"ok": True})
 
 
+# ── CATEGORIAS DE ENTREGÁVEL (cadastro: Produto, Sistema… e as que o gestor criar)
+
+def _validar_nome_categoria(data, ignorar_id=None):
+    """Devolve (nome, erro). `erro` é a resposta pronta ou None."""
+    nome = " ".join((data.get("nome") or "").split())
+    if not nome:
+        return None, (jsonify({"erro": "nome é obrigatório"}), 400)
+    if len(nome) > CATEGORIA_ENTREGAVEL_MAX:
+        return None, (jsonify(
+            {"erro": f"nome deve ter no máximo {CATEGORIA_ENTREGAVEL_MAX} caracteres"}), 400)
+    existente = (CategoriaEntregavel.query
+                 .filter(db.func.lower(CategoriaEntregavel.nome) == nome.lower())
+                 .first())
+    if existente and existente.id != ignorar_id:
+        return None, (jsonify(
+            {"erro": f"já existe uma categoria chamada '{existente.nome}'"}), 409)
+    return nome, None
+
+
+def _uso_das_categorias():
+    """({nome: nº de entregáveis}, {nome: nº de itens de modelo}). Entregável
+    de projeto arquivado conta: ele volta a aparecer se o projeto for restaurado."""
+    por_ent = dict(db.session.query(Entregavel.categoria, db.func.count(Entregavel.id))
+                   .group_by(Entregavel.categoria).all())
+    por_mod = dict(db.session.query(ModeloEntregavel.categoria,
+                                    db.func.count(ModeloEntregavel.id))
+                   .group_by(ModeloEntregavel.categoria).all())
+    return por_ent, por_mod
+
+
+def _categoria_com_uso(c, por_ent, por_mod):
+    return dict(c.to_dict(), entregaveis=por_ent.get(c.nome, 0),
+                itens_modelo=por_mod.get(c.nome, 0))
+
+
+@entregaveis_bp.route("/api/categorias-entregavel", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def listar_categorias():
+    """Categorias cadastradas + quanto cada uma é usada — é o que a tela mostra
+    antes de excluir."""
+    por_ent, por_mod = _uso_das_categorias()
+    return jsonify({"categorias": [
+        _categoria_com_uso(c, por_ent, por_mod)
+        for c in CategoriaEntregavel.query
+        .order_by(CategoriaEntregavel.ordem, CategoriaEntregavel.id).all()]})
+
+
+@entregaveis_bp.route("/api/categorias-entregavel", methods=["POST"])
+@require_role("admin", "gestor")
+def criar_categoria():
+    """Cria uma categoria no fim da lista (vira a última aba do projeto)."""
+    nome, erro = _validar_nome_categoria(request.get_json(silent=True) or {})
+    if erro:
+        return erro
+    ult = CategoriaEntregavel.query.order_by(CategoriaEntregavel.ordem.desc()).first()
+    c = CategoriaEntregavel(nome=nome, ordem=((ult.ordem or 0) + 1) if ult else 0)
+    db.session.add(c)
+    db.session.commit()
+    d = dict(c.to_dict(), entregaveis=0, itens_modelo=0)
+    _emit("PROJETO_UPDATED", {"categoria_entregavel": d}, get_jwt_identity(),
+          entidade=f"Categoria de entregável · {nome}", campo="categoria_criada", novo=nome)
+    return jsonify({"categoria": d}), 201
+
+
+@entregaveis_bp.route("/api/categorias-entregavel/ordem", methods=["PUT"])
+@require_role("admin", "gestor")
+def reordenar_categorias():
+    """Corpo: {"ids": [...]} com TODAS as categorias, na nova ordem."""
+    ids = (request.get_json(silent=True) or {}).get("ids")
+    cats = {c.id: c for c in CategoriaEntregavel.query.all()}
+    if (not isinstance(ids, list) or not all(type(i) is int for i in ids)
+            or sorted(ids) != sorted(cats)):
+        return jsonify({"erro": "ids deve listar todas as categorias, uma vez cada"}), 400
+    for ordem, cid in enumerate(ids):
+        cats[cid].ordem = ordem
+    db.session.commit()
+    _emit("PROJETO_UPDATED", {}, get_jwt_identity(),
+          entidade="Categorias de entregável", campo="categoria_ordem")
+    return jsonify({"ids": ids})
+
+
+@entregaveis_bp.route("/api/categorias-entregavel/<int:cid>", methods=["PUT"])
+@require_role("admin", "gestor")
+def editar_categoria(cid):
+    """Renomeia a categoria. O nome novo é propagado para os entregáveis
+    (inclusive de projetos arquivados) e para os itens de modelo, que guardam
+    a categoria pelo nome."""
+    c = CategoriaEntregavel.query.get_or_404(cid)
+    nome, erro = _validar_nome_categoria(request.get_json(silent=True) or {},
+                                         ignorar_id=c.id)
+    if erro:
+        return erro
+    antigo = c.nome
+    if nome != antigo:
+        c.nome = nome
+        # UPDATE direto: renomear a categoria não é mexer no entregável, então
+        # `atualizado_em` (que tem onupdate) fica como estava — ver
+        # reordenar_entregaveis.
+        tbl = Entregavel.__table__
+        db.session.execute(tbl.update().where(tbl.c.categoria == antigo)
+                           .values(categoria=nome, atualizado_em=tbl.c.atualizado_em))
+        ModeloEntregavel.query.filter_by(categoria=antigo).update(
+            {"categoria": nome}, synchronize_session=False)
+        db.session.commit()
+        _emit("PROJETO_UPDATED", {"categoria_entregavel": c.to_dict()}, get_jwt_identity(),
+              entidade=f"Categoria de entregável · {nome}", campo="categoria_renomeada",
+              antigo=antigo, novo=nome)
+    por_ent, por_mod = _uso_das_categorias()
+    return jsonify({"categoria": _categoria_com_uso(c, por_ent, por_mod)})
+
+
+@entregaveis_bp.route("/api/categorias-entregavel/<int:cid>", methods=["DELETE"])
+@require_role("admin", "gestor")
+def excluir_categoria(cid):
+    """Exclui a categoria. Recusa enquanto houver entregável ou item de modelo
+    usando — eles ficariam numa categoria que o formulário não oferece mais —
+    e recusa a última: sem nenhuma, não há onde pôr um entregável novo."""
+    c = CategoriaEntregavel.query.get_or_404(cid)
+    por_ent, por_mod = _uso_das_categorias()
+    n_ent, n_mod = por_ent.get(c.nome, 0), por_mod.get(c.nome, 0)
+    if n_ent or n_mod:
+        uso = []
+        if n_ent:
+            uso.append(f"{n_ent} entregável(is), contando projetos arquivados")
+        if n_mod:
+            uso.append(f"{n_mod} item(ns) de modelo")
+        return jsonify({"erro": f"'{c.nome}' está em uso por {' e '.join(uso)}. "
+                                "Renomeie a categoria em vez de excluir, ou tire "
+                                "esses itens dela antes."}), 409
+    if CategoriaEntregavel.query.count() <= 1:
+        return jsonify({"erro": "precisa haver ao menos uma categoria"}), 409
+    nome = c.nome
+    db.session.delete(c)
+    db.session.commit()
+    _emit("PROJETO_UPDATED", {}, get_jwt_identity(),
+          entidade=f"Categoria de entregável · {nome}", campo="categoria_excluida",
+          antigo=nome)
+    return jsonify({"ok": True})
+
+
 # ── MODELOS DE ENTREGÁVEIS (templates por tipo de projeto) ───────────────────
 
 @entregaveis_bp.route("/api/modelos", methods=["GET"])
@@ -1142,11 +1377,14 @@ def adicionar_modelo():
     peso = _parse_peso(data.get("peso"))
     if peso is None:
         return jsonify({"erro": "peso deve ser um número maior que zero"}), 400
+    categoria, err = _categoria_do_payload(data.get("categoria"), _categorias())
+    if err:
+        return jsonify({"erro": err}), 400
     ult = (ModeloEntregavel.query.filter_by(tipo_projeto=tipo_projeto)
            .order_by(ModeloEntregavel.ordem.desc()).first())
     m = ModeloEntregavel(
         tipo_projeto=tipo_projeto,
-        categoria=(data.get("categoria") or "Produto").strip(),
+        categoria=categoria,
         tipo=tipo,
         peso=peso,
         responsavel_padrao=(data.get("responsavel_padrao") or "").strip(),
@@ -1156,6 +1394,30 @@ def adicionar_modelo():
     _emit("PROJETO_UPDATED", {"modelo": m.to_dict()}, get_jwt_identity(),
           entidade=f"Modelo {tipo_projeto} · {tipo}", campo="modelo_criado")
     return jsonify({"modelo": m.to_dict()}), 201
+
+
+@entregaveis_bp.route("/api/modelos/ordem", methods=["PUT"])
+@require_role("admin", "gestor")
+def reordenar_modelo():
+    """Corpo: {"tipo_projeto": "...", "ids": [...]} com TODOS os itens daquele
+    modelo, na nova ordem. A tela mostra os itens agrupados por categoria e só
+    troca vizinhos dentro do grupo, mas grava a lista inteira: é essa ordem
+    que o projeto novo herda. Projetos já criados não mudam."""
+    data = request.get_json(silent=True) or {}
+    tipo_projeto = (data.get("tipo_projeto") or "").strip()
+    if tipo_projeto not in _tipos_projeto():
+        return jsonify({"erro": "tipo_projeto inválido"}), 400
+    ids = data.get("ids")
+    itens = {m.id: m for m in ModeloEntregavel.query.filter_by(tipo_projeto=tipo_projeto)}
+    if (not isinstance(ids, list) or not all(type(i) is int for i in ids)
+            or sorted(ids) != sorted(itens)):
+        return jsonify({"erro": "ids deve listar todos os itens do modelo, uma vez cada"}), 400
+    for ordem, mid in enumerate(ids):
+        itens[mid].ordem = ordem
+    db.session.commit()
+    _emit("PROJETO_UPDATED", {}, get_jwt_identity(),
+          entidade=f"Modelo {tipo_projeto}", campo="modelo_ordem")
+    return jsonify({"ids": ids})
 
 
 @entregaveis_bp.route("/api/modelos/<int:mid>", methods=["PUT"])
@@ -1169,7 +1431,11 @@ def editar_modelo(mid):
             return jsonify({"erro": "tipo não pode ficar vazio"}), 400
         m.tipo = novo
     if "categoria" in data:
-        m.categoria = (data.get("categoria") or "Produto").strip()
+        categoria, err = _categoria_do_payload(data.get("categoria"), _categorias(),
+                                               atual=m.categoria)
+        if err:
+            return jsonify({"erro": err}), 400
+        m.categoria = categoria
     if "responsavel_padrao" in data:
         m.responsavel_padrao = (data.get("responsavel_padrao") or "").strip()
     if "peso" in data:
@@ -1198,6 +1464,95 @@ def excluir_modelo(mid):
     _emit("PROJETO_UPDATED", {}, get_jwt_identity(),
           entidade=info, campo="modelo_excluido")
     return jsonify({"ok": True})
+
+
+# ── APLICAR MODELO AOS PROJETOS (controle de mudança) ───────────────────────
+# Só admin aplica: a mudança reescreve entregáveis de vários projetos de uma
+# vez. A regra de comparação mora em modelo_sync; aqui é só HTTP.
+
+def _tipo_do_pedido(valor):
+    tipo = (valor or "").strip()
+    if tipo not in _tipos_projeto():
+        return None, (jsonify({"erro": "modelo (tipo) inválido"}), 400)
+    return tipo, None
+
+
+@entregaveis_bp.route("/api/modelos/propagacao/previa", methods=["GET"])
+@require_role("admin")
+def previa_propagacao():
+    """O que aplicar o modelo faria em cada projeto ativo dele. Não grava nada.
+    Cada projeto traz uma `versao`: a aplicação exige a mesma, para não aplicar
+    algo diferente do que o admin revisou."""
+    tipo, erro = _tipo_do_pedido(request.args.get("tipo"))
+    if erro:
+        return erro
+    return jsonify(modelo_sync.calcular_previa(tipo))
+
+
+@entregaveis_bp.route("/api/modelos/propagacao", methods=["POST"])
+@require_role("admin")
+def aplicar_propagacao():
+    """Corpo: {"tipo": "...", "projetos": {"<id>": "<versao>"},
+    "decisoes": {"<entregavel_id>": "apagar|manter|na"}, "motivo": "..."}."""
+    data = request.get_json(silent=True) or {}
+    tipo, erro = _tipo_do_pedido(data.get("tipo"))
+    if erro:
+        return erro
+    email = get_jwt_identity()
+    try:
+        mud = modelo_sync.aplicar(tipo, data.get("projetos"), data.get("decisoes"),
+                                  data.get("motivo"), email)
+    except modelo_sync.ErroPropagacao as e:
+        db.session.rollback()
+        return jsonify({"erro": e.mensagem}), e.status
+    db.session.commit()
+    d = mud.to_dict()
+    _emit("PROJETO_UPDATED", {"mudanca_modelo": d}, email,
+          entidade=f"Modelo {tipo}", campo="modelo_aplicado",
+          novo=(f"{d['n_alteracoes']} alteração(ões) em {d['n_projetos']} projeto(s) "
+                f"— {d['motivo']}"))
+    return jsonify({"mudanca": d}), 201
+
+
+@entregaveis_bp.route("/api/modelos/propagacao/historico", methods=["GET"])
+@require_role("admin", "gestor")
+def historico_propagacao():
+    """Aplicações de um modelo, da mais recente para a mais antiga."""
+    tipo, erro = _tipo_do_pedido(request.args.get("tipo"))
+    if erro:
+        return erro
+    muds = (MudancaModelo.query.filter_by(tipo_projeto=tipo)
+            .order_by(MudancaModelo.feito_em.desc(), MudancaModelo.id.desc()).limit(200).all())
+    return jsonify({"tipo": tipo, "mudancas": [m.to_dict() for m in muds]})
+
+
+@entregaveis_bp.route("/api/modelos/propagacao/<int:mid>", methods=["GET"])
+@require_role("admin", "gestor")
+def detalhe_propagacao(mid):
+    """Uma aplicação com o antes/depois agrupado por projeto."""
+    mud = MudancaModelo.query.get_or_404(mid)
+    projetos = {}
+    for it in mud.itens:
+        g = projetos.setdefault(it.projeto_id, {"projeto_id": it.projeto_id,
+                                                "projeto": it.projeto_nome, "itens": []})
+        g["itens"].append(it.to_dict())
+    return jsonify({"mudanca": mud.to_dict(), "projetos": list(projetos.values())})
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/mudancas-modelo", methods=["GET"])
+@require_role("admin", "gestor")
+def mudancas_modelo_do_projeto(pid):
+    """Aplicações de modelo que mexeram neste projeto, com o que mudou nele."""
+    _get_projeto(pid)
+    itens = (MudancaModeloItem.query.filter_by(projeto_id=pid)
+             .order_by(MudancaModeloItem.mudanca_id.desc(), MudancaModeloItem.id).all())
+    por_mudanca = {}
+    for it in itens:
+        g = por_mudanca.get(it.mudanca_id)
+        if g is None:
+            g = por_mudanca[it.mudanca_id] = {"mudanca": it.mudanca.to_dict(), "itens": []}
+        g["itens"].append(it.to_dict())
+    return jsonify({"mudancas": list(por_mudanca.values())})
 
 
 # ── RESUMO ───────────────────────────────────────────────────────────────────

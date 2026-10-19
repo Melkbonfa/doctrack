@@ -261,6 +261,135 @@ def test_arquivar_projeto(client, admin_token, auth_headers, projeto_seed):
     assert res.get_json()["projetos"] == []
 
 
+# ── Ordem dos entregáveis (PUT /api/projetos/<id>/entregaveis/ordem) ─────────
+
+@pytest.fixture
+def projeto_ordem(app):
+    """Três entregáveis de Produto e um de Sistema, todos com ordem 0 — como os
+    entregáveis legados, que nasceram antes de existir a coluna."""
+    from models import db, Projeto, Entregavel
+    with app.app_context():
+        p = Projeto(nome="Ordem", ano=2026)
+        db.session.add(p)
+        db.session.flush()
+        db.session.add_all([
+            Entregavel(projeto_id=p.id, tipo=t, categoria=c)
+            for t, c in [("A", "Produto"), ("B", "Produto"),
+                         ("D", "Sistema"), ("C", "Produto")]])
+        db.session.commit()
+        ids = {e.tipo: e.id for e in p.entregaveis}
+        return p.id, ids
+
+
+def _ordem(client, token, auth_headers, pid):
+    det = client.get(f"/api/projetos/{pid}", headers=auth_headers(token)).get_json()
+    return {c["categoria"]: [e["tipo"] for e in c["entregaveis"]] for c in det["categorias"]}
+
+
+def test_legado_sem_ordem_segue_o_id(client, gestor_token, auth_headers, projeto_ordem):
+    pid, _ = projeto_ordem
+    assert _ordem(client, gestor_token, auth_headers, pid)["Produto"] == ["A", "B", "C"]
+
+
+def test_reordenar_categoria(client, gestor_token, auth_headers, projeto_ordem):
+    pid, ids = projeto_ordem
+    res = client.put(f"/api/projetos/{pid}/entregaveis/ordem",
+                     headers=auth_headers(gestor_token),
+                     json={"ids": [ids["C"], ids["A"], ids["B"]]})
+    assert res.status_code == 200, res.get_json()
+    ordem = _ordem(client, gestor_token, auth_headers, pid)
+    assert ordem["Produto"] == ["C", "A", "B"]
+    assert ordem["Sistema"] == ["D"]
+
+
+def test_reordenar_parte_nao_mexe_no_resto(client, gestor_token, auth_headers, projeto_ordem):
+    """Mandar só dois itens troca os dois de lugar entre si; o terceiro fica onde
+    estava (é o caso de alguém criar um entregável enquanto outro arrasta)."""
+    pid, ids = projeto_ordem
+    res = client.put(f"/api/projetos/{pid}/entregaveis/ordem",
+                     headers=auth_headers(gestor_token),
+                     json={"ids": [ids["C"], ids["A"]]})
+    assert res.status_code == 200
+    assert _ordem(client, gestor_token, auth_headers, pid)["Produto"] == ["C", "B", "A"]
+
+
+def test_reordenar_nao_conta_como_atualizacao(app, client, gestor_token, auth_headers,
+                                              projeto_ordem):
+    """Arrumar a lista não é trabalho no entregável: `atualizado_em` alimenta o
+    alerta de projeto parado e não pode andar com isto."""
+    from models import db, Entregavel
+    pid, ids = projeto_ordem
+    with app.app_context():
+        antes = {e.id: e.atualizado_em for e in Entregavel.query.filter_by(projeto_id=pid)}
+    client.put(f"/api/projetos/{pid}/entregaveis/ordem", headers=auth_headers(gestor_token),
+               json={"ids": [ids["C"], ids["B"], ids["A"]]})
+    with app.app_context():
+        depois = {e.id: e.atualizado_em for e in Entregavel.query.filter_by(projeto_id=pid)}
+        assert (db.session.get(Entregavel, ids["C"]).ordem
+                < db.session.get(Entregavel, ids["A"]).ordem)
+    assert depois == antes
+
+
+def test_novo_entregavel_entra_no_fim(client, gestor_token, auth_headers, projeto_ordem):
+    pid, ids = projeto_ordem
+    client.put(f"/api/projetos/{pid}/entregaveis/ordem", headers=auth_headers(gestor_token),
+               json={"ids": [ids["C"], ids["A"], ids["B"]]})
+    res = client.post(f"/api/projetos/{pid}/entregaveis", headers=auth_headers(gestor_token),
+                      json={"tipo": "E", "categoria": "Produto"})
+    assert res.status_code == 201
+    assert _ordem(client, gestor_token, auth_headers, pid)["Produto"] == ["C", "A", "B", "E"]
+
+
+def test_projeto_nasce_na_ordem_do_modelo(app, client, gestor_token, auth_headers):
+    """O item de ordem 0 foi cadastrado DEPOIS (id maior): quem manda é a ordem."""
+    from models import db, ModeloEntregavel
+    with app.app_context():
+        db.session.add_all([
+            ModeloEntregavel(tipo_projeto="OEM", categoria="Produto", tipo="Segundo", ordem=1),
+            ModeloEntregavel(tipo_projeto="OEM", categoria="Produto", tipo="Primeiro", ordem=0),
+        ])
+        db.session.commit()
+    res = client.post("/api/projetos", headers=auth_headers(gestor_token),
+                      json={"nome": "Do modelo", "tipo": "OEM"})
+    pid = res.get_json()["projeto"]["id"]
+    assert _ordem(client, gestor_token, auth_headers, pid)["Produto"] == ["Primeiro", "Segundo"]
+
+
+@pytest.mark.parametrize("corpo", [{}, {"ids": []}, {"ids": "1,2"}, {"ids": [1, True]}])
+def test_reordenar_corpo_invalido(client, gestor_token, auth_headers, projeto_ordem, corpo):
+    pid, _ = projeto_ordem
+    res = client.put(f"/api/projetos/{pid}/entregaveis/ordem",
+                     headers=auth_headers(gestor_token), json=corpo)
+    assert res.status_code == 400
+
+
+def test_reordenar_ids_repetidos(client, gestor_token, auth_headers, projeto_ordem):
+    pid, ids = projeto_ordem
+    res = client.put(f"/api/projetos/{pid}/entregaveis/ordem",
+                     headers=auth_headers(gestor_token),
+                     json={"ids": [ids["A"], ids["A"]]})
+    assert res.status_code == 400
+
+
+def test_reordenar_entregavel_de_outro_projeto(client, gestor_token, auth_headers,
+                                               projeto_ordem, projeto_seed):
+    pid, ids = projeto_ordem
+    alheio = _primeiro_entregavel_id(client, gestor_token, auth_headers, projeto_seed)
+    res = client.put(f"/api/projetos/{pid}/entregaveis/ordem",
+                     headers=auth_headers(gestor_token),
+                     json={"ids": [ids["A"], alheio]})
+    assert res.status_code == 400
+    assert _ordem(client, gestor_token, auth_headers, pid)["Produto"] == ["A", "B", "C"]
+
+
+def test_tecnico_nao_reordena(client, tecnico_token, auth_headers, projeto_ordem):
+    pid, ids = projeto_ordem
+    res = client.put(f"/api/projetos/{pid}/entregaveis/ordem",
+                     headers=auth_headers(tecnico_token),
+                     json={"ids": [ids["B"], ids["A"]]})
+    assert res.status_code == 403
+
+
 # ── Resumo e export ──────────────────────────────────────────────────────────
 
 def test_resumo(client, gestor_token, auth_headers, projeto_seed):

@@ -1275,9 +1275,10 @@ class RevokedToken(db.Model):
     revoked_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
 
-# ── ENTREGÁVEIS DE PROJETO ───────────────────────────────────────────────────
-
+# Categorias de entregável semeadas em banco novo. A lista viva mora na tabela
+# `categorias_entregavel` (ver CategoriaEntregavel) — o gestor cria outras.
 CATEGORIAS_ENTREGAVEL = ["Produto", "Sistema", "Documentação", "Capacitação", "Marketing"]
+CATEGORIA_ENTREGAVEL_MAX = 40   # entregaveis.categoria e modelos_entregavel.categoria são String(40)
 STATUS_ENTREGAVEL = ["na", "pendente", "em_progresso", "concluido"]
 MOSCOW = ["Must", "Should", "Could", "Wont"]
 # Tipos de projeto semeados em banco novo. A lista viva mora na tabela
@@ -1431,8 +1432,12 @@ class Projeto(db.Model):
     data_fim_real    = db.Column(db.String(40), default="")
     orcamento        = db.Column(db.Float, default=0.0)   # BAC – Budget At Completion
 
+    # Ordem definida pelo gestor (arrastando na tela). O id desempata os
+    # entregáveis legados, que nasceram todos com ordem 0 — sem ele a lista
+    # vinha na ordem física do banco, que no Postgres muda a cada UPDATE.
     entregaveis = db.relationship("Entregavel", back_populates="projeto",
-                                  cascade="all, delete-orphan")
+                                  cascade="all, delete-orphan",
+                                  order_by="[Entregavel.ordem, Entregavel.id]")
     mensais = db.relationship("ProjetoMensal", back_populates="projeto",
                               cascade="all, delete-orphan",
                               order_by="ProjetoMensal.competencia")
@@ -1777,6 +1782,14 @@ class Entregavel(db.Model):
     data_fim_prev    = db.Column(db.String(40), default="") # ISO — planejado
     data_inicio    = db.Column(db.String(40), default="")   # ISO — quando a tarefa começou
     data_conclusao = db.Column(db.String(40), default="")   # ISO — quando foi concluída
+    ordem          = db.Column(db.Integer, default=0)       # posição na lista do projeto
+    # Vínculo com o item de modelo de onde veio (ModeloEntregavel.chave) e os
+    # valores que o modelo tinha na última criação/aplicação — é a "origem" da
+    # comparação de três lados de modelo_sync. Vazio = avulso, a propagação não
+    # toca. NULL em `modelo_origem` = linha anterior ao vínculo, ainda não
+    # avaliada (o backfill da subida resolve e nunca deixa NULL).
+    modelo_chave   = db.Column(db.String(32), default="", index=True)
+    modelo_origem  = db.Column(db.Text, default="")
     atualizado_por = db.Column(db.String(120), default="")
     atualizado_em  = db.Column(db.DateTime, default=datetime.now,
                                onupdate=datetime.now)
@@ -1841,6 +1854,8 @@ class Entregavel(db.Model):
             "data_fim_prev":    self.data_fim_prev or "",
             "data_inicio":    self.data_inicio or "",
             "data_conclusao": self.data_conclusao or "",
+            "ordem":          self.ordem or 0,
+            "do_modelo":      bool(self.modelo_chave),
             "atrasado":       self.atrasado,
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
@@ -1904,16 +1919,42 @@ class TipoProjeto(db.Model):
                 "area": self.area or AREA_PROJETO_LEGADO, "ordem": self.ordem or 0}
 
 
+class CategoriaEntregavel(db.Model):
+    """Categoria de entregável cadastrável (Produto, Sistema… e as que o gestor
+    criar). A ordem daqui é a das abas no detalhe do projeto.
+
+    Mesmo arranjo do TipoProjeto: `entregaveis.categoria` e
+    `modelos_entregavel.categoria` guardam o NOME, então renomear propaga para
+    as duas colunas (ver entregaveis.editar_categoria).
+    """
+    __tablename__ = "categorias_entregavel"
+
+    id        = db.Column(db.Integer, primary_key=True)
+    nome      = db.Column(db.String(CATEGORIA_ENTREGAVEL_MAX), nullable=False, unique=True)
+    ordem     = db.Column(db.Integer, default=0)
+    criado_em = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {"id": self.id, "nome": self.nome, "ordem": self.ordem or 0}
+
+
 class ModeloEntregavel(db.Model):
     """Item de modelo (template) de entregável por tipo de projeto.
 
     Ao criar um projeto de um tipo, estes itens são COPIADOS para o projeto como
     entregáveis editáveis. Editar/excluir aqui só afeta projetos criados depois —
-    nunca os já existentes (que possuem cópias independentes).
+    até um admin aplicar a mudança aos projetos existentes (ver modelo_sync e
+    MudancaModelo).
+
+    `chave` identifica o item para sempre e é o que o entregável guarda: o id
+    não serve porque o banco pode reaproveitar o id de um item excluído, e aí um
+    item novo herdaria o vínculo do antigo.
     """
     __tablename__ = "modelos_entregavel"
 
     id            = db.Column(db.Integer, primary_key=True)
+    chave         = db.Column(db.String(32), default=lambda: secrets.token_hex(16),
+                              index=True)
     tipo_projeto  = db.Column(db.String(20), nullable=False, index=True)   # nome de um TipoProjeto
     categoria     = db.Column(db.String(40), default="Produto")
     tipo          = db.Column(db.String(120), nullable=False)              # nome do entregável
@@ -1924,12 +1965,82 @@ class ModeloEntregavel(db.Model):
     def to_dict(self):
         return {
             "id":                 self.id,
+            "chave":              self.chave or "",
             "tipo_projeto":       self.tipo_projeto,
             "categoria":          self.categoria or "Produto",
             "tipo":               (self.tipo or "").strip(),
             "peso":               self.peso if self.peso is not None else 1.0,
             "responsavel_padrao": self.responsavel_padrao or "",
             "ordem":              self.ordem or 0,
+        }
+
+
+class MudancaModelo(db.Model):
+    """Uma aplicação de modelo aos projetos (controle de mudança).
+
+    Só admin aplica, sempre com motivo. O detalhe — o que mudou em cada projeto,
+    antes e depois — fica em MudancaModeloItem; aqui ficam o cabeçalho e os
+    totais que a lista do histórico mostra sem abrir o detalhe.
+    """
+    __tablename__ = "mudancas_modelo"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    tipo_projeto  = db.Column(db.String(20), nullable=False, index=True)   # nome do modelo na época
+    motivo        = db.Column(db.String(500), nullable=False)
+    feito_por     = db.Column(db.String(120), default="")
+    feito_em      = db.Column(db.DateTime, default=datetime.now, index=True)
+    n_projetos    = db.Column(db.Integer, default=0)
+    n_alteracoes  = db.Column(db.Integer, default=0)   # sem contar os "mantidos"
+
+    itens = db.relationship("MudancaModeloItem", back_populates="mudanca",
+                            cascade="all, delete-orphan",
+                            order_by="MudancaModeloItem.id")
+
+    def to_dict(self):
+        return {
+            "id":           self.id,
+            "tipo_projeto": self.tipo_projeto,
+            "motivo":       self.motivo or "",
+            "feito_por":    self.feito_por or "",
+            "feito_em":     self.feito_em.strftime("%d/%m/%Y %H:%M") if self.feito_em else "",
+            "n_projetos":   self.n_projetos or 0,
+            "n_alteracoes": self.n_alteracoes or 0,
+        }
+
+
+class MudancaModeloItem(db.Model):
+    """Uma alteração (ou um "mantido") feita num projeto por uma MudancaModelo.
+
+    Projeto e entregável ficam por id E por nome: o entregável pode ter sido
+    excluído pela própria mudança, e o projeto pode ser renomeado depois — o
+    histórico precisa continuar legível.
+    """
+    __tablename__ = "mudancas_modelo_itens"
+
+    id            = db.Column(db.Integer, primary_key=True)
+    mudanca_id    = db.Column(db.Integer, db.ForeignKey("mudancas_modelo.id"),
+                              nullable=False, index=True)
+    projeto_id    = db.Column(db.Integer, index=True)
+    projeto_nome  = db.Column(db.String(200), default="")
+    entregavel_id = db.Column(db.Integer, nullable=True)
+    entregavel    = db.Column(db.String(120), default="")   # nome do entregável na época
+    acao          = db.Column(db.String(20), nullable=False) # ver modelo_sync.ACOES
+    campo         = db.Column(db.String(20), default="")
+    antes         = db.Column(db.String(300), default="")
+    depois        = db.Column(db.String(300), default="")
+
+    mudanca = db.relationship("MudancaModelo", back_populates="itens")
+
+    def to_dict(self):
+        return {
+            "projeto_id":    self.projeto_id,
+            "projeto":       self.projeto_nome or "",
+            "entregavel_id": self.entregavel_id,
+            "entregavel":    self.entregavel or "",
+            "acao":          self.acao,
+            "campo":         self.campo or "",
+            "antes":         self.antes or "",
+            "depois":        self.depois or "",
         }
 
 

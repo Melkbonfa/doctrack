@@ -117,6 +117,56 @@ def test_modelo_tipo_projeto_invalido(client, admin_token, auth_headers):
     assert res.status_code == 400
 
 
+# ── Ordem dos itens do modelo ────────────────────────────────────────────────
+
+def _ids_modelo(client, h, tipo="OEM"):
+    return {m["tipo"]: m["id"] for m in
+            client.get(f"/api/modelos?tipo={tipo}", headers=h).get_json()["modelos"][tipo]}
+
+
+def test_reordenar_modelo_vale_para_projeto_novo(app, client, gestor_token, auth_headers):
+    _seed_modelo(app)
+    h = auth_headers(gestor_token)
+    client.post("/api/modelos", json={"tipo_projeto": "OEM", "categoria": "Produto",
+                                      "tipo": "Teste de campo"}, headers=h)
+    antigo = client.post("/api/projetos", json={"nome": "Antigo", "tipo": "OEM"},
+                         headers=h).get_json()["projeto"]["id"]
+    ids = _ids_modelo(client, h)
+    nova = [ids["Teste de campo"], ids["Manual"], ids["Protótipo"]]
+    res = client.put("/api/modelos/ordem", json={"tipo_projeto": "OEM", "ids": nova}, headers=h)
+    assert res.status_code == 200
+    assert list(_ids_modelo(client, h)) == ["Teste de campo", "Manual", "Protótipo"]
+
+    def produto(pid):
+        det = client.get(f"/api/projetos/{pid}", headers=h).get_json()
+        return [e["tipo"] for c in det["categorias"] if c["categoria"] == "Produto"
+                for e in c["entregaveis"]]
+    novo = client.post("/api/projetos", json={"nome": "Novo", "tipo": "OEM"},
+                       headers=h).get_json()["projeto"]["id"]
+    assert produto(novo) == ["Teste de campo", "Protótipo"]
+    assert produto(antigo) == ["Protótipo", "Teste de campo"]   # projeto já criado não muda
+
+
+def test_reordenar_modelo_exige_todos_do_tipo(app, client, gestor_token, auth_headers):
+    _seed_modelo(app)
+    _seed_modelo(app, "Revenda")
+    h = auth_headers(gestor_token)
+    oem, rev = list(_ids_modelo(client, h).values()), list(_ids_modelo(client, h, "Revenda").values())
+    for corpo in ({"tipo_projeto": "OEM", "ids": oem[:1]},              # faltando
+                  {"tipo_projeto": "OEM", "ids": oem + oem[:1]},        # repetido
+                  {"tipo_projeto": "OEM", "ids": [oem[0], rev[0]]},     # de outro modelo
+                  {"tipo_projeto": "OEM", "ids": "x"},
+                  {"tipo_projeto": "Nada", "ids": oem}):
+        assert client.put("/api/modelos/ordem", json=corpo, headers=h).status_code == 400, corpo
+
+
+def test_reordenar_modelo_negado_para_tecnico(app, client, tecnico_token, auth_headers):
+    _seed_modelo(app)
+    res = client.put("/api/modelos/ordem", json={"tipo_projeto": "OEM", "ids": []},
+                     headers=auth_headers(tecnico_token))
+    assert res.status_code == 403
+
+
 # ── Tipos de projeto cadastráveis ────────────────────────────────────────────
 
 def _tipos(client, h):
