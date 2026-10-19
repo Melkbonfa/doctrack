@@ -14,6 +14,22 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Tempo real sem WebSocket sob o waitress (err.log de 817 MB)
+O waitress da produção não faz WebSocket, mas todo cliente abria o Socket.IO
+pedindo websocket primeiro: cada aba aberta gerava um traceback
+(`Cannot obtain socket from WSGI environment`) no `err.log` antes de cair para
+polling. O log da produção chegou a 817 MB disso.
+
+- **Corrigido** o servidor detecta o waitress e passa a aceitar só polling, sem
+  anunciar upgrade; pedido de websocket recebe 400, sem traceback. No
+  `python servidor.py` e no gunicorn o WebSocket continua. `DOCTRACK_WEBSOCKET`
+  força a decisão.
+- **Corrigido** os quatro clientes (Projetos, Missões, PDR e o
+  `socket-client.js`) começam por polling e só sobem para WebSocket quando o
+  servidor anuncia.
+- **Adicionado** rotação dos logs do serviço NSSM no `deploy_windows.ps1` (10 MB)
+  e, no RUNBOOK, como ligá-la num serviço já instalado.
+
 ### Documentação técnica: quatro camadas, e a metade que se gera sozinha
 O sistema tinha documentação farta de *decisão* — planos, specs, um CHANGELOG de
 36 KB, docstrings que explicam por que cada coisa é assim — e nenhuma de

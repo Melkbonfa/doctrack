@@ -1013,7 +1013,8 @@ function silenciarSocket(ms=1200){ _mudoAte=Date.now()+ms; }
 function conectarSocket(){
   if(typeof io==="undefined") return;
   try{
-    const s=io({auth:{token:token()}, transports:["websocket","polling"]});
+    // Polling primeiro; WebSocket só se o servidor anunciar (ver servidor.websocket_disponivel).
+    const s=io({auth:{token:token()}, transports:["polling","websocket"]});
     const label=document.getElementById("sync-label");
     s.on("connect",()=>{ if(label) label.textContent="Conectado"; });
     s.on("disconnect",()=>{ if(label) label.textContent="Offline"; });
