@@ -18,12 +18,22 @@
   // Sessão única do DocTrack: sem token, volta para o login do mestre.
   if (!localStorage.getItem("doctrack_token")) { window.location.replace("/"); }
 </script>
+{# O PDR é blueprint do mesmo Flask e serve /static do mestre (ver o comentário
+   sobre vendor acima), então o parcial do app mestre resolve aqui também. #}
+{% include "_pwa_head.html" %}
 </head>
 <body>
 
 <!-- ═══════════ APP ═══════════ -->
 <div id="app">
   <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
+  <!-- Gaveta do celular. pdr/static/style.css:658 já trazia todo o desenho do ☰
+       e do backdrop; o que faltava eram estes dois elementos no HTML — sem eles
+       a <nav> abaixo ficava em translateX(-100%) para sempre no celular, e o
+       módulo não tinha navegação nem saída. Quem os liga é static/nav-mobile.js,
+       que chega por _pwa_head.html. -->
+  <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menu" aria-controls="sidebar-nav" aria-expanded="false">☰</button>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
   <!-- SIDEBAR -->
   <nav class="sidebar" id="sidebar-nav" aria-label="Navegação principal">
     <div class="sidebar-brand">

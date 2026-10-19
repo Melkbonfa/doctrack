@@ -14,6 +14,9 @@
      de HTML não é comentário de Jinja, e a expressão seria avaliada.) -->
 <link rel="stylesheet" href="/static/tempos-widget.css?v={{ asset_v }}">
 {%- block head_extra %}{% endblock %}
+{# DEPOIS de head_extra, não antes: o parcial traz mobile.css, e o passe de
+   celular precisa poder vencer o CSS do módulo que este bloco carrega. #}
+{% include "_pwa_head.html" %}
 </head>
 <body>
 {%- block prebody %}{% endblock %}

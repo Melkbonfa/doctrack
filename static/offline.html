@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<!--
+  offline.html — o que o service worker mostra quando NÃO HÁ REDE.
+
+  Autossuficiente de propósito: CSS embutido, zero <script>, zero referência a
+  /static. É a única página que precisa renderizar com o servidor inalcançável,
+  então qualquer arquivo externo que ela pedisse seria um arquivo a mais para
+  faltar justamente na hora. Por isso também não estende base.html.
+
+  Não confundir com templates/travado.html: aquela é a tela do kill switch, vem
+  do servidor com status 423 e significa "o sistema está desligado". Esta
+  significa "o seu aparelho está sem internet" e nunca passa pelo servidor.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Sem conexão — DocTrack</title>
+<style>
+  :root{
+    --bg-void:#15172e; --bg-card:#1f2444; --t1:#e8ecf8; --t3:#8b93b8;
+    --cyan:#22d3ee; --borda:rgba(255,255,255,.10);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; padding:24px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--bg-void); color:var(--t1);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  .caixa{width:100%; max-width:400px; text-align:center}
+  .marca{
+    display:grid; grid-template-columns:repeat(2,1fr); gap:5px;
+    width:52px; margin:0 auto 22px;
+  }
+  .marca i{display:block; aspect-ratio:1; border-radius:5px; background:var(--cyan)}
+  .marca i:nth-child(2){opacity:.7} .marca i:nth-child(3){opacity:.5}
+  .marca i:nth-child(4){opacity:.4}
+  h1{font-size:19px; font-weight:600; margin:0 0 10px}
+  p{font-size:14px; line-height:1.6; color:var(--t3); margin:0 0 26px}
+  button{
+    font:inherit; font-size:14px; cursor:pointer;
+    padding:11px 26px; border-radius:9px;
+    background:var(--bg-card); color:var(--t1); border:1px solid var(--borda);
+  }
+  button:hover{border-color:var(--cyan)}
+  .nota{
+    margin-top:26px; padding-top:18px; border-top:1px solid var(--borda);
+    font-size:12px; line-height:1.6; color:var(--t3);
+  }
+</style>
+</head>
+<body>
+  <div class="caixa">
+    <div class="marca" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <h1>Sem conexão</h1>
+    <p>
+      O DocTrack não conseguiu falar com o servidor. Verifique a internet do seu
+      aparelho e tente de novo.
+    </p>
+    <button type="button" onclick="location.reload()">Tentar de novo</button>
+    <div class="nota">
+      O DocTrack não guarda dados no aparelho: documentos, equipamentos e
+      apontamentos vêm do servidor a cada consulta. Sem rede não há o que
+      mostrar — e nada do que você já lançou se perdeu.
+    </div>
+  </div>
+</body>
+</html>

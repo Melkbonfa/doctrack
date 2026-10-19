@@ -64,11 +64,10 @@ const FILTROS={busca:"", resp:"", etiqueta:"", prioridade:"", atrasados:false,
   document.getElementById("btn-arquivadas").onclick=alternarVerArquivadas;
   document.getElementById("ca-resp-select").onchange=addResponsavel;
   ligarFiltros();
-  const tg=document.getElementById("sidebar-toggle");
-  if(tg) tg.onclick=()=>{ document.getElementById("sidebar-nav").classList.toggle("open");
-    document.getElementById("sidebar-backdrop").classList.toggle("open"); };   // style.css usa .open no backdrop
-  const bd=document.getElementById("sidebar-backdrop");
-  if(bd) bd.onclick=()=>{ document.getElementById("sidebar-nav").classList.remove("open"); bd.classList.remove("open"); };
+  // Gaveta lateral do celular: static/nav-mobile.js. Aqui ela era o caso que
+  // obrigou a delegação de evento — os itens da gaveta SÃO as missões e nascem
+  // em renderSidebar(), depois do fetch, então ligar item a item no load nunca
+  // pegaria nenhum deles.
   loadAll();
   conectarSocket();
 })();

@@ -16,6 +16,9 @@
   <script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
   <!-- Arrastar para ordenar os entregáveis (o mesmo do quadro de Missões). -->
   <script src="/static/vendor/Sortable.min.js?v={{ asset_v }}"></script>
+  {# Mesma razão do <link> do cronômetro acima: esta página não estende
+     base.html, então o bloco de PWA entra na mão. #}
+  {% include "_pwa_head.html" %}
 </head>
 <body>
   <div class="app-shell" style="display:block">

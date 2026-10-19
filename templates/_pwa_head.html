@@ -1,0 +1,39 @@
+{#
+  _pwa_head.html — bloco de <head> que torna o DocTrack instalável no celular.
+
+  Incluído por base.html E, na mão, pelos templates que têm <head> próprio
+  (entregaveis, hub, subhub, pdr/dashboard). É o mesmo motivo pelo qual o
+  <link> do cronômetro está duplicado em entregaveis.html: aquelas páginas não
+  estendem base.html. A diferença é que aqui o trecho mora num arquivo só —
+  quando o manifesto ou um ícone mudar, muda em um lugar.
+
+  travado.html NÃO inclui isto de propósito: a tela do kill switch não carrega
+  JS de aplicação nem se declara instalável.
+
+  Exige `asset_v` no contexto (todas as rotas que renderizam página já passam).
+#}
+<link rel="manifest" href="/manifest.webmanifest">
+{# Cor da barra do sistema no app instalado. Fixa no tom escuro, e não dividida
+   por prefers-color-scheme: o tema do DocTrack é uma escolha em localStorage
+   (ver initTheme em common.js), que não tem relação com a preferência do SO —
+   casar com o SO acertaria a cor de metade dos usuários e erraria a da outra
+   metade. O padrão do app é o escuro, então é este. #}
+<meta name="theme-color" content="#15172e">
+<meta name="application-name" content="DocTrack">
+{# Ícone da aba. Sem isto o navegador pede /favicon.ico e leva 404 em toda
+   página — inofensivo, mas suja o log de acesso do servidor. #}
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icone-192.png">
+{# iOS ignora o manifesto inteiro: ícone, nome e modo tela cheia saem daqui. #}
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="DocTrack">
+<link rel="stylesheet" href="/static/mobile.css?v={{ asset_v }}">
+{# Gaveta lateral do celular. Aqui, e não em common.js, porque este parcial é o
+   único ponto que alcança as sete páginas com gaveta: o PDR tem <head> próprio
+   e não carrega common.js (nem auth.js — ver o <script> de sessão no topo
+   daquele template). `defer` é parte do desenho — faz o script rodar DEPOIS dos
+   scripts de módulo no fim do <body>, então ele é o dono único do ☰ sem
+   disputar listener com ninguém. #}
+<script src="/static/nav-mobile.js?v={{ asset_v }}" defer></script>
+<script src="/static/pwa.js?v={{ asset_v }}" defer></script>

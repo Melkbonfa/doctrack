@@ -510,6 +510,42 @@ def config_page():
     from areas import AREAS
     return render_template("config.html", asset_v=_static_version(), areas=AREAS)
 
+# ── PWA (instalação na tela inicial) ──────────────────────────────────────────
+# Os dois arquivos moram em static/, mas precisam ser SERVIDOS da raiz.
+#
+# O service worker por uma razão dura: o escopo de um worker é o diretório de
+# onde ele foi baixado. Publicado em /static/sw.js ele só controlaria /static/*
+# — nenhuma página do app — e a instalação seria inútil. (Dá para contornar com
+# o cabeçalho Service-Worker-Allowed, mas uma rota é mais explícita do que um
+# cabeçalho que ninguém lembra de procurar.)
+#
+# O manifesto por consistência: o `scope: "/"` declarado dentro dele não pode
+# ser mais amplo que o diretório de onde o próprio manifesto veio.
+#
+# Nenhum dos dois é liberado no kill switch, e isso é de propósito: travado,
+# os dois respondem 423 como todo o resto. O worker já instalado continua
+# funcionando, mas ele repassa navegação para a rede sem consultar cache (ver
+# static/sw.js), então a tela de bloqueio aparece do mesmo jeito.
+def _da_raiz_do_static(nome, mimetype):
+    from flask import send_from_directory
+    resp = send_from_directory(os.path.join(BASE_DIR, "static"), nome,
+                               mimetype=mimetype)
+    # Sem cache do navegador nos DOIS. O conteúdo versionado é o que eles
+    # apontam (as URLs com ?v=), não eles próprios: um sw.js guardado no cache
+    # é um deploy que não chega ao aparelho de ninguém.
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
+
+
+@app.route("/sw.js")
+def service_worker():
+    return _da_raiz_do_static("sw.js", "text/javascript")
+
+
+@app.route("/manifest.webmanifest")
+def web_manifest():
+    return _da_raiz_do_static("manifest.webmanifest", "application/manifest+json")
+
 # ── API — DADOS ───────────────────────────────────────────────────────────────
 @app.route("/api/data")
 @jwt_required()

@@ -1,0 +1,54 @@
+{
+  "name": "DocTrack — P&D Equipamentos",
+  "short_name": "DocTrack",
+  "description": "Documentos técnicos, equipamentos, entregáveis e apontamento de horas da Loccus.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/hub",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#15172e",
+  "theme_color": "#15172e",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/static/icons/icone-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icone-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icone-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Apontar horas",
+      "short_name": "Tempos",
+      "url": "/tempos",
+      "icons": [{ "src": "/static/icons/icone-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Missões",
+      "short_name": "Missões",
+      "url": "/missoes",
+      "icons": [{ "src": "/static/icons/icone-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Equipamentos",
+      "short_name": "Equipamentos",
+      "url": "/equipamentos",
+      "icons": [{ "src": "/static/icons/icone-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
