@@ -55,6 +55,34 @@ Ver o log de erro, ao vivo:
 Get-Content C:\apps\doctrack\logs\err.log -Tail 50 -Wait
 ```
 
+### Tamanho dos logs
+
+O `scripts/deploy_windows.ps1` instala o serviço com rotação: o log gira na
+subida e, com o serviço no ar, ao passar de 10 MB (o antigo ganha a data no
+nome). Num serviço instalado antes disso, ligue a rotação uma vez — vale a
+partir do próximo início do serviço:
+
+```bash
+nssm set DocTrack AppRotateFiles 1
+```
+
+```bash
+nssm set DocTrack AppRotateOnline 1
+```
+
+```bash
+nssm set DocTrack AppRotateBytes 10485760
+```
+
+Os arquivos girados (`err-AAAAMMDDThhmmss.mmm.log`) não são apagados
+sozinhos: confira a pasta `logs\` no checklist mensal.
+
+O `err.log` cheio do traceback `Cannot obtain socket from WSGI environment` era
+o Socket.IO tentando WebSocket sob o waitress, que não suporta. Hoje o app
+detecta o waitress e usa só polling (ver `servidor.websocket_disponivel`;
+`DOCTRACK_WEBSOCKET=0/1` força). Se esse traceback voltar, alguma tela está
+abrindo o socket com `transports` começando por `"websocket"`.
+
 Confirmar que o app responde (não precisa de login, e funciona até travado):
 
 ```bash
@@ -226,6 +254,7 @@ concluir que algo sumiu.
 | Toda semana | `err.log` sem `Traceback` novo |
 | Todo mês | uma restauração de teste em banco descartável — backup nunca testado não é backup |
 | Todo mês | validade dos registros ANVISA vencendo (aparece no ICE dos equipamentos) |
+| Todo mês | pasta `logs\`: apagar os logs girados antigos |
 | A cada deploy | log da subida limpo; `/api/version` responde a versão nova |
 | A cada mudança de `.env` | conferir contra [`../referencia/config.md`](../referencia/config.md) |
 

@@ -47,7 +47,10 @@ class DocTrackSocket {
 
     this.socket = io(this.baseUrl || undefined, {
       auth: { token: this.token },
-      transports: ["websocket", "polling"],
+      // Polling primeiro: o WebSocket só entra se o servidor anunciar upgrade.
+      // O waitress da produção não anuncia (ver servidor.websocket_disponivel),
+      // e começar por websocket ali gerava um traceback por aba aberta.
+      transports: ["polling", "websocket"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,       // começa em 1s

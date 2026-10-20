@@ -2987,7 +2987,9 @@ document.addEventListener("keydown", (e) => {
 function conectarSocket(){
   if (typeof io === "undefined") return;
   try{
-    const s = io({ auth: { token: token() }, transports: ["websocket", "polling"] });
+    // Polling primeiro: o WebSocket só entra se o servidor anunciar upgrade (o
+    // waitress da produção não anuncia — ver servidor.websocket_disponivel).
+    const s = io({ auth: { token: token() }, transports: ["polling", "websocket"] });
     let pendente = null;
     const recarregar = () => {                 // agrupa rajadas de eventos
       clearTimeout(pendente);

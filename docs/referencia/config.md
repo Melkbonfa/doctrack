@@ -6,7 +6,7 @@
 
 # Variáveis de ambiente
 
-**38** variáveis lidas pelo código. **13** aparecem no `.env.example`.
+**39** variáveis lidas pelo código. **14** aparecem no `.env.example`.
 
 O `.env.example` é o arquivo para copiar e editar, e explica *por que* cada variável importante existe. Esta tabela é o inventário completo: existe para que nenhuma variável fique só no código.
 
@@ -45,6 +45,7 @@ O `.env.example` é o arquivo para copiar e editar, e explica *por que* cada var
 | `DOCTRACK_UPLOAD_BIN_MAX_MB` | `"500"` | `arquivos_store.py` | sim |
 | `DOCTRACK_UPLOAD_MAX_MB` | `"80"` | `arquivos_store.py` | sim |
 | `DOCTRACK_URL` | `"http://localhost:5000"` | `scripts/kill_switch.py` | **não** |
+| `DOCTRACK_WEBSOCKET` | **obrigatória** | `servidor.py` | sim |
 | `FLASK_DEBUG` | `"False"` | `servidor.py` | sim |
 | `JWT_SECRET` | **obrigatória** | `servidor.py` | sim |
 | `PDR_EXCEL_PATH` | `os.path.join(DATA_DIR, "Lista_Mestra_PDR_tratada.xlsx"` | `pdr/importer.py` | **não** |

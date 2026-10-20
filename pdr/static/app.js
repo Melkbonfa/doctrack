@@ -665,7 +665,8 @@ if (localStorage.getItem("doctrack_theme") === "light") { document.body.classLis
 function connectSocket() {
   if (state.socket) return;
   try {
-    state.socket = io({ auth: { token: state.token }, transports: ["websocket", "polling"] });
+    // Polling primeiro; WebSocket só se o servidor anunciar (ver servidor.websocket_disponivel).
+    state.socket = io({ auth: { token: state.token }, transports: ["polling", "websocket"] });
     state.socket.on("connect", () => { $("sync-dot").style.background = "var(--green)"; $("sync-label").textContent = "Conectado"; });
     state.socket.on("disconnect", () => { $("sync-dot").style.background = "var(--amber)"; $("sync-label").textContent = "Reconectando…"; });
     const onChange = (ev) => {

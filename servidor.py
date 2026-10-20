@@ -167,6 +167,38 @@ import killswitch
 app.register_blueprint(killswitch.killswitch_bp)
 
 # ── SOCKETIO ──────────────────────────────────────────────────────────────────
+def websocket_disponivel():
+    """O servidor que está subindo o app consegue fazer WebSocket?
+
+    O waitress (o servidor da produção, via NSSM) não entrega o socket cru para
+    a aplicação, então não há como fazer o upgrade. Oferecer WebSocket mesmo
+    assim custava caro: cada aba que abria tentava, o engineio estourava
+    `RuntimeError: Cannot obtain socket from WSGI environment` com traceback
+    inteiro no err.log, e só então o cliente caía para polling — o err.log da
+    produção chegou a 817 MB disso. O werkzeug do `python servidor.py` e o
+    gunicorn do Render entregam o socket, e lá o WebSocket continua.
+
+    O waitress-serve importa o próprio módulo antes de importar o app, então
+    estar em `sys.modules` aqui é sinal confiável de quem está servindo.
+    `DOCTRACK_WEBSOCKET=0/1` força a decisão (outro servidor, ou diagnóstico).
+    """
+    forcado = (os.environ.get("DOCTRACK_WEBSOCKET") or "").strip().lower()
+    if forcado in ("0", "false", "nao", "não", "off"):
+        return False
+    if forcado in ("1", "true", "sim", "on"):
+        return True
+    return "waitress" not in sys.modules
+
+
+def opcoes_transporte(websocket):
+    """Opções do engineio para cada caso. Sem WebSocket o handshake não anuncia
+    upgrade, e os clientes (que começam por polling) nem tentam. Uma conexão que
+    mesmo assim peça websocket leva 400 "Invalid transport" — resposta curta,
+    sem traceback no log."""
+    return {"transports": ["polling", "websocket"] if websocket else ["polling"],
+            "allow_upgrades": bool(websocket)}
+
+
 socketio = SocketIO(
     app,
     async_mode="threading",
@@ -175,6 +207,7 @@ socketio = SocketIO(
     ping_timeout=60,
     logger=False,
     engineio_logger=False,
+    **opcoes_transporte(websocket_disponivel()),
 )
 
 entregaveis_init_realtime(socketio, publish_event, AuditLog, EventType)

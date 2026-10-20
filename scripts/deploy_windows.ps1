@@ -168,6 +168,12 @@ if (Get-Service $Servico -ErrorAction SilentlyContinue) {
 & $nssm set $Servico Start SERVICE_AUTO_START
 & $nssm set $Servico AppStdout "$Projeto\logs\out.log"
 & $nssm set $Servico AppStderr "$Projeto\logs\err.log"
+# Rotacao dos logs: sem ela o err.log so cresce (chegou a 817 MB com o traceback
+# de WebSocket que o waitress gerava a cada aba aberta). Gira na subida e, com o
+# servico no ar, ao passar de 10 MB; o arquivo antigo ganha a data no nome.
+& $nssm set $Servico AppRotateFiles 1
+& $nssm set $Servico AppRotateOnline 1
+& $nssm set $Servico AppRotateBytes 10485760
 & $nssm start $Servico
 OK "Servico '$Servico' instalado e iniciado."
 
