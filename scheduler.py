@@ -60,6 +60,18 @@ def rodar_uma_vez(app, tarefa, *, forcar=False):
             return False
 
 
+def marcar_como_feito(dia=None):
+    """Registra que as tarefas de `dia` (hoje, por padrão) já rodaram.
+
+    O init_app roda as tarefas na subida, por fora de `rodar_uma_vez`. Sem esta
+    marca, a primeira checagem da thread (15 min depois) as rodava de novo no
+    mesmo dia — fotos regravadas, PTAX consultada duas vezes.
+    """
+    global _ultimo_dia
+    with _lock:
+        _ultimo_dia = dia or date.today()
+
+
 def iniciar_agendador(app, tarefa, intervalo=None):
     """Sobe a thread daemon que executa `tarefa` uma vez por dia.
 
@@ -78,8 +90,8 @@ def iniciar_agendador(app, tarefa, intervalo=None):
     parar = threading.Event()
 
     def _loop():
-        # A primeira execução acontece na subida (junto do init_app), então aqui
-        # só marcamos o dia como feito e esperamos a virada.
+        # A primeira execução acontece na subida: o init_app roda as tarefas e
+        # chama marcar_como_feito(). Aqui só se espera a virada do dia.
         while not parar.wait(espera):
             if rodar_uma_vez(app, tarefa):
                 print(f"[INFO] Agendador: tarefas diárias de "

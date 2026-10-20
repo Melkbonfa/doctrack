@@ -124,7 +124,7 @@ from auth import auth_bp, log_action, require_role, get_client_ip
 from event_bus import publish_event, get_events_since, EventType
 from utils import norm, norm_sku
 import caminhos
-from scheduler import iniciar_agendador, rodar_uma_vez, agendador_habilitado
+from scheduler import iniciar_agendador, rodar_uma_vez, agendador_habilitado, marcar_como_feito
 import equipamentos_core as eqcore
 
 db.init_app(app)
@@ -2317,35 +2317,36 @@ def _sync_schema():
     db.session.commit()
 
     # Índices em tabelas que já existiam: create_all() cria a tabela nova com os
-    # índices do modelo, mas não adiciona índice a tabela existente.
-    novos_indices = [
-        # /api/audit e o export ordenam por timestamp DESC e filtram por período.
-        # A coluna não tinha índice: cada abertura da tela de auditoria era um
-        # full scan + sort da tabela que mais cresce no sistema.
-        ("ix_audit_logs_timestamp", "audit_logs", "timestamp"),
-        # `documentos.pasta_id` nasce com index=True no modelo, mas o
-        # ALTER TABLE acima só cria a coluna: em banco que já existia o índice
-        # não vem junto. É por ele que o backfill de pastas e a remoção de uma
-        # pasta (que desvincula os documentos dela) varrem a tabela.
-        ("ix_documentos_pasta_id", "documentos", "pasta_id"),
-    ]
-    for nome_idx, tabela, coluna in novos_indices:
-        if tabela not in existentes:
-            continue
-        if nome_idx in {i["name"] for i in insp.get_indexes(tabela)}:
-            continue
-        try:
-            db.session.execute(text(
-                f"CREATE INDEX {nome_idx} ON {tabela} ({coluna})"))
-            db.session.commit()
-            print(f"[INFO] Schema: índice {nome_idx} criado")
-        except Exception as e:
-            db.session.rollback()
-            print(f"[WARN] Schema: índice {nome_idx} não criado — {e}")
+    # índices do modelo, mas não adiciona índice a tabela existente — e o ALTER
+    # TABLE acima cria a coluna sem o index=True dela. Vale para todo índice do
+    # modelo, e não para uma lista mantida à mão: a lista que havia aqui
+    # envelheceu (modelo_chave e chave, da migration 020, ficaram de fora, e as
+    # migrations 009/011 que criavam os de documentos/equipamentos só rodam em
+    # SQLite — no Postgres de produção, este é o único caminho).
+    #
+    # UNIQUE fica de fora: criar um exige decidir antes o que fazer com linhas
+    # repetidas (ver o bloco de uq_tempo_em_curso abaixo). Índice que já existe
+    # com outro nome sobre as mesmas colunas (o das migrations SQLite) também.
+    from sqlalchemy.schema import CreateIndex
+    for tabela in sorted(existentes & set(db.metadata.tables)):
+        atuais = insp.get_indexes(tabela)
+        nomes = {i["name"] for i in atuais}
+        cobertas = {tuple(i["column_names"]) for i in atuais}
+        for idx in sorted(db.metadata.tables[tabela].indexes, key=lambda i: i.name):
+            colunas = tuple(c.name for c in idx.columns)
+            if idx.unique or idx.name in nomes or colunas in cobertas:
+                continue
+            try:
+                db.session.execute(CreateIndex(idx))
+                db.session.commit()
+                print(f"[INFO] Schema: índice {idx.name} criado")
+            except Exception as e:
+                db.session.rollback()
+                print(f"[WARN] Schema: índice {idx.name} não criado — {e}")
 
     # Tempos: o índice PARCIAL e ÚNICO que impede, no banco, dois cronômetros em
-    # curso para a mesma pessoa. Fica fora do laço acima porque `novos_indices`
-    # só sabe emitir índice simples de uma coluna — sem UNIQUE e sem WHERE.
+    # curso para a mesma pessoa. Fica fora do laço acima porque ele pula UNIQUE
+    # de propósito: este só pode ser criado depois do de-dup logo abaixo.
     #
     # Em banco novo isto não roda: create_all() já cria a tabela com o
     # __table_args__ inteiro. O caso coberto é a tabela existir sem o índice
@@ -3351,8 +3352,10 @@ def init_app(app_=None):
             # Missões: trilha temporal do cartão + N:N de responsáveis. Idempotentes.
             _backfill_missoes()
             # Fotos do dia (equipamentos, missões, projetos): a subida garante a
-            # de hoje; o agendador cuida das próximas. Idempotentes.
+            # de hoje; o agendador cuida das próximas — e precisa saber que a
+            # de hoje já foi, senão repete tudo na primeira checagem. Idempotentes.
             rodar_tarefas_diarias()
+            marcar_como_feito()
 
             # PDR: na primeira subida as tabelas pdr_* já foram criadas por create_all();
             # importa a Lista Mestra de Reagentes (versionada em pdr/data/) se estiver vazia.

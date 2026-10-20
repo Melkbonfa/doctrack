@@ -142,7 +142,7 @@ if (-not $nssm) {
     Write-Host "  Baixe em https://nssm.cc/download , coloque o nssm.exe numa pasta"
     Write-Host "  do PATH (ex: C:\Windows) e rode este script de novo."
     Write-Host "  -- OU -- inicie manualmente para testar agora:" -ForegroundColor Yellow
-    Write-Host "     .\venv\Scripts\waitress-serve.exe --listen=0.0.0.0:$Porta wsgi:app"
+    Write-Host "     .\venv\Scripts\waitress-serve.exe --listen=0.0.0.0:$Porta --threads=32 wsgi:app"
     exit 1
 }
 
@@ -162,8 +162,12 @@ if (Get-Service $Servico -ErrorAction SilentlyContinue) {
 # wsgi:app (nao servidor:app): a preparacao do banco -- schema, backfills e a
 # foto do dia -- saiu do import de servidor.py e virou init_app(), chamado por
 # wsgi.py. Apontar para servidor:app sobe o app com o banco sem preparar.
+#
+# --threads=32: sob o waitress o Socket.IO e so polling, e cada aba aberta
+# segura uma thread por ate 25 s (ping_interval), o tempo todo. Com o padrao de
+# 4 threads, quatro abas bastavam para enfileirar todo o resto do sistema.
 & $nssm install $Servico $waitress
-& $nssm set $Servico AppParameters "--listen=0.0.0.0:$Porta wsgi:app"
+& $nssm set $Servico AppParameters "--listen=0.0.0.0:$Porta --threads=32 wsgi:app"
 & $nssm set $Servico AppDirectory $Projeto
 & $nssm set $Servico Start SERVICE_AUTO_START
 & $nssm set $Servico AppStdout "$Projeto\logs\out.log"

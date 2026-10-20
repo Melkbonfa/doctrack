@@ -65,7 +65,12 @@ documentos_bp = Blueprint("documentos", __name__)
 # UNC canônica (\\loccus-srv03\Projetos$\Engenharia) antes de comparar.
 ARQUIVOS_ROOTS = caminhos.RAIZES_ARQUIVOS
 
-_EXT_INLINE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".txt"}
+# Sem .svg de propósito: SVG é documento ativo. Aberto inline ele roda o
+# <script> que trouxer na origem do DocTrack (a CSP aceita 'unsafe-inline'), com
+# acesso ao token do localStorage — e quem grava na pasta de rede não precisa
+# ser usuário da plataforma. Desce como download, igual ao que arquivos_store e
+# os Cadernos já fazem.
+_EXT_INLINE = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".txt"}
 
 # Status terminais dos dois pipelines (STATUS_PRE / STATUS_FABRICANTE) — os que
 # `Documento.status_global` traduz para "Finalizado". Usado para decidir quando

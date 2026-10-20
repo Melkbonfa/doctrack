@@ -281,6 +281,34 @@ def test_listar_arquivos_aceita_unidade_mapeada(client, admin_token, auth_header
         caminhos.definir_aliases(original)
 
 
+def test_svg_da_pasta_de_rede_desce_como_download(client, admin_token, auth_headers, tmp_path):
+    """SVG é documento ativo: aberto inline, o <script> dele roda na origem do
+    DocTrack. Tem de descer como anexo — e a listagem não pode oferecê-lo ao
+    visor. PDF continua abrindo inline."""
+    from unittest.mock import patch
+
+    pasta = tmp_path / "Equipamento"     # fora da raiz do tmp_path, onde mora o banco do teste
+    pasta.mkdir()
+    svg = pasta / "logo.svg"
+    svg.write_text('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+    pdf = pasta / "IT-001.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    h = auth_headers(admin_token)
+
+    with patch("documentos.ARQUIVOS_ROOTS", [str(tmp_path)]):
+        res_svg = client.get("/api/documentos/arquivo", query_string={"caminho": str(svg)}, headers=h)
+        res_pdf = client.get("/api/documentos/arquivo", query_string={"caminho": str(pdf)}, headers=h)
+        lista = client.get("/api/documentos/arquivos", query_string={"caminho": str(pasta)},
+                           headers=h).get_json()
+    res_svg.close()
+    res_pdf.close()
+
+    assert res_svg.status_code == 200
+    assert res_svg.headers["Content-Disposition"].startswith("attachment")
+    assert res_pdf.headers["Content-Disposition"].startswith("inline")
+    assert {a["nome"]: a["inline"] for a in lista["arquivos"]} == {"logo.svg": False, "IT-001.pdf": True}
+
+
 def test_abrir_pasta_acesso_remoto(client, admin_token, auth_headers):
     h = auth_headers(admin_token)
     import os

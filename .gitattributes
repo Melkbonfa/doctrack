@@ -1,0 +1,9 @@
+# O repositório guarda tudo em LF; o checkout de cada máquina converte conforme
+# o core.autocrlf dela.
+* text=auto
+
+# A referência gerada sai do scripts/gerar_docs.py sempre em LF, e o
+# test_docs_sincronia compara byte a byte. Sem isto, um checkout no Windows
+# (core.autocrlf=true) grava CRLF e a suíte acusa "defasado" com o conteúdo
+# idêntico.
+docs/referencia/*.md text eol=lf
