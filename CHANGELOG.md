@@ -32,6 +32,12 @@ de política da área usuária.
   por (usuário, rota) a cada 10 minutos, com a rota pela regra do Flask — o
   front provoca esse 403 no uso normal, e uma varredura de ids não multiplica
   linhas. A resposta ao cliente não mudou.
+- **Corrigido (R-26)** remover um arquivo de documento ou um anexo de
+  equipamento não apaga mais o conteúdo do disco. A linha fica inativa (some da
+  tela e não é mais servida) e o blob permanece enquanto houver linha, ativa ou
+  inativa, que o referencie. Antes, sem outra referência, o blob era apagado e a
+  evidência só voltava pelo backup. Nos Cadernos, a linha na lixeira também
+  segura o blob (ainda pode ser restaurada); a purga continua como estava.
 
 ### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
 Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema

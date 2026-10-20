@@ -116,9 +116,13 @@ dos 12 tipos de documento. Duas categorias:
   e imagem passam dos 80 MB com facilidade).
 
 As duas tabelas de arquivo coexistem e não se misturam, mas **compartilham o
-blob em disco**: o mesmo PDF enviado nos dois lugares ocupa um arquivo só, e a
-remoção consulta as duas antes de apagar
+blob em disco**: o mesmo PDF enviado nos dois lugares ocupa um arquivo só
 ([ADR-0009](../arquitetura/decisoes/ADR-0009-blob-por-conteudo.md)).
+
+**Remover um anexo não apaga o conteúdo.** A linha fica inativa (some da lista
+e não é mais servida) e o blob continua em disco enquanto houver linha, ativa
+ou inativa, que o referencie — é evidência anexada, e antes só voltava pelo
+backup (Análise de Riscos, R-26). O mesmo vale para os arquivos de documento.
 
 ## Importação
 

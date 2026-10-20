@@ -108,6 +108,9 @@ Explorer (`P:\...`) e a UNC do mesmo diretório são tratados como o mesmo lugar
 Além do share, o usuário pode **enviar** uma cópia para dentro da plataforma
 (`documento_arquivos`). É cópia de conveniência, não mestre
 ([ADR-0009](../arquitetura/decisoes/ADR-0009-blob-por-conteudo.md)).
+Remover um arquivo enviado é exclusão lógica: a linha fica inativa no histórico,
+o arquivo deixa de ser servido, e o conteúdo **fica em disco** enquanto houver
+linha que o referencie (Análise de Riscos, R-26).
 
 ## Datas: as três significam coisas diferentes
 

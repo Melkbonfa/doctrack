@@ -444,6 +444,27 @@ def test_blob_do_caderno_conta_para_o_orfao_e_sai_na_purga(client, tecnico_token
     assert not arquivos_store.existe(linha.sha256)
 
 
+def test_purga_nao_apaga_blob_que_outra_linha_na_lixeira_ainda_usa(client, tecnico_token, area_pdr):
+    """R-26: o blob fica enquanto houver linha que o referencie. Uma linha na
+    lixeira ainda pode voltar (restaurar a página traz os arquivos dela), então
+    ela segura o blob até a purga apagá-la também."""
+    from cadernos import purgar_lixeira
+    cad = _criar_caderno(client, tecnico_token)
+    a = _envia(client, tecnico_token, cad, "caderno", "", "a.csv", b"igual").get_json()["arquivo"]
+    b = _envia(client, tecnico_token, cad, "caderno", "", "b.csv", b"igual").get_json()["arquivo"]
+    for uuid_ in (a["uuid"], b["uuid"]):
+        assert client.delete(f"/cadernos/api/arquivos/{uuid_}", headers=H(tecnico_token)).status_code == 200
+    velha = CadernoArquivo.query.filter_by(uuid=a["uuid"]).first()
+    velha.excluido_em = datetime.now() - timedelta(days=61)
+    sha = velha.sha256
+    db.session.commit()
+
+    contagem = purgar_lixeira()
+    assert contagem["arquivos"] == 1 and contagem["blobs"] == 0
+    assert arquivos_store.existe(sha)          # b, na lixeira há pouco, ainda o usa
+    assert CadernoArquivo.query.filter_by(uuid=b["uuid"]).first() is not None
+
+
 def test_purga_apaga_pagina_e_versoes(client, tecnico_token, area_pdr):
     from cadernos import purgar_lixeira
     cad = _criar_caderno(client, tecnico_token)

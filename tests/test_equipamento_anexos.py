@@ -219,18 +219,21 @@ def test_patch_nao_inventa_versao_em_doc_agregado(client, admin_token, auth_head
 
 
 # ── remoção ──────────────────────────────────────────────────────────────────
-def test_remover_apaga_o_blob_e_some_da_lista(client, admin_token, equip_id):
+def test_remover_some_da_lista_e_mantem_o_blob(client, admin_token, equip_id):
+    """R-26: a linha sobrevive inativa para a trilha, e o conteúdo também — é
+    evidência anexada, e antes só voltava pelo backup."""
     a = _envia(client, admin_token, equip_id).get_json()["anexo"]
     sha = db.session.get(EquipamentoArquivo, a["id"]).sha256
     assert arquivos_store.existe(sha)
 
-    res = client.delete(f"/api/equipamentos/anexos/{a['id']}",
-                        headers={"Authorization": f"Bearer {admin_token}"})
+    h = {"Authorization": f"Bearer {admin_token}"}
+    res = client.delete(f"/api/equipamentos/anexos/{a['id']}", headers=h)
     assert res.status_code == 200
     assert _lista(client, admin_token, equip_id) == []
-    assert not arquivos_store.existe(sha)
-    # a linha sobrevive para a trilha; o conteúdo, não
+    assert arquivos_store.existe(sha)
     assert db.session.get(EquipamentoArquivo, a["id"]).ativo is False
+    assert client.get(f"/api/equipamentos/anexos/{a['id']}/conteudo",
+                      headers=h).status_code == 404
 
 
 def test_remover_duas_vezes(client, admin_token, equip_id):

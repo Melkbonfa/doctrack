@@ -533,7 +533,8 @@ class DocumentoArquivo(db.Model):
     """Cópia do documento hospedada na plataforma (o mestre segue no servidor).
 
     Um documento comporta VÁRIOS arquivos ao mesmo tempo — enviar não substitui
-    os existentes; remover desativa um. `versao` é o número sequencial de envio
+    os existentes; remover desativa um (a linha e o blob ficam: ver
+    `documentos._sha_orfao`). `versao` é o número sequencial de envio
     dentro do documento (só cresce), usado para ordenar do mais novo ao mais
     velho. Quem enviou e quando fica sempre visível: não há sincronização com o
     mestre, e é essa informação que impede alguém ler uma cópia velha sem saber.
@@ -760,7 +761,8 @@ class EquipamentoArquivo(db.Model):
 
     Como no `DocumentoArquivo`, `sha256` é o nome do blob em disco — o caminho
     deriva do conteúdo, nunca da requisição — e remover é soft delete: a linha
-    fica para a trilha e o blob só sai quando ninguém mais aponta para ele.
+    fica para a trilha e o blob fica em disco enquanto houver linha que o
+    referencie.
     """
     __tablename__ = "equipamento_arquivos"
 

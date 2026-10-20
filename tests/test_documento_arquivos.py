@@ -156,7 +156,11 @@ def test_mesmo_conteudo_em_dois_documentos_usa_um_blob_so(client, admin_token, a
     assert res.data == conteudo
 
 
-def test_remover_ultima_referencia_apaga_o_blob(client, admin_token, auth_headers):
+def test_remover_ultima_referencia_mantem_o_blob(client, admin_token, auth_headers):
+    """R-26: remover é exclusão lógica também para o conteúdo. Antes, o blob
+    sem outra referência era apagado do disco, e a evidência anexada só voltava
+    pelo backup. Agora a linha inativa segura o blob."""
+    from documentos import _sha_orfao
     h = auth_headers(admin_token)
     doc_id = _um_documento(client, h)
     arq = _upload(client, admin_token, doc_id).get_json()["arquivo"]
@@ -166,7 +170,22 @@ def test_remover_ultima_referencia_apaga_o_blob(client, admin_token, auth_header
     res = client.delete(f"/api/documentos/arquivos/{arq['id']}", headers=h)
     assert res.status_code == 200
     assert res.get_json()["documento"]["tem_arquivo"] is False
-    assert not os.path.isfile(arquivos_store.caminho_de(sha))
+    assert os.path.isfile(arquivos_store.caminho_de(sha))
+    assert not _sha_orfao(sha)                 # a linha inativa ainda o referencia
+    # ...mas o arquivo removido não é mais servido
+    assert client.get(f"/api/documentos/arquivos/{arq['id']}/conteudo",
+                      headers=h).status_code == 404
+
+
+def test_reenviar_o_mesmo_conteudo_depois_de_remover(client, admin_token, auth_headers):
+    """O blob que ficou é reaproveitado pelo dedup, sem regravar."""
+    h = auth_headers(admin_token)
+    doc_id = _um_documento(client, h)
+    primeiro = _upload(client, admin_token, doc_id, conteudo=b"mesmo").get_json()["arquivo"]
+    client.delete(f"/api/documentos/arquivos/{primeiro['id']}", headers=h)
+    segundo = _upload(client, admin_token, doc_id, conteudo=b"mesmo").get_json()["arquivo"]
+    res = client.get(f"/api/documentos/arquivos/{segundo['id']}/conteudo", headers=h)
+    assert res.status_code == 200 and res.data == b"mesmo"
 
 
 # ── remoção é soft delete ────────────────────────────────────────────────────
