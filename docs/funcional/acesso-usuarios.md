@@ -93,6 +93,26 @@ devolve a conta ao estado de primeiro acesso e gera código novo.
 ## Sessão
 
 - **JWT** com access token e refresh token; o papel vai nas claims.
+- **Desativar, excluir ou mudar o perfil corta o acesso na hora** (Análise de
+  Riscos, R-46). Toda requisição autenticada confere no banco que a conta
+  existe e está ativa (`auth.sessao_revogada`, chamada do
+  `token_in_blocklist_loader`); antes, o access token de uma conta desativada
+  valia até vencer, até 1 hora.
+  - Conta inativa ou excluída: access **e** refresh recusados (401) — a tela
+    volta ao login. Trocar o e-mail tem o mesmo efeito, porque a identidade do
+    token é o e-mail.
+  - Perfil trocado: o access token com o perfil antigo é recusado; o front
+    renova pelo refresh e recebe um token com o perfil do banco, sem novo
+    login.
+  - As conexões de tempo real (Socket.IO) abertas da conta são derrubadas na
+    desativação, na exclusão e na troca de perfil. O handshake confere a conta
+    uma vez só, e sem o corte a aba aberta seguiria recebendo os eventos da sala
+    do perfil antigo. Ao reconectar, conta inativa é recusada e a ativa entra
+    na sala do perfil atual.
+  - Sem cache: é uma consulta pela chave única de `users` por requisição, do
+    tamanho da consulta à blocklist que já existia.
+  - **Resetar a senha não derruba a sessão aberta** — invalida a senha, não os
+    tokens já emitidos.
 - **Logout revoga o JTI** (`revoked_tokens`), então o token não vale mais até
   expirar sozinho.
 - **Destravar o kill switch invalida de uma vez todo token emitido antes** da

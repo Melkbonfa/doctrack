@@ -75,6 +75,8 @@ def require_role(*roles):
         def wrapper(*args, **kwargs):
             identity = get_jwt_identity()          # email do usuário
             claims   = get_jwt()                    # claims extras (role)
+            # O perfil da claim é o do banco: token com perfil divergente nem
+            # chega aqui (ver "REVOGAÇÃO IMEDIATA").
             role     = claims.get("role", "")
             if role not in roles:
                 return negar_acesso(f"perfil {role or '—'} ({_exige(roles)})")
@@ -108,6 +110,58 @@ def require_area(slug, *roles):
 def require_pdr_access(*roles):
     """Compat: acesso à área PDR (P&D de reagentes)."""
     return require_area("pdr", *roles)
+
+
+# ── REVOGAÇÃO IMEDIATA ────────────────────────────────────────────────────────
+#
+# O perfil viaja nas claims do JWT, e require_role decide por ele sem ir ao
+# banco. Sem a checagem abaixo, uma conta desativada (ou rebaixada) seguia
+# usando o access token até ele vencer — até 1 hora — e o refresh só recusava
+# na renovação seguinte.
+#
+# `sessao_revogada` roda em TODA requisição autenticada: servidor.py a chama do
+# token_in_blocklist_loader, que o flask-jwt-extended consulta antes de deixar
+# o token passar. Recusa:
+#   * qualquer token (access ou refresh) de conta que não existe mais ou está
+#     inativa — o e-mail trocado cai aqui também, porque a identidade do token
+#     é o e-mail;
+#   * o access token cujo perfil diverge do atual. O front recebe 401, renova
+#     pelo refresh e ganha um token com o perfil do banco, sem novo login. O
+#     refresh não é comparado: /api/auth/refresh já lê o perfil do banco.
+#
+# Sem cache, de propósito: é uma consulta pela chave única de users por
+# requisição, do mesmo tamanho da consulta à blocklist que já existia, e um
+# cache reabriria a janela que esta checagem fecha (ou exigiria invalidação
+# entre processos).
+
+def sessao_revogada(jwt_payload):
+    user = (User.query.with_entities(User.ativo, User.role)
+            .filter_by(email=jwt_payload.get("sub")).first())
+    if user is None or not user.ativo:
+        return True
+    return jwt_payload.get("type") == "access" and jwt_payload.get("role") != user.role
+
+
+# Quem mais precisa saber que o acesso de uma conta mudou. O tempo real
+# (servidor.py) registra aqui o corte das conexões Socket.IO abertas, que não
+# passam pelo JWT a cada evento: sem isso, a aba aberta de uma conta desativada
+# continuaria recebendo os eventos da sala do perfil antigo.
+_cortes_de_sessao = []
+
+
+def ao_cortar_sessao(fn):
+    """Registra `fn(user_id)`, chamada depois do commit que desativa, exclui
+    ou muda o perfil da conta."""
+    _cortes_de_sessao.append(fn)
+    return fn
+
+
+def _cortar_sessoes(user_id):
+    for fn in _cortes_de_sessao:
+        try:
+            fn(user_id)
+        except Exception as e:
+            print(f"[WARN] Corte de sessão do usuário {user_id} falhou — {e}")
 
 
 def get_client_ip():
@@ -581,6 +635,11 @@ def update_user(user_id):
 
     db.session.commit()
 
+    # Os tokens já valem pelo estado novo (ver sessao_revogada); aqui caem as
+    # conexões de tempo real, que entraram nas salas do perfil antigo.
+    if any(campo in ("ativo", "role") for campo, _a, _n in changes):
+        _cortar_sessoes(user.id)
+
     # Audit log — uma entrada por campo alterado
     for campo, antigo, novo in changes:
         log_action(caller_email, "UPDATE", entidade=user.email,
@@ -614,16 +673,18 @@ def delete_user(user_id):
     if not permanente:
         user.ativo = False
         db.session.commit()
+        _cortar_sessoes(user.id)
         log_action(caller_email, "DELETE", entidade=user.email, ip=get_client_ip())
         return jsonify({"mensagem": f"Usuário {user.email} desativado com sucesso"}), 200
 
     # Exclusão permanente — limpar dependências para não violar FKs
-    email = user.email
+    email, uid = user.email, user.id
     AuditLog.query.filter_by(usuario_id=user.id).update(
         {"usuario_id": None}, synchronize_session=False)
 
     db.session.delete(user)
     db.session.commit()
+    _cortar_sessoes(uid)
 
     log_action(caller_email, "DELETE", entidade=email,
                campo="permanente", novo="true", ip=get_client_ip())

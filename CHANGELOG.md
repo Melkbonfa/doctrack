@@ -42,6 +42,13 @@ de política da área usuária.
   (`PAPEL_EXPORTAR`): prévia, gerar e baixar o zip. Antes bastava ler, e o
   perfil leitura exportava. O histórico das exportações continua aberto a quem
   lê o caderno, e a tela só oferece exportar a quem pode.
+- **Corrigido (R-46)** desativar, excluir ou mudar o perfil de um usuário corta
+  o acesso na hora. Toda requisição autenticada confere no banco que a conta
+  existe e está ativa, e o access token com perfil diferente do atual é
+  recusado (o front renova pelo refresh e recebe o perfil novo, sem novo
+  login). As conexões de tempo real abertas da conta caem junto. Antes, o
+  perfil vinha só do JWT, e uma conta desativada seguia com acesso por até
+  1 hora.
 
 ### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
 Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema
