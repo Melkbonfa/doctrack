@@ -38,6 +38,10 @@ de política da área usuária.
   inativa, que o referencie. Antes, sem outra referência, o blob era apagado e a
   evidência só voltava pelo backup. Nos Cadernos, a linha na lixeira também
   segura o blob (ainda pode ser restaurada); a purga continua como estava.
+- **Alterado (R-50)** exportar caderno exige papel de **editor** no caderno
+  (`PAPEL_EXPORTAR`): prévia, gerar e baixar o zip. Antes bastava ler, e o
+  perfil leitura exportava. O histórico das exportações continua aberto a quem
+  lê o caderno, e a tela só oferece exportar a quem pode.
 
 ### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
 Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema

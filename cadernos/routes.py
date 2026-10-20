@@ -1378,10 +1378,14 @@ def conteudo_arquivo(uuid_):
 # ══════════════════════════════════════════════════════════════════════════════
 # EXPORTAÇÃO (zip para a liderança)
 # ══════════════════════════════════════════════════════════════════════════════
-# Quem lê o caderno pode exportar: o pacote não revela nada que a pessoa já não
-# possa abrir e baixar, e toda exportação fica registrada (caderno_exportacoes +
-# audit log). Se o PDR quiser restringir ao gestor, é trocar o mínimo abaixo.
-PAPEL_EXPORTAR = "leitor"
+# Exportar exige ser editor do caderno (Análise de Riscos, R-50). O pacote é a
+# saída dos dados do sistema para fora dele, e a ERU reserva saída de dados a
+# quem trabalha no registro: o perfil leitura (auditoria externa) e quem só
+# tem leitura no caderno consultam, não exportam. Vale para a prévia, para
+# gerar e para baixar o zip. O histórico do que já saiu continua aberto a quem
+# lê o caderno — é registro, não saída de dados. Toda exportação fica gravada
+# (caderno_exportacoes + audit log).
+PAPEL_EXPORTAR = "editor"
 
 
 def _paginas_pedidas(cad, data):
@@ -1444,7 +1448,7 @@ def ver_tarefa(id_):
 def listar_exportacoes(uuid_):
     """Histórico: o que já foi enviado deste caderno, por quem e quando."""
     cad = _caderno(uuid_)
-    u, papel, err = _carregar(cad, PAPEL_EXPORTAR)
+    u, papel, err = _carregar(cad)
     if err:
         return err
     itens = (CadernoExportacao.query.filter_by(caderno_id=cad.id)

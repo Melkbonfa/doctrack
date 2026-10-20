@@ -217,6 +217,11 @@ Excluir usuário é **soft delete** (`ativo=False`) por padrão.
   backfill da migração. Não use em código novo.
 - **Papel é global, não por área.** Um `gestor` é gestor em toda área a que
   tenha acesso — não existe "gestor só do PDR".
+- **Cadernos têm, além disso, papel por caderno** (`leitor`, `editor`, `dono` —
+  `cadernos/core.papel_efetivo`), e o perfil `leitura` nunca passa de leitor.
+  **Exportar um caderno exige editor** (prévia, gerar e baixar o zip): exportar
+  é saída de dados, e o perfil leitura só consulta (Análise de Riscos, R-50). O
+  histórico do que já foi exportado continua visível a quem lê o caderno.
 - **Uma rota `/api/*` sem decorator é dado aberto.** Não há gate de página para
   servir de rede de segurança; `tests/test_docs_sincronia.py` trava a lista de
   rotas públicas em seis.
