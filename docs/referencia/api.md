@@ -134,7 +134,7 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `GET` | `/api/documentos/alertas` | autenticado | Fatos acionáveis derivados do que já está no banco. |
 | `GET` | `/api/documentos/arquivo` | autenticado | Serve um arquivo individual: PDF/imagens inline (preview no navegador), |
 | `GET` | `/api/documentos/arquivos` | autenticado | Lista os arquivos da pasta de armazenamento de um equipamento, |
-| `DELETE` | `/api/documentos/arquivos/<int:arq_id>` | admin, gestor | Remove a versão. Soft delete primeiro; o blob só sai se ficar órfão. |
+| `DELETE` | `/api/documentos/arquivos/<int:arq_id>` | admin, gestor | Remove a versão (exclusão lógica: a linha e o blob ficam). |
 | `GET` | `/api/documentos/arquivos/<int:arq_id>/conteudo` | autenticado | Serve o arquivo hospedado. PDF/imagem inline (para o visor da plataforma), |
 | `GET` | `/api/documentos/diagnostico` | admin, gestor | Consistência entre o cadastro e o que existe de fato (ver `diagnostico.py`). |
 | `GET` | `/api/documentos/export` | admin, gestor, tecnico | CSV bruto dos documentos ativos — análise fora do sistema (Excel/BI). |
@@ -142,7 +142,7 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `GET` | `/api/documentos/responsaveis` | autenticado | Usuários atribuíveis como responsável por um documento. |
 | `GET` | `/api/equipamentos/<int:equip_id>/anexos` | autenticado | Anexos do equipamento. `?categoria=` filtra; sem ele, vêm todos. |
 | `POST` | `/api/equipamentos/<int:equip_id>/anexos` | admin, gestor | Envia um doc agregado ou uma versão de software/firmware (multipart). |
-| `DELETE` | `/api/equipamentos/anexos/<int:anexo_id>` | admin, gestor | Remove o anexo. Soft delete primeiro; o blob só sai se ficar órfão — |
+| `DELETE` | `/api/equipamentos/anexos/<int:anexo_id>` | admin, gestor | Remove o anexo (exclusão lógica: a linha e o blob ficam). |
 | `PATCH` | `/api/equipamentos/anexos/<int:anexo_id>` | admin, gestor | Corrige os metadados (título, versão, data, notas) sem reenviar o arquivo. |
 | `GET` | `/api/equipamentos/anexos/<int:anexo_id>/conteudo` | autenticado | Serve o anexo. PDF/imagem podem abrir inline; binário, NUNCA. |
 

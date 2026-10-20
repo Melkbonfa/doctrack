@@ -289,7 +289,7 @@ A mesma função saneia o que vem do importador.
 | **`GET /arquivos/<uuid>/conteudo`** (JWT ou URL assinada) | leitor | **PDF e imagem abrem inline. Qualquer outra extensão desce como download, com mime genérico.** |
 | `GET /busca` · `GET /recentes` · `GET /refs` · `GET /por-entidade` | membro da área | Busca, edições recentes, autocomplete e notas por entidade. |
 | `GET/POST /templates` · `PATCH /templates/<id>` | leitor · gestor | Templates de exportação. |
-| `POST /exportar` · `GET /exportacoes/<id>/relatorio.docx` · `GET /exportacoes/<id>/pacote.zip` · `GET /exportacoes?ref=` | leitor | Exportação (ver 2.7). |
+| `POST /exportar` · `GET /exportacoes/<id>/relatorio.docx` · `GET /exportacoes/<id>/pacote.zip` · `GET /exportacoes?ref=` | editor (o histórico: leitor) | Exportação (ver 2.7). Era leitor; passou a editor pela Análise de Riscos (R-50). |
 | `GET /importacoes` · `GET /importacoes/<id>` | gestor | Relatórios do importador. |
 
 ## 2.4 Front (`templates/cadernos.html`, `static/cadernos.js`, `static/cadernos.css`)
@@ -699,8 +699,12 @@ para o PostgreSQL real. Script em `run_cadernos.py`, no scratchpad da sessão.
 - Medido no L-037: a seção inteira (90 páginas, 594 imagens) gera um `.docx` de 644
   páginas em ~19 s. Eram 60 s antes de contornar três trechos quadráticos do
   python-docx.
-- Quem exporta: quem lê o caderno (`PAPEL_EXPORTAR` em `routes.py`). Isso responde
-  provisoriamente à pergunta 4 da seção 2.11.
+- Quem exporta: o editor do caderno (`PAPEL_EXPORTAR` em `routes.py`) — prévia,
+  geração e download do zip. Era quem lê o caderno, resposta provisória à
+  pergunta 4 da seção 2.11; a Análise de Riscos da validação (R-50) fechou em
+  editor, porque a ERU reserva saída de dados a quem trabalha no registro e o
+  perfil leitura só consulta. O histórico das exportações continua aberto a quem
+  lê.
 
 **Importação pela tela.** Botão **Importar do OneNote** na barra lateral, em três
 passos:

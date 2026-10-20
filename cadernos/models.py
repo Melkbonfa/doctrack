@@ -208,8 +208,9 @@ class CadernoArquivo(db.Model):
     Versionado: substituir cria uma linha nova com `versao+1` no mesmo `grupo` e
     marca a anterior `ativo=False`. Diferente de `DocumentoArquivo`, a versão
     anterior CONTINUA baixável — a versão do programa usada num teste precisa
-    ser recuperável. Por isso o blob é segurado por qualquer linha não excluída
-    (`excluido_em IS NULL`), ativa ou não; ver `documentos._sha_orfao`.
+    ser recuperável. O blob é segurado por qualquer linha, ativa ou não, e
+    também pela que está na lixeira (ainda pode ser restaurada): só a purga,
+    ao apagar a linha de vez, libera o blob. Ver `documentos._sha_orfao`.
     """
     __tablename__ = "caderno_arquivos"
 

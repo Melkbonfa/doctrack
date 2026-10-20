@@ -10,7 +10,8 @@ Toda rota de dados é `@jwt_required()` e passa por `_carregar()`, que resolve o
 papel da pessoa NAQUELE caderno (`core.papel_efetivo`): admin, dono, membro
 explícito, ou o `acesso_area` do caderno para quem tem a área. Nenhuma rota
 decide permissão por conta própria — é o mesmo princípio do gate de dono do
-módulo Tempos, aplicado por caderno.
+módulo Tempos, aplicado por caderno. Toda recusa (o 403 e o 404 de caderno sem
+acesso) vai para a trilha como ACESSO_NEGADO, deduplicada (ver auth.py).
 
 ## Rotas
 
@@ -74,7 +75,7 @@ from flask import Blueprint, jsonify, render_template, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 import arquivos_store
-from auth import log_action, get_client_ip
+from auth import log_action, get_client_ip, negar_acesso, registrar_acesso_negado
 from models import db, User
 from utils import norm
 
@@ -142,10 +143,14 @@ def _carregar(cad, minimo="leitor", excluido_ok=False):
         return None, None, _erro("Não encontrado", 404)
     papel = _papel(u, cad)
     if papel is None:
-        return None, None, _erro("Não encontrado", 404)   # não revela existência
+        # 404 para não revelar que o caderno existe; a auditoria, que o
+        # cliente não vê, registra a tentativa como o 403 que ela é.
+        registrar_acesso_negado(f"sem acesso ao caderno {cad.nome}")
+        return None, None, _erro("Não encontrado", 404)
     if cad.excluido_em and not (excluido_ok and core.pode(papel, "dono")):
         return None, None, _erro("Caderno na lixeira", 404)
     if not core.pode(papel, minimo):
+        registrar_acesso_negado(f"papel {papel} no caderno {cad.nome} (exige {minimo})")
         return None, None, _erro("Sem permissão para esta ação", 403)
     return u, papel, None
 
@@ -293,7 +298,7 @@ def meta():
     if not a:
         return _erro("Área inválida", 400)
     if not u.tem_area(area):
-        return _erro("Sem acesso a esta área", 403)
+        return negar_acesso(f"sem a área {area}", "Sem acesso a esta área")
     pessoas = [{"id": x.id, "nome": x.nome}
                for x in User.query.filter_by(ativo=True).order_by(User.nome).all()
                if x.tem_area(area)]
@@ -342,11 +347,11 @@ def criar_caderno():
     if not u:
         return _erro("Usuário inválido", 401)
     if u.role not in ("admin", "gestor", "tecnico"):
-        return _erro("Seu perfil não cria cadernos", 403)
+        return negar_acesso(f"perfil {u.role} não cria cadernos", "Seu perfil não cria cadernos")
     data = request.get_json(silent=True) or {}
     area = (data.get("area") or "pdr").strip().lower()
     if not u.tem_area(area):
-        return _erro("Sem acesso a esta área", 403)
+        return negar_acesso(f"sem a área {area}", "Sem acesso a esta área")
     nome = (data.get("nome") or "").strip()[:200]
     if not nome:
         return _erro("Informe o nome do caderno", 400)
@@ -1373,10 +1378,14 @@ def conteudo_arquivo(uuid_):
 # ══════════════════════════════════════════════════════════════════════════════
 # EXPORTAÇÃO (zip para a liderança)
 # ══════════════════════════════════════════════════════════════════════════════
-# Quem lê o caderno pode exportar: o pacote não revela nada que a pessoa já não
-# possa abrir e baixar, e toda exportação fica registrada (caderno_exportacoes +
-# audit log). Se o PDR quiser restringir ao gestor, é trocar o mínimo abaixo.
-PAPEL_EXPORTAR = "leitor"
+# Exportar exige ser editor do caderno (Análise de Riscos, R-50). O pacote é a
+# saída dos dados do sistema para fora dele, e a ERU reserva saída de dados a
+# quem trabalha no registro: o perfil leitura (auditoria externa) e quem só
+# tem leitura no caderno consultam, não exportam. Vale para a prévia, para
+# gerar e para baixar o zip. O histórico do que já saiu continua aberto a quem
+# lê o caderno — é registro, não saída de dados. Toda exportação fica gravada
+# (caderno_exportacoes + audit log).
+PAPEL_EXPORTAR = "editor"
 
 
 def _paginas_pedidas(cad, data):
@@ -1439,7 +1448,7 @@ def ver_tarefa(id_):
 def listar_exportacoes(uuid_):
     """Histórico: o que já foi enviado deste caderno, por quem e quando."""
     cad = _caderno(uuid_)
-    u, papel, err = _carregar(cad, PAPEL_EXPORTAR)
+    u, papel, err = _carregar(cad)
     if err:
         return err
     itens = (CadernoExportacao.query.filter_by(caderno_id=cad.id)
@@ -1481,6 +1490,14 @@ def _pode_importar(u, area):
     return u is not None and u.role in ("admin", "gestor", "tecnico") and u.tem_area(area)
 
 
+def _negar_importacao(u, area):
+    if u is not None and u.role in ("admin", "gestor", "tecnico"):
+        motivo = f"sem a área {area}"
+    else:
+        motivo = f"perfil {u.role if u else '—'} não importa cadernos"
+    return negar_acesso(motivo, "Seu perfil não importa cadernos nesta área")
+
+
 @cadernos_bp.route("/api/onenote/assistente", methods=["GET"])
 @jwt_required()
 def baixar_assistente():
@@ -1488,7 +1505,8 @@ def baixar_assistente():
     from . import onenote_assistente
     u = current_user()
     if u is None or u.role not in ("admin", "gestor", "tecnico"):
-        return _erro("Seu perfil não importa cadernos", 403)
+        return negar_acesso(f"perfil {u.role if u else '—'} não importa cadernos",
+                            "Seu perfil não importa cadernos")
     return send_file(io.BytesIO(onenote_assistente.montar()), as_attachment=True,
                      download_name=onenote_assistente.NOME_ARQUIVO,
                      mimetype="application/octet-stream", max_age=0)
@@ -1504,7 +1522,7 @@ def receber_importacao():
     u = current_user()
     area = (request.form.get("area") or "pdr").strip().lower()
     if not _pode_importar(u, area):
-        return _erro("Seu perfil não importa cadernos nesta área", 403)
+        return _negar_importacao(u, area)
     f = request.files.get("pacote")
     if not f or not (f.filename or "").strip():
         return _erro("Envie o .zip gerado pelo assistente", 400)
@@ -1531,10 +1549,12 @@ def iniciar_importacao(id_):
     if not rec:
         return _erro("Pacote não encontrado. Envie o .zip de novo.", 404)
     if not _pode_importar(u, rec["area"]):
-        return _erro("Seu perfil não importa cadernos nesta área", 403)
+        return _negar_importacao(u, rec["area"])
     existente = importacao.caderno_existente(importacao.ler_manifesto(rec["raiz"]))
     if existente and not core.pode(_papel(u, existente), "editor"):
-        return _erro(f'O caderno "{existente.nome}" já foi importado e você não é editor dele.', 403)
+        return negar_acesso(
+            f"reimportar o caderno {existente.nome} sem ser editor dele",
+            f'O caderno "{existente.nome}" já foi importado e você não é editor dele.')
     if tarefas.em_andamento("importacao"):
         return _erro("Já há uma importação em andamento. Tente de novo quando ela terminar.", 429)
     data = request.get_json(silent=True) or {}

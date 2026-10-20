@@ -260,7 +260,7 @@ function novoCaderno(){
 function menuCaderno(ancora){
   abrirMenu(ancora, [
     {rotulo: "Arquivos do caderno (programas, dados…)", acao: () => modalArquivos("caderno", CAD.uuid, "Arquivos do caderno")},
-    {rotulo: "Exportar para a liderança (zip)…", acao: () => modalExportar(new Set(ARV.paginas.map(p => p.uuid)))},
+    pode("editor") && {rotulo: "Exportar para a liderança (zip)…", acao: () => modalExportar(new Set(ARV.paginas.map(p => p.uuid)))},
     {rotulo: "Exportações anteriores", acao: modalHistoricoExportacoes},
     pode("editor") && {rotulo: "Lixeira do caderno", acao: modalLixeira},
     pode("dono") && "-",
@@ -436,7 +436,7 @@ function menuNo(ancora, uuid){
     n.tipo === "secao" && {rotulo: "Novo registro de teste", acao: () => novaPagina(uuid, {tipo: "registro_teste"})},
     n.tipo === "grupo" && {rotulo: "Nova seção dentro do grupo", acao: () => novoNo("secao", uuid)},
     n.tipo === "secao" && {rotulo: "Arquivos da seção", acao: () => modalArquivos("secao", uuid, "Arquivos da seção " + n.nome)},
-    n.tipo === "secao" && {rotulo: "Exportar seção (zip)…", acao: () => modalExportar(new Set(paginasDaSecao(n.id).map(p => p.uuid)))},
+    n.tipo === "secao" && pode("editor") && {rotulo: "Exportar seção (zip)…", acao: () => modalExportar(new Set(paginasDaSecao(n.id).map(p => p.uuid)))},
     "-",
     {rotulo: "Renomear", acao: () => renomearNo(n)},
     {rotulo: "Cor", acao: () => corNo(n)},
@@ -578,6 +578,8 @@ function renderPagina(){
   el("cd-leitura").hidden = EDITANDO;
   el("cd-editor-host").hidden = !EDITANDO;
   el("btn-editar").hidden = EDITANDO || !pode("editor");
+  // Exportar é de editor (R-50): o servidor recusa o leitor, a tela nem oferece.
+  el("btn-exportar").hidden = !pode("editor");
   el("btn-concluir").hidden = !EDITANDO;
   renderTrava();
 }
@@ -1410,7 +1412,7 @@ async function modalHistoricoExportacoes(){
   const r = await api("/cadernos/api/cadernos/" + CAD.uuid + "/exportacoes");
   const linhas = r.exportacoes.map(e => '<tr><td>' + fmtData(e.criado_em, true) + '</td><td>' + esc(e.criado_por_nome || "—") + '</td>' +
     '<td>' + esc(e.escopo) + '<div class="cd-dica">' + e.paginas + ' página(s) · ' + e.arquivos + ' arquivo(s)</div></td><td>' + fmtTam(e.tamanho) + '</td>' +
-    '<td>' + (e.disponivel ? '<a href="#" data-baixar-exp="' + e.uuid + '">Baixar</a>' : '<span class="cd-dica" title="O zip fica disponível por um dia; o registro do que foi enviado continua aqui">expirado</span>') + '</td></tr>').join("");
+    '<td>' + (!pode("editor") ? '' : e.disponivel ? '<a href="#" data-baixar-exp="' + e.uuid + '">Baixar</a>' : '<span class="cd-dica" title="O zip fica disponível por um dia; o registro do que foi enviado continua aqui">expirado</span>') + '</td></tr>').join("");
   abrirModal("Exportações anteriores", "O que já saiu deste caderno, por quem e quando. O registro guarda a versão de cada página e o SHA-256 de cada arquivo.",
     r.exportacoes.length
       ? '<div class="tbl-wrap cd-tbl-modal"><table class="tbl"><thead><tr><th>Quando</th><th>Por</th><th>Escopo</th><th>Tamanho</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>'
@@ -1497,7 +1499,7 @@ el("btn-menu-pagina").addEventListener("click", e => {
     {rotulo: "Data da página…", acao: editarDataPagina},
     pode("editor") && {rotulo: "Nova subpágina", acao: () => novaPagina(secao.uuid, {subpagina_de: PAG.uuid})},
     pode("editor") && {rotulo: "Mover para outra seção…", acao: () => moverPaginaPara(p)},
-    {rotulo: "Exportar esta página (zip)…", acao: () => modalExportar(new Set([PAG.uuid]))},
+    pode("editor") && {rotulo: "Exportar esta página (zip)…", acao: () => modalExportar(new Set([PAG.uuid]))},
     {rotulo: "Imprimir / PDF", acao: () => window.print()},
     pode("editor") && "-",
     pode("editor") && {rotulo: "Excluir página", perigo: true, acao: () => excluirPagina(p)},

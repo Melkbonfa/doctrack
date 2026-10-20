@@ -55,7 +55,7 @@ from flask_jwt_extended import get_jwt_identity
 from sqlalchemy.exc import IntegrityError
 
 from models import db, User, Projeto, Entregavel, MissaoCartao, Equipamento
-from auth import require_role, log_action, get_client_ip
+from auth import require_role, log_action, get_client_ip, negar_acesso
 from event_bus import EventType
 
 from . import core
@@ -135,7 +135,8 @@ def _meu_ou_403(ap):
     u = current_user()
     if u and (ap.user_id == u.id or _e_gestao(u)):
         return ap, None
-    return None, (jsonify({"erro": "Este apontamento é de outro usuário"}), 403)
+    return None, negar_acesso(f"apontamento #{ap.id} de outro usuário",
+                              "Este apontamento é de outro usuário")
 
 
 def _query_escopada():
@@ -429,7 +430,8 @@ def retomar(ap_id):
     u = current_user()
     ap = Apontamento.query.get_or_404(ap_id)
     if ap.user_id != u.id:
-        return jsonify({"erro": "Só dá para retomar o próprio apontamento"}), 403
+        return negar_acesso(f"retomar o apontamento #{ap.id} de outro usuário",
+                            "Só dá para retomar o próprio apontamento")
     if ap.fim is None:
         return jsonify({"erro": "Este apontamento ainda está em curso"}), 400
 

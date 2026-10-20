@@ -120,7 +120,8 @@ from models import (
     TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS, ESTADOS_REVISAO,
     MOTIVOS_NA, MOTIVO_NA_LIVRE
 )
-from auth import auth_bp, log_action, require_role, get_client_ip
+from auth import (auth_bp, log_action, require_role, get_client_ip,
+                  sessao_revogada, ao_cortar_sessao)
 from event_bus import publish_event, get_events_since, EventType
 from utils import norm, norm_sku
 import caminhos
@@ -243,6 +244,10 @@ def check_revoked(jwt_header, jwt_payload):
     # uma vez todo token emitido antes, sem precisar listar jti por jti (e sem
     # tocar o banco de novo, porque o estado da trava vem do cache).
     if killswitch.token_cortado(jwt_payload):
+        return True
+    # Conta desativada, excluída ou com perfil trocado: o token cai na hora,
+    # em vez de valer até expirar (ver auth.sessao_revogada).
+    if sessao_revogada(jwt_payload):
         return True
     jti = jwt_payload.get("jti")
     if not jti:
@@ -2161,6 +2166,21 @@ def on_connect(auth=None):
 @socketio.on("disconnect")
 def on_disconnect(reason=None):
     pass
+
+
+@ao_cortar_sessao
+def _desconectar_tempo_real(user_id):
+    """Derruba as conexões Socket.IO abertas da conta (desativada, excluída ou
+    com perfil trocado).
+
+    O handshake confere a conta uma vez só; depois disso os eventos chegam pela
+    sala do perfil (`role:admin` recebe tudo) e o `replay_request` devolve a
+    trilha sem olhar o JWT de novo. Sem este corte, a aba aberta de uma conta
+    desativada seguiria recebendo dados. Se o cliente reconectar, o `connect`
+    recusa a conta inativa e põe a ativa na sala do perfil atual.
+    """
+    for sid, _eio_sid in list(socketio.server.manager.get_participants("/", f"user:{user_id}")):
+        socketio.server.disconnect(sid, namespace="/")
 
 @socketio.on("subscribe")
 def on_subscribe(data):

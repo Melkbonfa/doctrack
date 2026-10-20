@@ -33,6 +33,14 @@ auth_bp = Blueprint("auth", __name__)
 SENHA_MIN = int(os.environ.get("DOCTRACK_SENHA_MIN", "8"))
 ERRO_SENHA_CURTA = f"Senha deve ter pelo menos {SENHA_MIN} caracteres"
 
+# A senha só nasce no primeiro acesso, digitada pelo próprio usuário. Se o admin
+# pudesse defini-la (no cadastro ou na edição), passaria a conhecê-la, e o que
+# fosse feito com aquela conta deixaria de ser atribuível só ao dono dela.
+# Criar a conta e resetar a senha geram código de ativação; não há outro caminho.
+ERRO_SENHA_PELO_ADMIN = ("O administrador não define senha. A conta recebe um código "
+                         "de ativação e o usuário cria a própria senha no primeiro "
+                         "acesso; para trocar, use Resetar senha.")
+
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +63,10 @@ def log_action(user_email, acao, entidade="", campo="", antigo="", novo="",
     db.session.commit()
 
 
+def _exige(roles):
+    return "exige " + ", ".join(roles)
+
+
 def require_role(*roles):
     """Decorator: exige que o usuário tenha um dos roles listados."""
     def decorator(fn):
@@ -63,11 +75,11 @@ def require_role(*roles):
         def wrapper(*args, **kwargs):
             identity = get_jwt_identity()          # email do usuário
             claims   = get_jwt()                    # claims extras (role)
+            # O perfil da claim é o do banco: token com perfil divergente nem
+            # chega aqui (ver "REVOGAÇÃO IMEDIATA").
             role     = claims.get("role", "")
             if role not in roles:
-                # Não vai para a auditoria, nem aqui nem em require_area: ver
-                # "TENTATIVAS DE ACESSO RECUSADAS" mais abaixo.
-                return jsonify({"erro": "Acesso negado para este perfil"}), 403
+                return negar_acesso(f"perfil {role or '—'} ({_exige(roles)})")
             return fn(*args, **kwargs)
         return wrapper
     return decorator
@@ -87,9 +99,9 @@ def require_area(slug, *roles):
             email = get_jwt_identity()
             user  = User.query.filter_by(email=email, ativo=True).first()
             if not user or not user.tem_area(slug):
-                return jsonify({"erro": "Sem acesso a esta área"}), 403
+                return negar_acesso(f"sem a área {slug}", "Sem acesso a esta área")
             if roles and user.role not in roles:
-                return jsonify({"erro": "Acesso negado para este perfil"}), 403
+                return negar_acesso(f"perfil {user.role} ({_exige(roles)})")
             return fn(*args, **kwargs)
         return wrapper
     return decorator
@@ -98,6 +110,58 @@ def require_area(slug, *roles):
 def require_pdr_access(*roles):
     """Compat: acesso à área PDR (P&D de reagentes)."""
     return require_area("pdr", *roles)
+
+
+# ── REVOGAÇÃO IMEDIATA ────────────────────────────────────────────────────────
+#
+# O perfil viaja nas claims do JWT, e require_role decide por ele sem ir ao
+# banco. Sem a checagem abaixo, uma conta desativada (ou rebaixada) seguia
+# usando o access token até ele vencer — até 1 hora — e o refresh só recusava
+# na renovação seguinte.
+#
+# `sessao_revogada` roda em TODA requisição autenticada: servidor.py a chama do
+# token_in_blocklist_loader, que o flask-jwt-extended consulta antes de deixar
+# o token passar. Recusa:
+#   * qualquer token (access ou refresh) de conta que não existe mais ou está
+#     inativa — o e-mail trocado cai aqui também, porque a identidade do token
+#     é o e-mail;
+#   * o access token cujo perfil diverge do atual. O front recebe 401, renova
+#     pelo refresh e ganha um token com o perfil do banco, sem novo login. O
+#     refresh não é comparado: /api/auth/refresh já lê o perfil do banco.
+#
+# Sem cache, de propósito: é uma consulta pela chave única de users por
+# requisição, do mesmo tamanho da consulta à blocklist que já existia, e um
+# cache reabriria a janela que esta checagem fecha (ou exigiria invalidação
+# entre processos).
+
+def sessao_revogada(jwt_payload):
+    user = (User.query.with_entities(User.ativo, User.role)
+            .filter_by(email=jwt_payload.get("sub")).first())
+    if user is None or not user.ativo:
+        return True
+    return jwt_payload.get("type") == "access" and jwt_payload.get("role") != user.role
+
+
+# Quem mais precisa saber que o acesso de uma conta mudou. O tempo real
+# (servidor.py) registra aqui o corte das conexões Socket.IO abertas, que não
+# passam pelo JWT a cada evento: sem isso, a aba aberta de uma conta desativada
+# continuaria recebendo os eventos da sala do perfil antigo.
+_cortes_de_sessao = []
+
+
+def ao_cortar_sessao(fn):
+    """Registra `fn(user_id)`, chamada depois do commit que desativa, exclui
+    ou muda o perfil da conta."""
+    _cortes_de_sessao.append(fn)
+    return fn
+
+
+def _cortar_sessoes(user_id):
+    for fn in _cortes_de_sessao:
+        try:
+            fn(user_id)
+        except Exception as e:
+            print(f"[WARN] Corte de sessão do usuário {user_id} falhou — {e}")
 
 
 def get_client_ip():
@@ -124,16 +188,73 @@ def get_client_ip():
 # mesmo teto que o limite lhe dá — gravar o que o limite não conta abriria a
 # auditoria para ser inundada.
 #
+# Também entra o 403 de perfil ou área (ACESSO_NEGADO, logo abaixo): quem já
+# está dentro tentando o que o perfil não alcança.
+#
 # Fica de fora, de propósito:
 #   * o segredo digitado — nem a senha, nem o código, nem trecho deles;
-#   * o 403 de perfil/área (require_role / require_area). Quem bate nele já
-#     está autenticado e identificado; não é alguém de fora tentando entrar. E
-#     o próprio front provoca esse 403 no uso normal (a seção que o perfil
-#     leitura não pode ver some ao receber 403): sem limite que o segure, cada
-#     tela aberta viraria linha de auditoria e o registro de um ataque de
-#     verdade ficaria enterrado no ruído do uso legítimo;
 #   * o 401 de JWT vencido, que acontece a cada expiração e o front renova
 #     sozinho.
+
+
+# ── ACESSO NEGADO (403 de perfil ou área) ─────────────────────────────────────
+#
+# Quem bate num 403 de perfil ou de área já está autenticado e identificado, e
+# o próprio front provoca esse 403 no uso normal: a seção que o perfil leitura
+# não pode ver some da tela ao receber 403. Não há limite de tentativas que
+# segure esse volume, então gravar toda resposta faria cada tela aberta virar
+# linha de auditoria, e o registro de um abuso de verdade ficaria enterrado no
+# ruído do uso legítimo.
+#
+# Por isso a deduplicação: uma linha por (usuário, rota) a cada
+# JANELA_ACESSO_NEGADO. "Rota" é o método mais a regra do Flask
+# ("PATCH /api/users/<int:user_id>"), não o caminho com o id: a recusa por
+# perfil vale para qualquer id daquela rota, e deduplicar pelo caminho deixaria
+# uma varredura de ids gravar uma linha por requisição. O que se perde é a
+# contagem dentro da janela; o que fica é quem tentou o quê, de onde e quando.
+#
+# A memória de "já registrado" é a própria auditoria, como no bloqueio do
+# limite: sobrevive ao reinício e vale para todas as threads do waitress.
+
+JANELA_ACESSO_NEGADO = timedelta(minutes=10)
+
+
+def _rota_atual():
+    regra = request.url_rule.rule if request.url_rule is not None else request.path
+    return f"{request.method} {regra}"[:200]
+
+
+def registrar_acesso_negado(motivo, email=None):
+    """Grava ACESSO_NEGADO (deduplicado). Nunca muda a resposta: se a gravação
+    falhar, a recusa continua a mesma.
+
+    Só pode ser chamada antes de qualquer escrita da requisição: `log_action`
+    faz commit da sessão, e o que estivesse pendente iria junto.
+    """
+    try:
+        email = (email or get_jwt_identity() or "")[:120]
+        rota = _rota_atual()
+        ja = AuditLog.query.filter(
+            AuditLog.acao == "ACESSO_NEGADO",
+            AuditLog.usuario_email == email,
+            AuditLog.entidade == rota,
+            AuditLog.timestamp >= datetime.now() - JANELA_ACESSO_NEGADO,
+        ).first()
+        if ja is not None:
+            return
+        log_action(email, "ACESSO_NEGADO", entidade=rota, campo="motivo",
+                   novo=motivo, ip=get_client_ip())
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WARN] Auditoria: ACESSO_NEGADO não gravado — {e}")
+
+
+def negar_acesso(motivo, mensagem="Acesso negado para este perfil"):
+    """O 403 de perfil/área com o registro na trilha. `motivo` vai só para a
+    auditoria; ao cliente vai `mensagem`, a mesma de antes."""
+    registrar_acesso_negado(motivo)
+    return jsonify({"erro": mensagem}), 403
+
 
 def _auditar_tentativa(email, acao, motivo="", entidade=""):
     """Grava uma tentativa recusada. Nunca muda a resposta: se a gravação
@@ -385,16 +506,17 @@ def create_user():
 
     nome  = data.get("nome",  "").strip()
     email = data.get("email", "").strip().lower()
-    senha = data.get("senha", "").strip()
     role  = data.get("role",  "tecnico").strip()
 
     # Validações
+    if "senha" in data:
+        # Recusa em vez de ignorar: quem ainda manda senha (tela antiga em
+        # cache, script) precisa saber que ela não foi aplicada.
+        return jsonify({"erro": ERRO_SENHA_PELO_ADMIN}), 400
     if not nome or not email:
         return jsonify({"erro": "Nome e email são obrigatórios"}), 400
     if role not in ("admin", "gestor", "tecnico", "leitura"):
         return jsonify({"erro": "Role inválido. Use: admin, gestor, tecnico, leitura"}), 400
-    if senha and len(senha) < SENHA_MIN:
-        return jsonify({"erro": ERRO_SENHA_CURTA}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({"erro": "Este e-mail já está cadastrado"}), 409
 
@@ -406,13 +528,8 @@ def create_user():
     # Compat: mantém a flag legada coerente com a área PDR selecionada.
     user.pode_pdr = "pdr" in parse_areas(user.areas)
 
-    codigo = None
-    if senha:
-        # Admin já definiu uma senha (comportamento antigo)
-        user.set_senha(senha)
-    else:
-        # Convite: usuário define a própria senha no primeiro acesso
-        codigo = user.gerar_codigo_ativacao()
+    # Convite: o usuário define a própria senha no primeiro acesso.
+    codigo = user.gerar_codigo_ativacao()
 
     db.session.add(user)
     db.session.commit()
@@ -420,12 +537,13 @@ def create_user():
     log_action(caller_email, "CREATE", entidade=email,
                campo="role", novo=role, ip=get_client_ip())
 
-    resp = {"mensagem": "Usuário criado com sucesso", "usuario": user.to_dict()}
-    if codigo:
+    return jsonify({
+        "mensagem": "Usuário criado com sucesso",
+        "usuario": user.to_dict(),
         # Mostrado uma única vez para o admin repassar ao usuário
-        resp["codigo_ativacao"] = codigo
-        resp["validade_dias"]   = User.ATIVACAO_VALIDADE_DIAS
-    return jsonify(resp), 201
+        "codigo_ativacao": codigo,
+        "validade_dias":   User.ATIVACAO_VALIDADE_DIAS,
+    }), 201
 
 
 # ── BUSCAR USUÁRIO POR ID ──────────────────────────────────────────────────────
@@ -443,7 +561,7 @@ def get_user(user_id):
 
     # Técnico e leitura só podem ver o próprio perfil
     if caller_role in ("tecnico", "leitura") and user.email != caller_email:
-        return jsonify({"erro": "Acesso negado"}), 403
+        return negar_acesso(f"perfil {caller_role} (só o próprio cadastro)", "Acesso negado")
 
     return jsonify(user.to_dict()), 200
 
@@ -459,6 +577,11 @@ def update_user(user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    # Antes de qualquer campo: a edição é recusada inteira, nada fica aplicado
+    # pela metade. Trocar a senha é o reset (/reset-senha), que gera código.
+    if "senha" in data:
+        return jsonify({"erro": ERRO_SENHA_PELO_ADMIN}), 400
 
     changes = []
 
@@ -510,14 +633,12 @@ def update_user(user_id):
                 atuais.remove("pdr")
             user.areas = dump_areas(atuais)
 
-    if "senha" in data:
-        nova_senha = data["senha"].strip()
-        if len(nova_senha) < SENHA_MIN:
-            return jsonify({"erro": ERRO_SENHA_CURTA}), 400
-        user.set_senha(nova_senha)
-        changes.append(("senha", "***", "***atualizada***"))
-
     db.session.commit()
+
+    # Os tokens já valem pelo estado novo (ver sessao_revogada); aqui caem as
+    # conexões de tempo real, que entraram nas salas do perfil antigo.
+    if any(campo in ("ativo", "role") for campo, _a, _n in changes):
+        _cortar_sessoes(user.id)
 
     # Audit log — uma entrada por campo alterado
     for campo, antigo, novo in changes:
@@ -552,16 +673,18 @@ def delete_user(user_id):
     if not permanente:
         user.ativo = False
         db.session.commit()
+        _cortar_sessoes(user.id)
         log_action(caller_email, "DELETE", entidade=user.email, ip=get_client_ip())
         return jsonify({"mensagem": f"Usuário {user.email} desativado com sucesso"}), 200
 
     # Exclusão permanente — limpar dependências para não violar FKs
-    email = user.email
+    email, uid = user.email, user.id
     AuditLog.query.filter_by(usuario_id=user.id).update(
         {"usuario_id": None}, synchronize_session=False)
 
     db.session.delete(user)
     db.session.commit()
+    _cortar_sessoes(uid)
 
     log_action(caller_email, "DELETE", entidade=email,
                campo="permanente", novo="true", ip=get_client_ip())

@@ -72,6 +72,13 @@ sequenceDiagram
     S-->>U: conta ativa
 ```
 
+**O admin nunca define a senha de ninguém.** `POST /api/users` e
+`PATCH /api/users/<id>` recusam o campo `senha` com 400 — a edição inteira é
+recusada, sem aplicar os outros campos. Se o admin pudesse escolher a senha,
+passaria a conhecê-la, e as ações daquela conta deixariam de ser atribuíveis só
+ao dono dela (Análise de Riscos, R-05). A senha só nasce no primeiro acesso,
+digitada pelo próprio usuário.
+
 Enquanto a conta está pendente, `senha_hash` guarda um hash **inutilizável**:
 mantém a coluna `NOT NULL` sem permitir login por senha. Definir a senha conclui
 a pendência.
@@ -86,6 +93,26 @@ devolve a conta ao estado de primeiro acesso e gera código novo.
 ## Sessão
 
 - **JWT** com access token e refresh token; o papel vai nas claims.
+- **Desativar, excluir ou mudar o perfil corta o acesso na hora** (Análise de
+  Riscos, R-46). Toda requisição autenticada confere no banco que a conta
+  existe e está ativa (`auth.sessao_revogada`, chamada do
+  `token_in_blocklist_loader`); antes, o access token de uma conta desativada
+  valia até vencer, até 1 hora.
+  - Conta inativa ou excluída: access **e** refresh recusados (401) — a tela
+    volta ao login. Trocar o e-mail tem o mesmo efeito, porque a identidade do
+    token é o e-mail.
+  - Perfil trocado: o access token com o perfil antigo é recusado; o front
+    renova pelo refresh e recebe um token com o perfil do banco, sem novo
+    login.
+  - As conexões de tempo real (Socket.IO) abertas da conta são derrubadas na
+    desativação, na exclusão e na troca de perfil. O handshake confere a conta
+    uma vez só, e sem o corte a aba aberta seguiria recebendo os eventos da sala
+    do perfil antigo. Ao reconectar, conta inativa é recusada e a ativa entra
+    na sala do perfil atual.
+  - Sem cache: é uma consulta pela chave única de `users` por requisição, do
+    tamanho da consulta à blocklist que já existia.
+  - **Resetar a senha não derruba a sessão aberta** — invalida a senha, não os
+    tokens já emitidos.
 - **Logout revoga o JTI** (`revoked_tokens`), então o token não vale mais até
   expirar sozinho.
 - **Destravar o kill switch invalida de uma vez todo token emitido antes** da
@@ -150,16 +177,48 @@ mora em memória e zera no reinício; por isso cada recusa também vira linha em
   primeiro acesso, e-mail sem pendência e código vencido passaram a contar no
   limite — antes só o código errado contava, e uma varredura de e-mails nessa
   rota não custava nada nem deixava rastro.
-- **Fica de fora, de propósito:** o 403 de perfil/área (quem bate nele já está
-  autenticado, e o próprio front provoca esse 403 no uso normal); o 401 de
-  token vencido (acontece a cada expiração e o front renova sozinho); e o
-  login de conta com primeiro acesso pendente, em que nenhuma senha é
-  conferida — a tentativa que importa nesse caso é a do código, que é gravada.
+- **Fica de fora, de propósito:** o 401 de token vencido (acontece a cada
+  expiração e o front renova sozinho); e o login de conta com primeiro acesso
+  pendente, em que nenhuma senha é conferida — a tentativa que importa nesse
+  caso é a do código, que é gravada.
 - **O IP aparece na tela de auditoria e no relatório exportado** (lista, CSV e
   PDF), e entra na busca das duas.
 - **O e-mail digitado é texto de quem não tem conta**, gravado como veio. Tela e
   relatório escapam tudo o que exibem, e o export não deixa esse texto fechar o
   `<script>` em que o relatório carrega os dados.
+
+### Acesso negado por perfil ou área (`ACESSO_NEGADO`)
+
+Quem já está autenticado e tenta o que o perfil ou a área não alcança recebe
+403 — e a tentativa vai para a trilha (Análise de Riscos, R-06):
+
+| Campo | Conteúdo |
+|---|---|
+| `usuario_email` | quem tentou (do token) |
+| `entidade` | método + rota, pela regra do Flask: `PATCH /api/users/<int:user_id>` |
+| `campo` / `valor_novo` | `motivo` / por que foi recusado: `perfil leitura (exige admin, gestor)`, `sem a área pdr`, `papel leitor no caderno X (exige editor)`, `apontamento #12 de outro usuário` |
+| `ip` | o mesmo IP do limite de tentativas |
+
+Gravam: `require_role` e `require_area` (e por eles `so_membros`, `so_gestao`
+e `require_pdr_access`), o cadastro de outro usuário em `GET /api/users/<id>`,
+os gates de Cadernos (papel no caderno, área, criar e importar) e o gate de
+dono de Tempos.
+
+- **Uma linha por (usuário, rota) a cada 10 minutos**
+  (`auth.JANELA_ACESSO_NEGADO`). O próprio front provoca esse 403 no uso
+  normal — a seção que o perfil leitura não pode ver some da tela ao receber
+  403 —, e não há limite de tentativas que segure esse volume. A rota é a
+  regra, não o caminho com o id: a recusa por perfil vale para qualquer id, e
+  uma varredura de ids não multiplica linhas. Perde-se a contagem dentro da
+  janela; fica quem tentou o quê, de onde e quando. A fonte mais comum desse
+  403 — o cronômetro global de Tempos, que o perfil leitura não tem — nem faz a
+  chamada para esse perfil (`static/tempos-widget.js`).
+- **A resposta ao cliente não mudou.** O motivo existe só na trilha.
+- **Caderno sem acesso continua respondendo 404**, para não revelar que existe;
+  a trilha registra a tentativa (`sem acesso ao caderno …`). Caderno que não
+  existe não grava nada.
+- **Fora:** os 403 de regra de dono em Projetos (técnico em entregável que não
+  é dele) e em Missões (arquivar ou excluir missão alheia).
 
 ## Quem pode o quê, em usuários
 
@@ -178,6 +237,11 @@ Excluir usuário é **soft delete** (`ativo=False`) por padrão.
   backfill da migração. Não use em código novo.
 - **Papel é global, não por área.** Um `gestor` é gestor em toda área a que
   tenha acesso — não existe "gestor só do PDR".
+- **Cadernos têm, além disso, papel por caderno** (`leitor`, `editor`, `dono` —
+  `cadernos/core.papel_efetivo`), e o perfil `leitura` nunca passa de leitor.
+  **Exportar um caderno exige editor** (prévia, gerar e baixar o zip): exportar
+  é saída de dados, e o perfil leitura só consulta (Análise de Riscos, R-50). O
+  histórico do que já foi exportado continua visível a quem lê o caderno.
 - **Uma rota `/api/*` sem decorator é dado aberto.** Não há gate de página para
   servir de rede de segurança; `tests/test_docs_sincronia.py` trava a lista de
   rotas públicas em seis.

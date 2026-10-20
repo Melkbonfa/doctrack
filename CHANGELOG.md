@@ -14,6 +14,42 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Correções da Análise de Riscos exigidas antes da QO
+A Análise de Riscos da validação (guia ANVISA) marcou estes pontos para
+corrigir antes da qualificação de operação. Nenhum deles dependia de decisão
+de política da área usuária.
+
+- **Alterado (R-05)** o administrador não define mais a senha de ninguém.
+  `POST /api/users` e `PATCH /api/users/<id>` recusam o campo `senha` (400, e a
+  edição não aplica nenhum dos outros campos); criar a conta sempre gera código
+  de ativação, e trocar a senha é o Resetar senha. A tela de usuários perdeu os
+  dois campos de senha. Antes, a senha definida pelo admin era conhecida por
+  ele, e as ações da conta deixavam de ser atribuíveis só ao dono.
+- **Adicionado (R-06)** o 403 de perfil ou área vai para a trilha como
+  `ACESSO_NEGADO`, com e-mail, método + rota, motivo e IP: `require_role`,
+  `require_area`, o cadastro de outro usuário, os gates de Cadernos (inclusive o
+  404 que esconde um caderno sem acesso) e o gate de dono de Tempos. Uma linha
+  por (usuário, rota) a cada 10 minutos, com a rota pela regra do Flask — o
+  front provoca esse 403 no uso normal, e uma varredura de ids não multiplica
+  linhas. A resposta ao cliente não mudou.
+- **Corrigido (R-26)** remover um arquivo de documento ou um anexo de
+  equipamento não apaga mais o conteúdo do disco. A linha fica inativa (some da
+  tela e não é mais servida) e o blob permanece enquanto houver linha, ativa ou
+  inativa, que o referencie. Antes, sem outra referência, o blob era apagado e a
+  evidência só voltava pelo backup. Nos Cadernos, a linha na lixeira também
+  segura o blob (ainda pode ser restaurada); a purga continua como estava.
+- **Alterado (R-50)** exportar caderno exige papel de **editor** no caderno
+  (`PAPEL_EXPORTAR`): prévia, gerar e baixar o zip. Antes bastava ler, e o
+  perfil leitura exportava. O histórico das exportações continua aberto a quem
+  lê o caderno, e a tela só oferece exportar a quem pode.
+- **Corrigido (R-46)** desativar, excluir ou mudar o perfil de um usuário corta
+  o acesso na hora. Toda requisição autenticada confere no banco que a conta
+  existe e está ativa, e o access token com perfil diferente do atual é
+  recusado (o front renova pelo refresh e recebe o perfil novo, sem novo
+  login). As conexões de tempo real abertas da conta caem junto. Antes, o
+  perfil vinha só do JWT, e uma conta desativada seguia com acesso por até
+  1 hora.
+
 ### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
 Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema
 e logs da produção) não achou nada quebrado, mas achou estes cinco pontos.

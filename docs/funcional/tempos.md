@@ -98,7 +98,8 @@ e esconder o palpite. Quem corrige é o dono.
 Um apontamento diz o que a pessoa estava fazendo e quando — isso não é dado de
 time. O gate devolve **403 e não 404**: id sequencial de apontamento não é
 segredo, e a mensagem honesta economiza um chamado. O corpo do 403 não devolve
-nada da linha.
+nada da linha. A recusa vai para a trilha como `ACESSO_NEGADO` (ver
+[`acesso-usuarios.md`](acesso-usuarios.md#acesso-negado-por-perfil-ou-área-acesso_negado)).
 
 **O tempo real também respeita isso**: eventos `TEMPO_*` vão só para a sala do
 próprio usuário. Um feed ao vivo de quem começou o quê seria um canal de

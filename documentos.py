@@ -1185,39 +1185,32 @@ def servir_arquivo():
 # sistema já tem). Ler e baixar é de qualquer autenticado — quem acessa o
 # DocTrack já acessa as pastas da rede, então restringir download seria teatro.
 
-def _sha_orfao(sha, ignorar_id=None, ignorar_anexo_id=None):
-    """True se nenhuma linha ATIVA ainda aponta para este blob (dedup por conteúdo).
+def _sha_orfao(sha):
+    """True se nenhuma linha, em nenhuma das três tabelas, aponta para este blob.
 
-    Linha inativa não segura o blob: ela sobrevive só para o histórico (quem
-    enviou, quando, com que nome) e o conteúdo é justamente o que se quis
-    apagar. Quem tentar baixá-la recebe 404 em `servir_arquivo_doc`.
+    Ativa ou inativa, toda linha segura o blob. Remover um arquivo de documento
+    ou um anexo de equipamento é exclusão lógica: a linha fica inativa para o
+    histórico (quem enviou, quando, com que nome) e o conteúdo continua em
+    disco, porque é evidência anexada a um registro (Análise de Riscos, R-26).
+    O arquivo removido só deixa de ser servido pelo id dele — ver
+    `servir_arquivo_doc`. Eliminar o conteúdo é papel de uma purga conforme a
+    política de retenção, e hoje só os Cadernos têm purga (`purgar_lixeira`).
 
     As TRÊS tabelas contam. O blob é endereçado por conteúdo e compartilhado
     entre elas: o mesmo PDF enviado como anexo de documento, como doc agregado
     do equipamento e num caderno de laboratório ocupa um único arquivo em disco.
-    Olhar só uma tabela faria a remoção de um lado apagar o conteúdo que o outro
-    ainda exibe.
 
-    Em `caderno_arquivos` a regra é outra: segura o blob toda linha que não está
-    na lixeira, ATIVA OU NÃO — a versão anterior de um arquivo do caderno
-    continua baixável de propósito (ver cadernos/models.py:CadernoArquivo).
+    Em `caderno_arquivos` também conta a linha na lixeira: ela ainda pode ser
+    restaurada, e só a purga a apaga de vez — é depois disso que a purga chama
+    esta função para decidir se o blob sai.
     """
-    q = DocumentoArquivo.query.filter_by(sha256=sha, ativo=True)
-    if ignorar_id is not None:
-        q = q.filter(DocumentoArquivo.id != ignorar_id)
-    if q.first() is not None:
+    if DocumentoArquivo.query.filter_by(sha256=sha).first() is not None:
         return False
-
-    qa = EquipamentoArquivo.query.filter_by(sha256=sha, ativo=True)
-    if ignorar_anexo_id is not None:
-        qa = qa.filter(EquipamentoArquivo.id != ignorar_anexo_id)
-    if qa.first() is not None:
+    if EquipamentoArquivo.query.filter_by(sha256=sha).first() is not None:
         return False
-
     # Import tardio: não amarra a ordem em que os blueprints são importados.
     from cadernos.models import CadernoArquivo
-    qc = CadernoArquivo.query.filter_by(sha256=sha, excluido_em=None)
-    return qc.first() is None
+    return CadernoArquivo.query.filter_by(sha256=sha).first() is None
 
 
 @documentos_bp.route("/api/documentos/<int:doc_id>/arquivos", methods=["GET"])
@@ -1297,9 +1290,8 @@ def servir_arquivo_doc(arq_id):
     arq = db.session.get(DocumentoArquivo, arq_id)
     if not arq:
         return jsonify({"erro": "Arquivo não encontrado"}), 404
-    # A linha inativa sobrevive para o histórico, o conteúdo não. Sem este
-    # teste, um arquivo removido cujo blob ficou vivo por dedup (outro
-    # documento com o mesmo conteúdo) continuaria baixável pelo id antigo.
+    # Removido é removido: a linha inativa e o blob sobrevivem (ver
+    # `_sha_orfao`), mas o arquivo não é mais servido pelo id dele.
     if not arq.ativo:
         return jsonify({"erro": "Arquivo removido"}), 404
     # O caminho vem do SHA gravado, nunca da requisição.
@@ -1323,12 +1315,12 @@ def servir_arquivo_doc(arq_id):
 @documentos_bp.route("/api/documentos/arquivos/<int:arq_id>", methods=["DELETE"])
 @require_role("admin", "gestor")
 def remover_arquivo_doc(arq_id):
-    """Remove a versão. Soft delete primeiro; o blob só sai se ficar órfão.
+    """Remove a versão (exclusão lógica: a linha e o blob ficam).
 
-    A ordem importa: em Windows o `os.remove` pode falhar se alguém estiver
-    baixando o arquivo naquele instante. Marcando inativo antes, a falha física
-    deixa no máximo um blob órfão — nunca uma linha apontando para o vazio.
-    """
+    A linha fica inativa e o blob fica em disco — é evidência anexada a um
+    registro, e enquanto houver linha que o referencie ele não sai (ver
+    `_sha_orfao`). O arquivo removido deixa de ser servido e de contar como
+    arquivo do documento."""
     caller = get_jwt_identity()
     arq = db.session.get(DocumentoArquivo, arq_id)
     if not arq:
@@ -1336,21 +1328,17 @@ def remover_arquivo_doc(arq_id):
     if not arq.ativo:
         return jsonify({"erro": "Arquivo já removido"}), 404
     doc = db.session.get(Documento, arq.documento_id)
-    doc_id, nome, sha = arq.documento_id, arq.nome_original, arq.sha256
+    doc_id, nome = arq.documento_id, arq.nome_original
 
     # Soft delete: a linha fica para o histórico e para segurar o número de
     # versão (apagá-la fazia o próximo envio voltar a ser v1, repetindo número
     # numa trilha de auditoria).
     arq.ativo = False
 
-    # log_action é quem faz o commit — o blob só sai DEPOIS dele. Na ordem
-    # inversa, um commit que falhasse deixaria a linha viva apontando para um
-    # arquivo que já não existe; assim, o pior caso é um blob órfão.
+    # log_action é quem faz o commit.
     log_action(caller, "DELETE", entidade=(doc.documento if doc else ""),
                campo="arquivo", antigo=nome, novo="",
                documento_id=doc_id, ip=get_client_ip())
-    if _sha_orfao(sha, ignorar_id=arq_id):
-        arquivos_store.remover(sha)
 
     if doc is not None:
         db.session.refresh(doc)
@@ -1588,8 +1576,9 @@ def servir_anexo_equipamento(anexo_id):
 @documentos_bp.route("/api/equipamentos/anexos/<int:anexo_id>", methods=["DELETE"])
 @require_role("admin", "gestor")
 def remover_anexo_equipamento(anexo_id):
-    """Remove o anexo. Soft delete primeiro; o blob só sai se ficar órfão —
-    mesma ordem (e mesmo motivo) do `remover_arquivo_doc`."""
+    """Remove o anexo (exclusão lógica: a linha e o blob ficam).
+
+    Mesma regra do `remover_arquivo_doc`."""
     caller = get_jwt_identity()
     anexo = db.session.get(EquipamentoArquivo, anexo_id)
     if not anexo:
@@ -1598,12 +1587,10 @@ def remover_anexo_equipamento(anexo_id):
         return jsonify({"erro": "Anexo já removido"}), 404
 
     equip = db.session.get(Equipamento, anexo.equipamento_id)
-    nome, sha, categoria = anexo.nome_original, anexo.sha256, anexo.categoria
+    nome, categoria = anexo.nome_original, anexo.categoria
     anexo.ativo = False
 
     log_action(caller, "DELETE", entidade=(equip.nome if equip else ""),
                campo=f"anexo:{categoria}", antigo=nome, novo="", ip=get_client_ip())
-    if _sha_orfao(sha, ignorar_anexo_id=anexo_id):
-        arquivos_store.remover(sha)
 
     return jsonify({"ok": True}), 200

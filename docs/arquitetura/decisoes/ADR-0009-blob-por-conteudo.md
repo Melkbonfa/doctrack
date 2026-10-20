@@ -37,9 +37,13 @@ arquivo em disco sem antes verificar que ninguém mais aponta para ele. Quem sab
 disso é o banco, então `remover()` recebe a decisão de fora — e a consulta é nas
 **três** tabelas que referenciam blobs (`documento_arquivos`,
 `equipamento_arquivos` e `caderno_arquivos`), porque o mesmo PDF enviado em mais
-de um lugar é um arquivo só. Em `caderno_arquivos` segura o blob toda linha fora
-da lixeira, ativa ou não, porque a versão anterior de um arquivo do caderno
-continua baixável. Ver `documentos._sha_orfao`.
+de um lugar é um arquivo só. **Toda linha segura o blob, ativa ou inativa**:
+remover um arquivo de documento ou um anexo de equipamento é exclusão lógica, e
+o conteúdo fica em disco porque é evidência anexada a um registro (Análise de
+Riscos, R-26); o arquivo removido só deixa de ser servido. Em `caderno_arquivos`
+conta também a linha na lixeira, que ainda pode ser restaurada. Hoje o único
+caminho que apaga blob é a purga da lixeira dos Cadernos, depois de apagar as
+linhas de vez. Ver `documentos._sha_orfao`.
 
 **O módulo Cadernos aceita qualquer extensão** (`arquivos_store.QUALQUER`): é
 onde o PDR guarda programas e arquivos de equipamento. Lá a proteção não é a

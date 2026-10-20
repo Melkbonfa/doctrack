@@ -92,6 +92,56 @@ def test_create_user_sem_senha_gera_codigo(client, admin_token, auth_headers):
     assert data["usuario"]["precisa_definir_senha"] is True
 
 
+def test_criar_usuario_com_senha_e_recusado(client, admin_token, auth_headers):
+    """R-05: o admin não define a senha de ninguém — passaria a conhecê-la, e
+    as ações daquela conta deixariam de ser atribuíveis só ao dono dela."""
+    res = client.post("/api/users", headers=auth_headers(admin_token),
+                      json={"nome": "Com Senha", "email": "comsenha@test.com",
+                            "role": "tecnico", "senha": "senhaDoAdmin1"})
+    assert res.status_code == 400
+    assert "código de ativação" in res.get_json()["erro"]
+    # Nada foi criado, nem pela metade.
+    from models import User
+    assert User.query.filter_by(email="comsenha@test.com").first() is None
+    assert AuditLog.query.filter_by(acao="CREATE", entidade="comsenha@test.com").count() == 0
+
+
+def test_criar_usuario_com_senha_vazia_tambem_e_recusado(client, admin_token, auth_headers):
+    """O campo em si é recusado: a tela antiga mandava a chave só quando havia
+    senha, então quem a manda é cliente fora do fluxo atual."""
+    res = client.post("/api/users", headers=auth_headers(admin_token),
+                      json={"nome": "Vazia", "email": "vazia@test.com",
+                            "role": "tecnico", "senha": ""})
+    assert res.status_code == 400
+
+
+def test_editar_usuario_com_senha_e_recusado_inteiro(client, admin_token, auth_headers):
+    """PATCH com senha não aplica nada: nem a senha, nem os outros campos."""
+    from models import User
+    h = auth_headers(admin_token)
+    alvo = User.query.filter_by(email="tecnico@test.com").first()
+    res = client.patch(f"/api/users/{alvo.id}", headers=h,
+                       json={"nome": "Nome Trocado", "senha": "senhaDoAdmin1"})
+    assert res.status_code == 400
+    assert "Resetar senha" in res.get_json()["erro"]
+
+    assert User.query.filter_by(email="tecnico@test.com").first().nome == "Tecnico Test"
+    assert client.post("/api/auth/login", json={"email": "tecnico@test.com",
+                                                "senha": "senhaDoAdmin1"}).status_code == 401
+    assert client.post("/api/auth/login", json={"email": "tecnico@test.com",
+                                                "senha": "demo123"}).status_code == 200
+    assert AuditLog.query.filter_by(acao="UPDATE", entidade="tecnico@test.com").count() == 0
+
+
+def test_editar_usuario_sem_senha_continua_funcionando(client, admin_token, auth_headers):
+    from models import User
+    alvo = User.query.filter_by(email="tecnico@test.com").first()
+    res = client.patch(f"/api/users/{alvo.id}", headers=auth_headers(admin_token),
+                       json={"nome": "Nome Trocado", "role": "tecnico"})
+    assert res.status_code == 200
+    assert res.get_json()["usuario"]["nome"] == "Nome Trocado"
+
+
 def test_login_bloqueado_conta_pendente(client, admin_token, auth_headers):
     _criar_convite(client, admin_token, auth_headers, email="pend@test.com")
     res = client.post("/api/auth/login", json={"email": "pend@test.com", "senha": "qualquer"})
@@ -361,9 +411,9 @@ def test_ativacao_codigo_expirado_grava(client, admin_token, auth_headers):
     _nenhuma_coluna_contem(codigo)
 
 
-def test_403_de_perfil_nao_vai_para_a_auditoria(client, leitura_token, auth_headers):
-    """Decisão registrada em auth.py: quem bate no 403 está autenticado, e o
-    front provoca esse 403 no uso normal."""
-    antes = AuditLog.query.count()
+def test_403_de_perfil_vai_para_a_auditoria_como_acesso_negado(client, leitura_token,
+                                                               auth_headers):
+    """Antes ficava de fora; desde o R-06 entra, deduplicado por usuário e rota.
+    Os detalhes estão em tests/test_acesso_negado.py."""
     assert client.get("/api/users", headers=auth_headers(leitura_token)).status_code == 403
-    assert AuditLog.query.count() == antes
+    assert len(_linhas("ACESSO_NEGADO")) == 1

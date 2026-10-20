@@ -213,11 +213,39 @@ def test_arquivo_desmarcado_vira_texto_no_relatorio(client, tecnico_token, area_
     assert "corrida.tlpd (arquivo fora do pacote)" in "\n".join(par.text for par in doc.paragraphs)
 
 
-def test_leitor_exporta_e_quem_nao_ve_o_caderno_nao(client, tecnico_token, leitura_token, admin_token, area_pdr):
+def test_so_editor_exporta_e_quem_nao_ve_o_caderno_nem_sabe(client, tecnico_token, leitura_token,
+                                                           admin_token, area_pdr):
+    """R-50: exportar é saída de dados, e o perfil leitura só consulta. Antes
+    bastava ler o caderno (PAPEL_EXPORTAR = leitor)."""
+    from models import AuditLog
     cad, p, _ = _cenario(client, tecnico_token)
     corpo = {"paginas": [p["uuid"]], "arquivos": []}
+
+    # leitura lê o caderno, mas não tira prévia, não gera e não baixa
+    assert client.get(f"/cadernos/api/cadernos/{cad}", headers=H(leitura_token)).status_code == 200
+    assert client.post(f"/cadernos/api/cadernos/{cad}/exportacao/previa", json=corpo,
+                       headers=H(leitura_token)).status_code == 403
     assert client.post(f"/cadernos/api/cadernos/{cad}/exportacoes", json=corpo,
-                       headers=H(leitura_token)).status_code == 202
+                       headers=H(leitura_token)).status_code == 403
+    assert CadernoExportacao.query.count() == 0
+
+    # o editor (técnico dono) exporta; o zip dele também não desce para o leitura
+    t = client.post(f"/cadernos/api/cadernos/{cad}/exportacoes", json=corpo,
+                    headers=H(tecnico_token))
+    assert t.status_code == 202
+    uuid_ = t.get_json()["tarefa"]["resultado"]["exportacao"]["uuid"]
+    assert client.get(f"/cadernos/api/exportacoes/{uuid_}/zip",
+                      headers=H(leitura_token)).status_code == 403
+    assert client.get(f"/cadernos/api/exportacoes/{uuid_}/zip",
+                      headers=H(tecnico_token)).status_code == 200
+
+    # o histórico do que já saiu é registro, não saída: quem lê o caderno vê
+    hist = client.get(f"/cadernos/api/cadernos/{cad}/exportacoes", headers=H(leitura_token))
+    assert hist.status_code == 200 and len(hist.get_json()["exportacoes"]) == 1
+
+    negados = AuditLog.query.filter_by(acao="ACESSO_NEGADO", usuario_email="leitura@test.com").all()
+    assert {l.valor_novo for l in negados} == {"papel leitor no caderno Projeto L-000 (exige editor)"}
+
     # Sem a área PDR, o caderno nem existe para a pessoa (404 não revela).
     User.query.filter_by(email="leitura@test.com").first().areas = ""
     db.session.commit()
