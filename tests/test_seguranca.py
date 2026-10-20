@@ -201,6 +201,27 @@ def test_agendador_sobrevive_a_tarefa_que_explode(app):
     scheduler._ultimo_dia = None
 
 
+def test_subida_marca_o_dia_e_o_agendador_nao_repete(app, monkeypatch):
+    """O init_app roda as tarefas do dia; a primeira checagem da thread não pode
+    rodá-las de novo. Rodava: em 20/10/2026 a subida foi às 07:07 e o log mostra
+    as fotos regravadas às 07:22, na primeira checagem."""
+    import scheduler
+    import servidor
+    import pdr.importer
+
+    chamadas = []
+    monkeypatch.setattr(servidor, "rodar_tarefas_diarias", lambda: chamadas.append(1))
+    monkeypatch.setattr(pdr.importer, "importar_planilha", lambda *a, **k: None)
+    scheduler._ultimo_dia = None
+    try:
+        servidor.init_app(app)
+        assert chamadas == [1]
+        assert scheduler.rodar_uma_vez(app, servidor.rodar_tarefas_diarias) is False
+        assert chamadas == [1]
+    finally:
+        scheduler._ultimo_dia = None
+
+
 # ── IMPORT SEM EFEITO COLATERAL ──────────────────────────────────────────────
 
 def test_importar_servidor_nao_prepara_banco():

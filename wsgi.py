@@ -5,7 +5,10 @@ Existe porque a preparação do banco saiu do import de `servidor` (ver
 subiria o app sem criar schema, sem rodar os backfills e sem agendar as fotos
 diárias. Use sempre `wsgi:app`:
 
-    waitress-serve --listen=0.0.0.0:5000 wsgi:app
+    waitress-serve --listen=0.0.0.0:5000 --threads=32 wsgi:app
+
+(--threads: sob o waitress o Socket.IO é só polling e cada aba aberta segura
+uma thread — ver "Threads do waitress" no docs/operacao/RUNBOOK.md.)
 
 Importar este módulo prepara o banco e sobe o agendador interno — é o efeito
 desejado aqui e só aqui.

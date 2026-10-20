@@ -14,6 +14,29 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
+Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema
+e logs da produção) não achou nada quebrado, mas achou estes cinco pontos.
+
+- **Corrigido** `.svg` das pastas de rede não abre mais inline em
+  `/api/documentos/arquivo`: SVG é documento ativo, e o `<script>` dele rodaria
+  na origem do DocTrack com acesso ao token. Desce como download, como já
+  faziam os arquivos hospedados e os Cadernos.
+- **Corrigido** o `_sync_schema` cria **todo** índice não-UNIQUE do modelo que
+  falte numa tabela existente, em vez de uma lista mantida à mão. A lista tinha
+  envelhecido: `entregaveis.modelo_chave` e `modelos_entregavel.chave` (migration
+  020) ficavam sem índice no PostgreSQL, onde as migrations SQLite não rodam.
+  Índice que já existe com outro nome nas mesmas colunas não é duplicado.
+- **Corrigido** as tarefas diárias rodavam duas vezes no dia da subida: o
+  `init_app` as rodava e a primeira checagem do agendador, 15 min depois, de
+  novo. O `init_app` agora marca o dia como feito.
+- **Corrigido** `test_docs_sincronia` falhava no Windows com o conteúdo idêntico
+  (checkout em CRLF por `core.autocrlf`). Novo `.gitattributes` fixa LF em
+  `docs/referencia/`.
+- **Adicionado** `--threads=32` no `deploy_windows.ps1` e no RUNBOOK. Só com
+  polling, cada aba aberta segura uma thread do waitress, e o padrão é 4 — o
+  `err.log` da produção já mostrava `Task queue depth`.
+
 ### Tempo real sem WebSocket sob o waitress (err.log de 817 MB)
 O waitress da produção não faz WebSocket, mas todo cliente abria o Socket.IO
 pedindo websocket primeiro: cada aba aberta gerava um traceback

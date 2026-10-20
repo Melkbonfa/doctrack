@@ -83,6 +83,26 @@ detecta o waitress e usa só polling (ver `servidor.websocket_disponivel`;
 `DOCTRACK_WEBSOCKET=0/1` força). Se esse traceback voltar, alguma tela está
 abrindo o socket com `transports` começando por `"websocket"`.
 
+### Threads do waitress
+
+Só polling tem um custo: cada aba aberta do DocTrack segura **uma thread do
+waitress** o tempo todo (o pedido de polling fica parado até 25 s esperando
+evento, e a aba logo manda outro). O padrão do waitress é 4 threads — quatro
+abas abertas e todo o resto do sistema espera na fila. O sinal no `err.log` é
+`WARNING:waitress.queue:Task queue depth is N`.
+
+O `scripts/deploy_windows.ps1` instala com `--threads=32`. Num serviço instalado
+antes disso, ajuste uma vez e reinicie (dimensione pelo número de abas abertas
+ao mesmo tempo, com folga):
+
+```bash
+nssm set DocTrack AppParameters "--listen=0.0.0.0:5000 --threads=32 wsgi:app"
+```
+
+```bash
+nssm restart DocTrack
+```
+
 Confirmar que o app responde (não precisa de login, e funciona até travado):
 
 ```bash
@@ -223,6 +243,7 @@ de novo. As duas ações ficam no log de auditoria sob o usuário `kill-switch`.
 | Tudo responde `423` | kill switch acionado | destravar (acima); ver `audit_logs` sob `kill-switch` para o motivo |
 | Serviço não sobe após deploy | erro em `init_app` (schema/backfill) | ler `err.log`; conferir se o `.env` tem `JWT_SECRET` e `DATABASE_URL` |
 | App sobe mas nenhuma tela tem dado | `wsgi:app` trocado por `servidor:app` | banco não foi preparado — conferir a linha de comando do NSSM |
+| Telas lentas com várias abas abertas; `Task queue depth` no `err.log` | threads do waitress tomadas pelo polling do Socket.IO | subir `--threads` (ver "Threads do waitress", acima) |
 | "Fora das pastas permitidas" ao abrir documento | caminho fora de `DOCTRACK_FILE_ROOTS`, ou apelido de unidade não declarado | conferir `DOCTRACK_FILE_ROOTS` e `DOCTRACK_PATH_ALIASES` — use a forma **UNC** |
 | Documento cadastrado, arquivo não abre | arquivo movido ou renomeado no share | rodar o diagnóstico (abaixo) |
 | Login trancado para todos ao mesmo tempo | rate limit fundido num IP só | ligar `TRUST_PROXY=1` (obrigatório atrás de túnel/proxy) e reiniciar |
