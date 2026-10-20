@@ -26,6 +26,12 @@
   if(!getToken()) return;
   // `leitura` recebe 403 e não adianta perguntar de novo a cada página.
   if(sessionStorage.getItem("dt_tempo_sem_acesso") === "1") return;
+  // Nem a primeira vez: todo 403 de perfil vira ACESSO_NEGADO na trilha, e
+  // este seria o mais comum de todos, provocado pela própria tela em cada aba
+  // aberta pelo perfil leitura. O 403 abaixo continua como rede de segurança.
+  try{
+    if((JSON.parse(localStorage.getItem("doctrack_user") || "{}") || {}).role === "leitura") return;
+  }catch(e){}
 
   var PING = "dt_tempo_ping";
   var estado = {em_curso: null, retomavel: null};

@@ -55,7 +55,7 @@ function _auditModule(l){
   // Sistema: autenticação e administração de usuários
   // KILL_SWITCH: entidade "sistema" não casa com nenhuma regra abaixo, e sem ele
   // aqui a trava de emergência e as tentativas contra ela caíam em Documentos.
-  if(/LOGIN|LOGOUT|PASSWORD|SENHA|RESET|TOKEN|USER|USUARIO|ROLE|PERMISSAO|ATIVACAO|CONVITE|KILL_SWITCH|ACCESS/.test(acao)) return 'sistema';
+  if(/LOGIN|LOGOUT|PASSWORD|SENHA|RESET|TOKEN|USER|USUARIO|ROLE|PERMISSAO|ATIVACAO|CONVITE|KILL_SWITCH|ACCESS|ACESSO/.test(acao)) return 'sistema';
   if(campo==='role' || entL.includes('usuario') || entL.includes('user') || entL.includes('auth')) return 'sistema';
   if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ent.trim())) return 'sistema'; // entidade = e-mail puro (gestão de usuário)
   // Documentos (padrão)

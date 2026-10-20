@@ -63,6 +63,10 @@ def log_action(user_email, acao, entidade="", campo="", antigo="", novo="",
     db.session.commit()
 
 
+def _exige(roles):
+    return "exige " + ", ".join(roles)
+
+
 def require_role(*roles):
     """Decorator: exige que o usuário tenha um dos roles listados."""
     def decorator(fn):
@@ -73,9 +77,7 @@ def require_role(*roles):
             claims   = get_jwt()                    # claims extras (role)
             role     = claims.get("role", "")
             if role not in roles:
-                # Não vai para a auditoria, nem aqui nem em require_area: ver
-                # "TENTATIVAS DE ACESSO RECUSADAS" mais abaixo.
-                return jsonify({"erro": "Acesso negado para este perfil"}), 403
+                return negar_acesso(f"perfil {role or '—'} ({_exige(roles)})")
             return fn(*args, **kwargs)
         return wrapper
     return decorator
@@ -95,9 +97,9 @@ def require_area(slug, *roles):
             email = get_jwt_identity()
             user  = User.query.filter_by(email=email, ativo=True).first()
             if not user or not user.tem_area(slug):
-                return jsonify({"erro": "Sem acesso a esta área"}), 403
+                return negar_acesso(f"sem a área {slug}", "Sem acesso a esta área")
             if roles and user.role not in roles:
-                return jsonify({"erro": "Acesso negado para este perfil"}), 403
+                return negar_acesso(f"perfil {user.role} ({_exige(roles)})")
             return fn(*args, **kwargs)
         return wrapper
     return decorator
@@ -132,16 +134,73 @@ def get_client_ip():
 # mesmo teto que o limite lhe dá — gravar o que o limite não conta abriria a
 # auditoria para ser inundada.
 #
+# Também entra o 403 de perfil ou área (ACESSO_NEGADO, logo abaixo): quem já
+# está dentro tentando o que o perfil não alcança.
+#
 # Fica de fora, de propósito:
 #   * o segredo digitado — nem a senha, nem o código, nem trecho deles;
-#   * o 403 de perfil/área (require_role / require_area). Quem bate nele já
-#     está autenticado e identificado; não é alguém de fora tentando entrar. E
-#     o próprio front provoca esse 403 no uso normal (a seção que o perfil
-#     leitura não pode ver some ao receber 403): sem limite que o segure, cada
-#     tela aberta viraria linha de auditoria e o registro de um ataque de
-#     verdade ficaria enterrado no ruído do uso legítimo;
 #   * o 401 de JWT vencido, que acontece a cada expiração e o front renova
 #     sozinho.
+
+
+# ── ACESSO NEGADO (403 de perfil ou área) ─────────────────────────────────────
+#
+# Quem bate num 403 de perfil ou de área já está autenticado e identificado, e
+# o próprio front provoca esse 403 no uso normal: a seção que o perfil leitura
+# não pode ver some da tela ao receber 403. Não há limite de tentativas que
+# segure esse volume, então gravar toda resposta faria cada tela aberta virar
+# linha de auditoria, e o registro de um abuso de verdade ficaria enterrado no
+# ruído do uso legítimo.
+#
+# Por isso a deduplicação: uma linha por (usuário, rota) a cada
+# JANELA_ACESSO_NEGADO. "Rota" é o método mais a regra do Flask
+# ("PATCH /api/users/<int:user_id>"), não o caminho com o id: a recusa por
+# perfil vale para qualquer id daquela rota, e deduplicar pelo caminho deixaria
+# uma varredura de ids gravar uma linha por requisição. O que se perde é a
+# contagem dentro da janela; o que fica é quem tentou o quê, de onde e quando.
+#
+# A memória de "já registrado" é a própria auditoria, como no bloqueio do
+# limite: sobrevive ao reinício e vale para todas as threads do waitress.
+
+JANELA_ACESSO_NEGADO = timedelta(minutes=10)
+
+
+def _rota_atual():
+    regra = request.url_rule.rule if request.url_rule is not None else request.path
+    return f"{request.method} {regra}"[:200]
+
+
+def registrar_acesso_negado(motivo, email=None):
+    """Grava ACESSO_NEGADO (deduplicado). Nunca muda a resposta: se a gravação
+    falhar, a recusa continua a mesma.
+
+    Só pode ser chamada antes de qualquer escrita da requisição: `log_action`
+    faz commit da sessão, e o que estivesse pendente iria junto.
+    """
+    try:
+        email = (email or get_jwt_identity() or "")[:120]
+        rota = _rota_atual()
+        ja = AuditLog.query.filter(
+            AuditLog.acao == "ACESSO_NEGADO",
+            AuditLog.usuario_email == email,
+            AuditLog.entidade == rota,
+            AuditLog.timestamp >= datetime.now() - JANELA_ACESSO_NEGADO,
+        ).first()
+        if ja is not None:
+            return
+        log_action(email, "ACESSO_NEGADO", entidade=rota, campo="motivo",
+                   novo=motivo, ip=get_client_ip())
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WARN] Auditoria: ACESSO_NEGADO não gravado — {e}")
+
+
+def negar_acesso(motivo, mensagem="Acesso negado para este perfil"):
+    """O 403 de perfil/área com o registro na trilha. `motivo` vai só para a
+    auditoria; ao cliente vai `mensagem`, a mesma de antes."""
+    registrar_acesso_negado(motivo)
+    return jsonify({"erro": mensagem}), 403
+
 
 def _auditar_tentativa(email, acao, motivo="", entidade=""):
     """Grava uma tentativa recusada. Nunca muda a resposta: se a gravação
@@ -448,7 +507,7 @@ def get_user(user_id):
 
     # Técnico e leitura só podem ver o próprio perfil
     if caller_role in ("tecnico", "leitura") and user.email != caller_email:
-        return jsonify({"erro": "Acesso negado"}), 403
+        return negar_acesso(f"perfil {caller_role} (só o próprio cadastro)", "Acesso negado")
 
     return jsonify(user.to_dict()), 200
 

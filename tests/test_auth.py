@@ -411,9 +411,9 @@ def test_ativacao_codigo_expirado_grava(client, admin_token, auth_headers):
     _nenhuma_coluna_contem(codigo)
 
 
-def test_403_de_perfil_nao_vai_para_a_auditoria(client, leitura_token, auth_headers):
-    """Decisão registrada em auth.py: quem bate no 403 está autenticado, e o
-    front provoca esse 403 no uso normal."""
-    antes = AuditLog.query.count()
+def test_403_de_perfil_vai_para_a_auditoria_como_acesso_negado(client, leitura_token,
+                                                               auth_headers):
+    """Antes ficava de fora; desde o R-06 entra, deduplicado por usuário e rota.
+    Os detalhes estão em tests/test_acesso_negado.py."""
     assert client.get("/api/users", headers=auth_headers(leitura_token)).status_code == 403
-    assert AuditLog.query.count() == antes
+    assert len(_linhas("ACESSO_NEGADO")) == 1

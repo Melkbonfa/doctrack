@@ -25,6 +25,13 @@ de política da área usuária.
   de ativação, e trocar a senha é o Resetar senha. A tela de usuários perdeu os
   dois campos de senha. Antes, a senha definida pelo admin era conhecida por
   ele, e as ações da conta deixavam de ser atribuíveis só ao dono.
+- **Adicionado (R-06)** o 403 de perfil ou área vai para a trilha como
+  `ACESSO_NEGADO`, com e-mail, método + rota, motivo e IP: `require_role`,
+  `require_area`, o cadastro de outro usuário, os gates de Cadernos (inclusive o
+  404 que esconde um caderno sem acesso) e o gate de dono de Tempos. Uma linha
+  por (usuário, rota) a cada 10 minutos, com a rota pela regra do Flask — o
+  front provoca esse 403 no uso normal, e uma varredura de ids não multiplica
+  linhas. A resposta ao cliente não mudou.
 
 ### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
 Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema

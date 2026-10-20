@@ -157,16 +157,48 @@ mora em memória e zera no reinício; por isso cada recusa também vira linha em
   primeiro acesso, e-mail sem pendência e código vencido passaram a contar no
   limite — antes só o código errado contava, e uma varredura de e-mails nessa
   rota não custava nada nem deixava rastro.
-- **Fica de fora, de propósito:** o 403 de perfil/área (quem bate nele já está
-  autenticado, e o próprio front provoca esse 403 no uso normal); o 401 de
-  token vencido (acontece a cada expiração e o front renova sozinho); e o
-  login de conta com primeiro acesso pendente, em que nenhuma senha é
-  conferida — a tentativa que importa nesse caso é a do código, que é gravada.
+- **Fica de fora, de propósito:** o 401 de token vencido (acontece a cada
+  expiração e o front renova sozinho); e o login de conta com primeiro acesso
+  pendente, em que nenhuma senha é conferida — a tentativa que importa nesse
+  caso é a do código, que é gravada.
 - **O IP aparece na tela de auditoria e no relatório exportado** (lista, CSV e
   PDF), e entra na busca das duas.
 - **O e-mail digitado é texto de quem não tem conta**, gravado como veio. Tela e
   relatório escapam tudo o que exibem, e o export não deixa esse texto fechar o
   `<script>` em que o relatório carrega os dados.
+
+### Acesso negado por perfil ou área (`ACESSO_NEGADO`)
+
+Quem já está autenticado e tenta o que o perfil ou a área não alcança recebe
+403 — e a tentativa vai para a trilha (Análise de Riscos, R-06):
+
+| Campo | Conteúdo |
+|---|---|
+| `usuario_email` | quem tentou (do token) |
+| `entidade` | método + rota, pela regra do Flask: `PATCH /api/users/<int:user_id>` |
+| `campo` / `valor_novo` | `motivo` / por que foi recusado: `perfil leitura (exige admin, gestor)`, `sem a área pdr`, `papel leitor no caderno X (exige editor)`, `apontamento #12 de outro usuário` |
+| `ip` | o mesmo IP do limite de tentativas |
+
+Gravam: `require_role` e `require_area` (e por eles `so_membros`, `so_gestao`
+e `require_pdr_access`), o cadastro de outro usuário em `GET /api/users/<id>`,
+os gates de Cadernos (papel no caderno, área, criar e importar) e o gate de
+dono de Tempos.
+
+- **Uma linha por (usuário, rota) a cada 10 minutos**
+  (`auth.JANELA_ACESSO_NEGADO`). O próprio front provoca esse 403 no uso
+  normal — a seção que o perfil leitura não pode ver some da tela ao receber
+  403 —, e não há limite de tentativas que segure esse volume. A rota é a
+  regra, não o caminho com o id: a recusa por perfil vale para qualquer id, e
+  uma varredura de ids não multiplica linhas. Perde-se a contagem dentro da
+  janela; fica quem tentou o quê, de onde e quando. A fonte mais comum desse
+  403 — o cronômetro global de Tempos, que o perfil leitura não tem — nem faz a
+  chamada para esse perfil (`static/tempos-widget.js`).
+- **A resposta ao cliente não mudou.** O motivo existe só na trilha.
+- **Caderno sem acesso continua respondendo 404**, para não revelar que existe;
+  a trilha registra a tentativa (`sem acesso ao caderno …`). Caderno que não
+  existe não grava nada.
+- **Fora:** os 403 de regra de dono em Projetos (técnico em entregável que não
+  é dele) e em Missões (arquivar ou excluir missão alheia).
 
 ## Quem pode o quê, em usuários
 
