@@ -89,26 +89,20 @@ def test_ratelimit_pode_ser_desligado(client, monkeypatch):
 
 # ── POLÍTICA DE SENHA ────────────────────────────────────────────────────────
 
-def test_senha_curta_e_rejeitada_na_criacao(client, admin_token, auth_headers):
-    """Mínimo passou de 6 para 8 caracteres."""
+def test_senha_curta_e_rejeitada_no_primeiro_acesso(client, admin_token, auth_headers):
+    """Mínimo passou de 6 para 8 caracteres. Desde o R-05 o primeiro acesso é
+    o único lugar em que uma senha nasce, então é lá que o mínimo vale."""
     from auth import SENHA_MIN
     assert SENHA_MIN >= 8
-    res = client.post("/api/users",
-                      json={"nome": "Curta", "email": "curta@test.com",
-                            "role": "tecnico", "senha": "1234567"},
-                      headers=auth_headers(admin_token))
+    codigo = client.post("/api/users",
+                         json={"nome": "Curta", "email": "curta@test.com",
+                               "role": "tecnico"},
+                         headers=auth_headers(admin_token)).get_json()["codigo_ativacao"]
+    res = client.post("/api/auth/primeiro-acesso",
+                      json={"email": "curta@test.com", "codigo": codigo,
+                            "senha": "1234567"})
     assert res.status_code == 400
     assert str(SENHA_MIN) in res.get_json()["erro"]
-
-
-def test_senha_curta_e_rejeitada_na_edicao(client, admin_token, auth_headers):
-    h = auth_headers(admin_token)
-    users = client.get("/api/users", headers=h).get_json()
-    alvo = next(u for u in users if u["email"] == "tecnico@test.com")
-    assert client.patch(f"/api/users/{alvo['id']}", json={"senha": "curta1"},
-                        headers=h).status_code == 400
-    assert client.patch(f"/api/users/{alvo['id']}", json={"senha": "senhaBoa123"},
-                        headers=h).status_code == 200
 
 
 # ── TAREFAS DIÁRIAS ──────────────────────────────────────────────────────────

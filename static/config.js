@@ -149,17 +149,16 @@ function openEditUser(id){
   const cb=document.getElementById('edit-user-ativo');if(cb)cb.checked=u.ativo;
   const uareas=Array.isArray(u.areas)?u.areas:[];
   document.querySelectorAll('.edit-user-area').forEach(el=>{el.checked=uareas.indexOf(el.value)!==-1});
-  document.getElementById('edit-user-senha').value='';openBaseModal('edit-user');
+  openBaseModal('edit-user');
 }
 async function saveEditUser(){
   const id=parseInt(document.getElementById('edit-user-id').value),nome=document.getElementById('edit-user-nome').value.trim(),
-    email=document.getElementById('edit-user-email').value.trim(),role=document.getElementById('edit-user-role').value,
-    senha=document.getElementById('edit-user-senha').value.trim();
+    email=document.getElementById('edit-user-email').value.trim(),role=document.getElementById('edit-user-role').value;
   const cb=document.getElementById('edit-user-ativo');
   const ativo=cb?cb.checked:true;
   const areas=Array.from(document.querySelectorAll('.edit-user-area')).filter(el=>el.checked).map(el=>el.value);
   if(!nome||!email){showToast('Preencha nome e email','error');return}
-  const p={nome,email,role,ativo,areas};if(senha)p.senha=senha;
+  const p={nome,email,role,ativo,areas};
   try{const res=await apiFetch(`/users/${id}`,{method:'PATCH',body:JSON.stringify(p)});const data=await res.json();if(!res.ok){showToast(data.erro||'Erro','error');return}showToast('Atualizado','success');closeModal('edit-user');renderUsers()}catch(e){showToast('Erro','error')}
 }
 async function confirmDeleteUser(id,nome){
@@ -174,16 +173,15 @@ async function confirmHardDeleteUser(id,nome){
 }
 async function createUser(){
   const nome=document.getElementById('new-user-nome').value.trim(),email=document.getElementById('new-user-email').value.trim(),
-    role=document.getElementById('new-user-role').value,senha=document.getElementById('new-user-senha').value.trim();
+    role=document.getElementById('new-user-role').value;
   if(!nome||!email){showToast('Preencha nome e e-mail','error');return}
-  if(senha&&senha.length<SENHA_MIN){showToast('A senha deve ter pelo menos '+SENHA_MIN+' caracteres','error');return}
   const areas=Array.from(document.querySelectorAll('.new-user-area')).filter(el=>el.checked).map(el=>el.value);
-  const body={nome,email,role,areas};if(senha)body.senha=senha;
+  const body={nome,email,role,areas};
   try{
     const res=await apiFetch('/users',{method:'POST',body:JSON.stringify(body)});const data=await res.json();
     if(!res.ok){showToast(data.erro||'Erro','error');return}
     showToast('Usuário criado','success');closeModal('add-user');
-    ['new-user-nome','new-user-email','new-user-senha'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+    ['new-user-nome','new-user-email'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
     document.querySelectorAll('.new-user-area').forEach(el=>{el.checked=false});
     renderUsers();
     if(data.codigo_ativacao)showCodigoAtivacao(data.codigo_ativacao,email,data.validade_dias);

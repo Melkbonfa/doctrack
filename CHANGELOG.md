@@ -14,6 +14,18 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Correções da Análise de Riscos exigidas antes da QO
+A Análise de Riscos da validação (guia ANVISA) marcou estes pontos para
+corrigir antes da qualificação de operação. Nenhum deles dependia de decisão
+de política da área usuária.
+
+- **Alterado (R-05)** o administrador não define mais a senha de ninguém.
+  `POST /api/users` e `PATCH /api/users/<id>` recusam o campo `senha` (400, e a
+  edição não aplica nenhum dos outros campos); criar a conta sempre gera código
+  de ativação, e trocar a senha é o Resetar senha. A tela de usuários perdeu os
+  dois campos de senha. Antes, a senha definida pelo admin era conhecida por
+  ele, e as ações da conta deixavam de ser atribuíveis só ao dono.
+
 ### Correções de uma varredura geral (SVG, índices, agendador, CRLF, threads)
 Uma varredura do app inteiro (lint, rotas, chamadas do front, templates, schema
 e logs da produção) não achou nada quebrado, mas achou estes cinco pontos.

@@ -72,6 +72,13 @@ sequenceDiagram
     S-->>U: conta ativa
 ```
 
+**O admin nunca define a senha de ninguém.** `POST /api/users` e
+`PATCH /api/users/<id>` recusam o campo `senha` com 400 — a edição inteira é
+recusada, sem aplicar os outros campos. Se o admin pudesse escolher a senha,
+passaria a conhecê-la, e as ações daquela conta deixariam de ser atribuíveis só
+ao dono dela (Análise de Riscos, R-05). A senha só nasce no primeiro acesso,
+digitada pelo próprio usuário.
+
 Enquanto a conta está pendente, `senha_hash` guarda um hash **inutilizável**:
 mantém a coluna `NOT NULL` sem permitir login por senha. Definir a senha conclui
 a pendência.

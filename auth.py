@@ -33,6 +33,14 @@ auth_bp = Blueprint("auth", __name__)
 SENHA_MIN = int(os.environ.get("DOCTRACK_SENHA_MIN", "8"))
 ERRO_SENHA_CURTA = f"Senha deve ter pelo menos {SENHA_MIN} caracteres"
 
+# A senha só nasce no primeiro acesso, digitada pelo próprio usuário. Se o admin
+# pudesse defini-la (no cadastro ou na edição), passaria a conhecê-la, e o que
+# fosse feito com aquela conta deixaria de ser atribuível só ao dono dela.
+# Criar a conta e resetar a senha geram código de ativação; não há outro caminho.
+ERRO_SENHA_PELO_ADMIN = ("O administrador não define senha. A conta recebe um código "
+                         "de ativação e o usuário cria a própria senha no primeiro "
+                         "acesso; para trocar, use Resetar senha.")
+
 
 # ── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -385,16 +393,17 @@ def create_user():
 
     nome  = data.get("nome",  "").strip()
     email = data.get("email", "").strip().lower()
-    senha = data.get("senha", "").strip()
     role  = data.get("role",  "tecnico").strip()
 
     # Validações
+    if "senha" in data:
+        # Recusa em vez de ignorar: quem ainda manda senha (tela antiga em
+        # cache, script) precisa saber que ela não foi aplicada.
+        return jsonify({"erro": ERRO_SENHA_PELO_ADMIN}), 400
     if not nome or not email:
         return jsonify({"erro": "Nome e email são obrigatórios"}), 400
     if role not in ("admin", "gestor", "tecnico", "leitura"):
         return jsonify({"erro": "Role inválido. Use: admin, gestor, tecnico, leitura"}), 400
-    if senha and len(senha) < SENHA_MIN:
-        return jsonify({"erro": ERRO_SENHA_CURTA}), 400
     if User.query.filter_by(email=email).first():
         return jsonify({"erro": "Este e-mail já está cadastrado"}), 409
 
@@ -406,13 +415,8 @@ def create_user():
     # Compat: mantém a flag legada coerente com a área PDR selecionada.
     user.pode_pdr = "pdr" in parse_areas(user.areas)
 
-    codigo = None
-    if senha:
-        # Admin já definiu uma senha (comportamento antigo)
-        user.set_senha(senha)
-    else:
-        # Convite: usuário define a própria senha no primeiro acesso
-        codigo = user.gerar_codigo_ativacao()
+    # Convite: o usuário define a própria senha no primeiro acesso.
+    codigo = user.gerar_codigo_ativacao()
 
     db.session.add(user)
     db.session.commit()
@@ -420,12 +424,13 @@ def create_user():
     log_action(caller_email, "CREATE", entidade=email,
                campo="role", novo=role, ip=get_client_ip())
 
-    resp = {"mensagem": "Usuário criado com sucesso", "usuario": user.to_dict()}
-    if codigo:
+    return jsonify({
+        "mensagem": "Usuário criado com sucesso",
+        "usuario": user.to_dict(),
         # Mostrado uma única vez para o admin repassar ao usuário
-        resp["codigo_ativacao"] = codigo
-        resp["validade_dias"]   = User.ATIVACAO_VALIDADE_DIAS
-    return jsonify(resp), 201
+        "codigo_ativacao": codigo,
+        "validade_dias":   User.ATIVACAO_VALIDADE_DIAS,
+    }), 201
 
 
 # ── BUSCAR USUÁRIO POR ID ──────────────────────────────────────────────────────
@@ -459,6 +464,11 @@ def update_user(user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    # Antes de qualquer campo: a edição é recusada inteira, nada fica aplicado
+    # pela metade. Trocar a senha é o reset (/reset-senha), que gera código.
+    if "senha" in data:
+        return jsonify({"erro": ERRO_SENHA_PELO_ADMIN}), 400
 
     changes = []
 
@@ -509,13 +519,6 @@ def update_user(user_id):
             elif not novo_pdr and "pdr" in atuais:
                 atuais.remove("pdr")
             user.areas = dump_areas(atuais)
-
-    if "senha" in data:
-        nova_senha = data["senha"].strip()
-        if len(nova_senha) < SENHA_MIN:
-            return jsonify({"erro": ERRO_SENHA_CURTA}), 400
-        user.set_senha(nova_senha)
-        changes.append(("senha", "***", "***atualizada***"))
 
     db.session.commit()
 
