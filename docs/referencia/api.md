@@ -304,7 +304,7 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `GET` | `/api/equipamentos/importacoes` | admin, gestor |  |
 | `GET` | `/api/equipamentos/saude` | autenticado | Problemas de integridade do cadastro que só apareciam rodando script. |
 | `POST` | `/api/equipamentos/snapshot` | admin, gestor |  |
-| `GET` | `/api/events/replay` | autenticado |  |
+| `GET` | `/api/events/replay` | autenticado | O mesmo replay do socket, por HTTP. `?rooms=` repetível, como o pedido |
 | `GET` | `/api/export/audit` | admin, gestor |  |
 | `POST` | `/api/familias-equipamento` | admin, gestor, tecnico |  |
 | `DELETE` `PATCH` | `/api/familias-equipamento/<int:fid>` | admin, gestor, tecnico |  |

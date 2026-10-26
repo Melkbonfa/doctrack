@@ -26,6 +26,11 @@ Socket.IO. **Nenhuma rota chama `socketio.emit()` direto.**
 então um cliente que ficou offline pede `replay_request(since=<último id>)` e
 recebe o que perdeu. Não há estado de sessão no servidor.
 
+> **Atualização (2026-10):** "o que perdeu" é o que ele teria recebido ao vivo.
+> O replay passou a filtrar pelas salas da conexão com o mesmo `_resolve_rooms`
+> do envio; antes devolvia a tabela inteira, inclusive linhas de `log_action` e
+> eventos de sala restrita. Ver [EVENTOS.md](../EVENTOS.md).
+
 Os tipos de evento são constantes de `EventType` — fonte única. As rooms de
 destino saem de `_resolve_rooms()`, a partir do prefixo do tipo e do payload.
 

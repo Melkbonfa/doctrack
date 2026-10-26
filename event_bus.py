@@ -275,10 +275,28 @@ def publish_event(
 # ---------------------------------------------------------------------------
 # Replay — quando cliente reconecta, manda eventos perdidos
 # ---------------------------------------------------------------------------
+def _evento_da_linha(r) -> dict:
+    """Uma linha de audit_logs no formato que o cliente recebe ao vivo."""
+    try:
+        payload = json.loads(r.payload_json) if r.payload_json else {}
+    except (TypeError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "event_id": r.id,
+        "event_type": r.acao,
+        "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+        "user_id": r.usuario_id,
+        "user_email": r.usuario_email,
+        "payload": payload,
+    }
+
+
 def get_events_since(last_event_id: int, *, db, AuditLog, limit: int = 100) -> list[dict]:
     """
-    Retorna eventos com id > last_event_id, ordenados cronologicamente.
-    Usado pelo handshake do socket para sincronizar clientes que reconectam.
+    Retorna eventos com id > last_event_id, ordenados cronologicamente, SEM
+    filtro de destino. Para devolver a um cliente use `eventos_para_salas`.
     """
     rows = (
         AuditLog.query
@@ -287,20 +305,39 @@ def get_events_since(last_event_id: int, *, db, AuditLog, limit: int = 100) -> l
         .limit(limit)
         .all()
     )
+    return [_evento_da_linha(r) for r in rows]
 
-    events = []
-    for r in rows:
-        try:
-            payload = json.loads(r.payload_json) if r.payload_json else {}
-        except (TypeError, json.JSONDecodeError):
-            payload = {}
 
-        events.append({
-            "event_id": r.id,
-            "event_type": r.acao,
-            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
-            "user_id": r.usuario_id,
-            "user_email": r.usuario_email,
-            "payload": payload,
-        })
-    return events
+def eventos_para_salas(last_event_id: int, salas, *, db, AuditLog, limite: int = 500,
+                       lote: int = 500, max_varridos: int = 5000):
+    """Replay: os eventos depois de `last_event_id` que esta conexão receberia ao
+    vivo. Devolve `(eventos, ate)`.
+
+    `audit_logs` é trilha e event store ao mesmo tempo, e guarda mais do que o
+    barramento entrega a cada um: as linhas de `log_action` (login, exclusão,
+    acesso negado) e os eventos de sala restrita (`TEMPO_*` vai só para o dono).
+    Devolver a tabela inteira a quem reconecta furava todas essas regras. O
+    critério aqui é o MESMO do envio ao vivo: `_resolve_rooms` precisa incluir
+    uma das `salas`. `salas=None` é "tudo" — o admin, que já recebe tudo ao vivo.
+
+    `ate` é o id da última linha examinada, entregue ou não: o cliente avança o
+    cursor até ali. Sem isso, um técnico voltaria a pedir as mesmas linhas
+    filtradas a cada reconexão. Quando o `limite` corta a resposta, `ate` é a
+    última entregue, e o resto vem no próximo pedido. `max_varridos` impede que
+    um cursor muito velho vire uma varredura da tabela inteira numa conexão só.
+    """
+    eventos, ate, varridos = [], last_event_id, 0
+    while varridos < max_varridos:
+        rows = (AuditLog.query.filter(AuditLog.id > ate)
+                .order_by(AuditLog.id.asc()).limit(lote).all())
+        if not rows:
+            break
+        for r in rows:
+            varridos += 1
+            ev = _evento_da_linha(r)
+            if salas is None or salas.intersection(_resolve_rooms(ev["event_type"], ev["payload"])):
+                eventos.append(ev)
+                if len(eventos) >= limite:
+                    return eventos, r.id
+            ate = r.id
+    return eventos, ate

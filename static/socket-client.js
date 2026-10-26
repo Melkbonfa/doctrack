@@ -104,10 +104,16 @@ class DocTrackSocket {
       this.socket.on(evtType, (event) => this._handleEvent(event));
     });
 
-    // Replay vem num canal próprio
+    // Replay vem num canal próprio. O servidor só devolve o que esta conexão
+    // receberia ao vivo, e `ate` diz até onde ele olhou: o cursor avança até lá
+    // mesmo sem evento entregue, senão as mesmas linhas seriam varridas de novo.
     this.socket.on("replay", (data) => {
       console.log(`[DocTrack] replay: ${data.count} eventos desde ${data.since}`);
       (data.events || []).forEach((e) => this._handleEvent(e, /*fromReplay*/ true));
+      if (data.ate && data.ate > this.lastEventId) {
+        this.lastEventId = data.ate;
+        this._saveLastEventId();
+      }
     });
   }
 
@@ -184,7 +190,9 @@ class DocTrackSocket {
   // -------------------------------------------------------------------------
   requestReplay(sinceId) {
     if (!this.connected) return;
-    this.socket.emit("replay_request", { since: sinceId });
+    // As salas finas vão junto: na reconexão o replay é pedido antes do
+    // subscribe que as restaura, e sem elas os eventos delas não voltariam.
+    this.socket.emit("replay_request", { since: sinceId, rooms: [...this.subscribedRooms] });
   }
 
   // -------------------------------------------------------------------------
