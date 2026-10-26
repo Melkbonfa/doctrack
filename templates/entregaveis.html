@@ -10,6 +10,9 @@
        então as duas linhas do widget entram na mão aqui — sem isto, Projetos
        seria o único módulo sem cronômetro, justo onde ele mais faz sentido. -->
   <link rel="stylesheet" href="/static/tempos-widget.css?v={{ asset_v }}">
+  <!-- Sino de notificações e painel do fluxo de revisão do entregável. -->
+  <link rel="stylesheet" href="/static/notificacoes-widget.css?v={{ asset_v }}">
+  <link rel="stylesheet" href="/static/fluxos-painel.css?v={{ asset_v }}">
   <!-- Assets locais: a página precisa funcionar sem internet e sem depender de CDN
        externo (o módulo PDR já servia Chart.js e Socket.IO assim). -->
   <script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
@@ -570,7 +573,9 @@
   <script src="/static/vendor/jspdf.umd.min.js?v={{ asset_v }}"></script>
   <script src="/static/common.js?v={{ asset_v }}"></script>
   <script src="/static/auth.js?v={{ asset_v }}"></script>
+  <script src="/static/fluxos-painel.js?v={{ asset_v }}"></script>
   <script src="/static/entregaveis.js?v={{ asset_v }}"></script>
   <script src="/static/tempos-widget.js?v={{ asset_v }}"></script>
+  <script src="/static/notificacoes-widget.js?v={{ asset_v }}"></script>
 </body>
 </html>

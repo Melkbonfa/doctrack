@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DocTrack — Áreas</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/notificacoes-widget.css?v={{ asset_v }}">
 <style>
   body{
     background:var(--bg-void);color:var(--t1);
@@ -111,6 +112,8 @@
   </div>
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
+<!-- O hub é a primeira tela depois do login: é onde o "é sua vez" mais precisa aparecer. -->
+<script src="/static/notificacoes-widget.js?v={{ asset_v }}"></script>
 <script>
 // Tema em static/common.js. O rótulo "Tema" ao lado do ícone vem do
 // data-label do próprio botão (aqui o botão é texto, nos módulos é só o ícone).

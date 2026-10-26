@@ -13,6 +13,8 @@
      (E sem escrever a chamada a super() entre chaves duplas nem aqui: comentário
      de HTML não é comentário de Jinja, e a expressão seria avaliada.) -->
 <link rel="stylesheet" href="/static/tempos-widget.css?v={{ asset_v }}">
+<!-- Sino de notificações: fora de head_extra pelo mesmo motivo do cronômetro. -->
+<link rel="stylesheet" href="/static/notificacoes-widget.css?v={{ asset_v }}">
 {%- block head_extra %}{% endblock %}
 {# DEPOIS de head_extra, não antes: o parcial traz mobile.css, e o passe de
    celular precisa poder vencer o CSS do módulo que este bloco carrega. #}
@@ -81,6 +83,8 @@
      esse bloco sem chamar super(). Todos eles carregam common.js e auth.js
      dentro do próprio bloco, então getToken/esc/DT_AUTH já existem aqui. -->
 <script src="/static/tempos-widget.js?v={{ asset_v }}"></script>
+<!-- Sino de notificações. Fora do block scripts pelo mesmo motivo. -->
+<script src="/static/notificacoes-widget.js?v={{ asset_v }}"></script>
 <!-- Trava de emergência: leva a aba já aberta para a tela de bloqueio quando o
      servidor passa a responder 423. Fora do block scripts pelo mesmo motivo dos
      dois acima. -->
