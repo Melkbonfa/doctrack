@@ -158,3 +158,8 @@ table.dev-matriz td.num,table.dev-matriz th.num{text-align:right;}
   padding:9px 12px;margin-top:18px;}
 .exp-preview.vazio{color:var(--amber,#f59e0b);background:rgba(245,158,11,.10);
   border-color:rgba(245,158,11,.25);}
+
+/* Projeto que desenvolve o equipamento (vinculos.py) */
+.vw-projetos{margin-top:8px;font-size:12.5px;color:var(--t3)}
+.vw-projetos a{color:var(--cyan-brand,#06b6d4);text-decoration:none}
+.vw-projetos a:hover{text-decoration:underline}

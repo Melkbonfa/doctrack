@@ -505,3 +505,21 @@ select.input{cursor:pointer}
 .modelos-area + .modelos-area{margin-left:8px}
 .modelos-area-lbl{font-size:10px;font-weight:800;letter-spacing:.6px;margin-right:4px;
   color:color-mix(in srgb,var(--ac) 62%,var(--t1))}
+
+/* ── Ligações projeto ↔ equipamento ↔ documento (vinculos.py) ── */
+.pf-equip-hint{font-size:12px;color:var(--t3);margin-top:4px;line-height:1.45}
+.proj-equip-link{color:var(--cyan-brand,#06b6d4);text-decoration:none}
+.proj-equip-link:hover{text-decoration:underline}
+.ent-doc{margin-right:6px;font-size:12px;cursor:help}
+.modelos-nat{font-size:11px;padding:1px 8px;border-radius:999px;white-space:nowrap;
+  background:rgba(6,182,212,.12);color:var(--cyan-brand,#06b6d4)}
+.pop-artefato{margin-top:8px;padding:10px 12px;border-radius:10px;font-size:12.5px;
+  border:1px solid var(--border-soft,rgba(34,211,238,.18));background:rgba(6,182,212,.06);
+  display:flex;flex-direction:column;gap:6px}
+.pop-artefato[hidden]{display:none}
+.pop-artefato a{color:var(--cyan-brand,#06b6d4);text-decoration:none}
+.pop-artefato a:hover{text-decoration:underline}
+.pop-art-doc{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pop-art-ciclo{flex-basis:100%;color:var(--amber,#f59e0b);font-size:12px}
+/* A prévia de "o que muda nos entregáveis" vem em linhas. */
+#cf-msg{white-space:pre-line}

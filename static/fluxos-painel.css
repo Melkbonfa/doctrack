@@ -91,3 +91,8 @@
   font-size:11px; white-space:nowrap; vertical-align:middle;
   background:rgba(6,182,212,.12); color:var(--cyan-brand, #06b6d4); }
 .fx-chip.atraso{ background:rgba(244,63,94,.14); color:var(--red, #f43f5e); }
+
+/* Ficha do documento: o entregável de projeto que ele é (vinculos.py). */
+.doc-vinc:not(:empty){ display:flex; flex-direction:column; gap:4px; margin-bottom:10px; }
+.doc-vinc-link{ font-size:12.5px; color:var(--cyan-brand, #06b6d4); text-decoration:none; }
+.doc-vinc-link:hover{ text-decoration:underline; }

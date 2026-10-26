@@ -105,6 +105,69 @@ do formulário de projeto), opcionalmente copiando o modelo de um tipo existente
 - O `tipo` da composição no módulo Custos (`OEM`/`Revenda`) é outro conceito —
   decide se há NRE — e não acompanha este cadastro.
 
+## Equipamento do projeto e natureza dos entregáveis
+
+Regra em [`vinculos.py`](../../vinculos.py); desenho e próximas etapas em
+[`ESTUDO_ligacoes_entregaveis.md`](../planos/ESTUDO_ligacoes_entregaveis.md).
+
+**O projeto do PDE tem um equipamento** (`projetos.equipamento_id`): o produto
+que ele desenvolve.
+- **Projeto novo:** o padrão é **criar o equipamento** com o nome e o SKU do
+  projeto. Ele nasce em Equipamentos e no Documentos com os 12 documentos.
+- **SKU que já existe:** se já há um equipamento com o mesmo SKU, ele vem
+  escolhido no formulário. Pedir para criar outro responde 409 com o existente.
+- **Inovação e PDR:** não têm equipamento.
+
+**Todo item do modelo pode dizer o que o entregável é** (a *natureza*): documento
+controlado, documento do fabricante, peça de comunicação, software, cadastro,
+validação ou capacitação.
+- **O que funciona hoje:** só **documento controlado**, com o *alvo* (qual dos 12
+  documentos, ou os 4 checklists juntos). As outras naturezas já podem ser
+  cadastradas e ganham ligação nas próximas ondas.
+- **Exceção por entregável:** o entregável herda do item do modelo e pode
+  sobrescrever no próprio projeto; "nenhuma" desliga o vínculo.
+
+**O vínculo é calculado, não guardado:** equipamento do projeto + alvo →
+documento(s). Mudar o alvo no modelo vale na hora para todos os projetos dele que
+têm equipamento. Isso é diferente do resto do modelo, que só chega aos projetos
+pelo "Aplicar aos projetos".
+
+**O documento manda; o entregável espelha.**
+
+| Documento | Entregável |
+|---|---|
+| primeira etapa (Elaborar) | pendente |
+| etapas do meio | em progresso, com o % da etapa (Manuais 50%; PRE 33% / 67%) |
+| Concluído / Homologado | concluído (data de conclusão do documento) |
+| N/A no escopo do equipamento | N/A |
+| Checklists | concluído quando os 4 aplicáveis estão; senão a média |
+
+- **Grava o histórico:** o espelho é gravado com `entregavel_historico`, então
+  avanço, curva-S e EVM continuam fiéis.
+- **Quando sincroniza:**
+  - troca de status do documento (rota de status, edição da ficha e fluxo);
+  - N/A do escopo;
+  - criação ou edição do projeto;
+  - mudança de natureza ou alvo;
+  - "Aplicar aos projetos".
+- **Pelo projeto não se muda o status de um entregável ligado:** o `PUT` responde
+  409 e o popover mostra o documento, com o link para ele. Peso, prazos e
+  responsáveis continuam do projeto.
+- **Fluxo:** o fluxo de revisão do entregável ligado é o **do documento**, o
+  mesmo sino e os mesmos arquivos. Iniciar um fluxo no entregável responde 409.
+
+**Ciclo do projeto.** Para o projeto, o documento só conta como pronto se foi
+concluído **depois do início** do projeto (início real, senão o previsto, senão a
+criação).
+- **Concluído antes:** aparece como pendente, com a nota no popover.
+- **Novo ciclo:** iniciar um fluxo num documento Concluído o reabre para *Em
+  andamento*.
+- **Sem data de conclusão** (documentos antigos): vale o que o entregável já
+  dizia.
+
+**Trocar o equipamento de um projeto existente** mostra antes, na tela, os
+entregáveis cujo status vai mudar (`GET /api/projetos/<id>/vinculo-previa`).
+
 ## Um módulo para todas as áreas
 
 Projetos serve PDE, PDR e INOV. O que separa uma área da outra é o **modelo**

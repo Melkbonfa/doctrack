@@ -71,6 +71,14 @@ O pipeline é **linear e determinado pelo setor**, não pelo tipo diretamente �
 `SETOR_DO_TIPO` faz o mapa. Voltar status é permitido; o histórico registra os
 dois sentidos.
 
+### O documento manda no entregável do projeto
+
+Quando um projeto aponta para o equipamento e o item do modelo diz que o
+entregável É este documento, a troca de status aqui — pela tela, pela ficha ou
+pelo fluxo de revisão — atualiza o entregável no projeto, e o N/A do escopo
+o põe em N/A. A ficha mostra "É o entregável … do projeto … ↗". Ver
+[projetos-entregaveis.md](projetos-entregaveis.md#equipamento-do-projeto-e-natureza-dos-entregáveis).
+
 ## "Não se aplica" (N/A)
 
 Um documento pode ser desligado do escopo daquele equipamento. Ele **continua

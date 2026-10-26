@@ -659,7 +659,12 @@ def _docs_dos_equipamentos(equip_ids=None):
 @app.route("/api/equipamentos", methods=["GET"])
 @jwt_required()
 def api_equipamentos():
+    import vinculos
     equips = [e.to_dict() for e in _query_equipamentos().all()]
+    # O projeto que desenvolve cada equipamento (caminho de volta no card).
+    por_eq = vinculos.projetos_por_equipamento([e["id"] for e in equips])
+    for e in equips:
+        e["projetos"] = por_eq.get(e["id"], [])
     return jsonify(_filtrar_busca(equips, request.args.get("q", ""))), 200
 
 
@@ -688,6 +693,10 @@ def get_equipamento(equip_id):
     if not equip:
         return jsonify({"erro": "Equipamento não encontrado"}), 404
     d = equip.to_dict()
+    import vinculos
+    d["projetos"] = [{"id": p.id, "nome": p.nome, "avanco": p.avanco, "status": p.status,
+                      "tipo": p.tipo or "", "link": f"/projetos?projeto={p.id}"}
+                     for p in vinculos.projetos_do_equipamento(equip.id)]
     docs = Documento.query.filter(Documento.ativo == True,
                                   Documento.equipamento_id == equip.id).all()
     d["docs_count"] = len(docs)
@@ -2249,6 +2258,8 @@ def _sync_schema():
             # Sem default de propósito: NULL marca o projeto anterior à lista de
             # itens conhecidos, que _vincular_entregaveis_ao_modelo resolve.
             ("modelo_conhecidos", "TEXT"),
+            # Produto do projeto (vinculos.py). Ver migration 022.
+            ("equipamento_id",    "INTEGER"),
         ],
         "entregaveis": [
             ("data_inicio",    "VARCHAR(10) DEFAULT ''"),
@@ -2264,10 +2275,14 @@ def _sync_schema():
             # _vincular_entregaveis_ao_modelo resolve logo em seguida.
             ("modelo_chave",     "VARCHAR(32) DEFAULT ''"),
             ("modelo_origem",    "TEXT"),
+            ("natureza",         "VARCHAR(20) DEFAULT ''"),
+            ("alvo",             "VARCHAR(60) DEFAULT ''"),
         ],
         "modelos_entregavel": [
             ("peso", "FLOAT DEFAULT 1"),
             ("chave", "VARCHAR(32)"),   # preenchida por _vincular_entregaveis_ao_modelo
+            ("natureza", "VARCHAR(20) DEFAULT ''"),
+            ("alvo",     "VARCHAR(60) DEFAULT ''"),
         ],
         # Área do modelo (projetos unificados). Os tipos que já existem são todos
         # do PDE — era o único departamento com o módulo. Ver migration 017.

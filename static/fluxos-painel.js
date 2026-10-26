@@ -382,7 +382,10 @@
       return recarregar();
     }
 
-    host.__dtFluxo = {recarregar: recarregar, trocar: trocar};
+    // Para de desenhar (uma resposta atrasada não pinta por cima do que vier).
+    function parar(){ seq++; estado.dados = null; }
+
+    host.__dtFluxo = {recarregar: recarregar, trocar: trocar, parar: parar};
     trocar(opts);
     return host.__dtFluxo;
   }
@@ -404,5 +407,11 @@
       (r.rodada > 1 ? ' · R' + r.rodada : '') + '</span>';
   }
 
-  window.DT_FLUXO = {montar: montar, resumos: resumos, chip: chip};
+  /* O host deixa de mostrar um fluxo (ex.: entregável que são 4 checklists). */
+  function limpar(host, html){
+    if (host.__dtFluxo) host.__dtFluxo.parar();
+    host.innerHTML = html || "";
+  }
+
+  window.DT_FLUXO = {montar: montar, resumos: resumos, chip: chip, limpar: limpar};
 })();

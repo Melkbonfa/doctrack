@@ -6,7 +6,7 @@
 
 # Dicionário de dados
 
-**60** tabelas, **686** colunas, agrupadas em **11** domínios.
+**60** tabelas, **691** colunas, agrupadas em **11** domínios.
 
 Os textos da coluna *Nota* são os comentários do próprio `models.py` — é onde o conhecimento de domínio deste sistema está escrito.
 
@@ -731,6 +731,8 @@ erDiagram
         INTEGER ordem
         VARCHAR modelo_chave
         TEXT modelo_origem
+        VARCHAR natureza
+        VARCHAR alvo
         VARCHAR atualizado_por
         DATETIME atualizado_em
     }
@@ -752,6 +754,8 @@ erDiagram
         FLOAT peso
         VARCHAR responsavel_padrao
         INTEGER ordem
+        VARCHAR natureza
+        VARCHAR alvo
     }
     mudancas_modelo {
         INTEGER id PK
@@ -827,6 +831,7 @@ erDiagram
         VARCHAR data_fim_prev
         VARCHAR data_fim_real
         FLOAT orcamento
+        INTEGER equipamento_id FK
         TEXT modelo_conhecidos
     }
     tipos_projeto {
@@ -844,6 +849,12 @@ erDiagram
     projetos ||--o{ projeto_snapshot : "projeto_id"
 ```
 
+**Ligações para fora deste domínio:**
+
+| Daqui | Coluna | Aponta para |
+|---|---|---|
+| `projetos` | `equipamento_id` | `equipamentos` |
+
 ### `categorias_entregavel`
 
 Modelo `CategoriaEntregavel`. 4 colunas.
@@ -857,7 +868,7 @@ Modelo `CategoriaEntregavel`. 4 colunas.
 
 ### `entregaveis`
 
-Modelo `Entregavel`. 17 colunas.
+Modelo `Entregavel`. 19 colunas.
 
 | Coluna | Tipo | Nulo | Chave | Padrão | Nota |
 |---|---|---|---|---|---|
@@ -876,6 +887,8 @@ Modelo `Entregavel`. 17 colunas.
 | `ordem` | INTEGER | sim | — | `0` | posição na lista do projeto |
 | `modelo_chave` | VARCHAR(32) | sim | índice | `''` | Vínculo com o item de modelo de onde veio (ModeloEntregavel.chave) e os valores que o modelo tinha na última criação/aplicação — é a "origem" da comparação de três lados de modelo_sync. Vazio = avulso, a propagação não toca. NULL em `modelo_origem` = linha anterior ao vínculo, ainda não avaliada (o backfill da subida resolve e nunca deixa NULL). |
 | `modelo_origem` | TEXT | sim | — | `''` |  |
+| `natureza` | VARCHAR(20) | sim | — | `''` | Natureza e alvo PRÓPRIOS (vazio = herda do item do modelo). Só o avulso, ou a exceção deliberada, preenche — ver vinculos.natureza_alvo. |
+| `alvo` | VARCHAR(60) | sim | — | `''` |  |
 | `atualizado_por` | VARCHAR(120) | sim | — | `''` |  |
 | `atualizado_em` | DATETIME | sim | — | `(dinâmico)` |  |
 
@@ -895,7 +908,7 @@ Modelo `EntregavelHistorico`. 7 colunas.
 
 ### `modelos_entregavel`
 
-Modelo `ModeloEntregavel`. 8 colunas.
+Modelo `ModeloEntregavel`. 10 colunas.
 
 | Coluna | Tipo | Nulo | Chave | Padrão | Nota |
 |---|---|---|---|---|---|
@@ -907,6 +920,8 @@ Modelo `ModeloEntregavel`. 8 colunas.
 | `peso` | FLOAT | sim | — | `1.0` | esforço relativo padrão |
 | `responsavel_padrao` | VARCHAR(200) | sim | — | `''` |  |
 | `ordem` | INTEGER | sim | — | `0` |  |
+| `natureza` | VARCHAR(20) | sim | — | `''` | O que o entregável É (vinculos.NATUREZAS) e, para documento, QUAL documento do equipamento (tipo_doc ou "checklists"). Vale para todos os projetos do modelo na hora: o vínculo é calculado, não copiado. |
+| `alvo` | VARCHAR(60) | sim | — | `''` |  |
 
 ### `mudancas_modelo`
 
@@ -990,7 +1005,7 @@ Modelo `ProjetoSnapshot`. 10 colunas.
 
 ### `projetos`
 
-Modelo `Projeto`. 19 colunas.
+Modelo `Projeto`. 20 colunas.
 
 | Coluna | Tipo | Nulo | Chave | Padrão | Nota |
 |---|---|---|---|---|---|
@@ -1012,6 +1027,7 @@ Modelo `Projeto`. 19 colunas.
 | `data_fim_prev` | VARCHAR(40) | sim | — | `''` |  |
 | `data_fim_real` | VARCHAR(40) | sim | — | `''` |  |
 | `orcamento` | FLOAT | sim | — | `0.0` | BAC – Budget At Completion |
+| `equipamento_id` | INTEGER | sim | FK → `equipamentos.id` índice | — | O produto que o projeto desenvolve (só PDE). É o eixo das ligações: o entregável de natureza "documento" acha o documento pelo equipamento do projeto — ver vinculos.py. Nulo = projeto sem produto ligado. |
 | `modelo_conhecidos` | TEXT | sim | — | — | Itens do modelo (chaves de ModeloEntregavel) que o projeto já conhecia ao nascer ou na última aplicação do modelo — ligados ou não. A prévia de modelo_sync só propõe criar o que NÃO está aqui: item tirado de propósito da lista, ou que nunca esteve no projeto antigo, não volta sozinho. JSON; NULL = projeto anterior a isto, resolvido pelo backfill da subida. |
 
 ### `tipos_projeto`
