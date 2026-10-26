@@ -83,8 +83,10 @@ a fonte da série completa.
 ## Integração com o resto do sistema
 
 - **`/api/missoes/meus-cartoes`** — visão cross-missão da pessoa logada.
-- **`/api/missoes/cartoes-vinculados`** — os cartões de uma entidade, usado ao
-  abrir a ficha de um documento ou equipamento.
+- **`/api/missoes/cartoes-vinculados`** — os cartões de uma entidade. Hoje a
+  única tela que o usa é a ficha do equipamento em Documentos, e só para os
+  cartões ligados aos documentos dele; cartão ligado direto a equipamento ou a
+  projeto só aparece no próprio quadro.
 - **`/api/missoes/cartao-rapido`** — cria cartão direto de uma entidade, sem sair
   da tela dela.
 - **Tempos** pode cronometrar um cartão de missão como alvo.

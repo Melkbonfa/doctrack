@@ -6,7 +6,7 @@
 
 # Dicionário de dados
 
-**54** tabelas, **628** colunas, agrupadas em **10** domínios.
+**60** tabelas, **686** colunas, agrupadas em **11** domínios.
 
 Os textos da coluna *Nota* são os comentários do próprio `models.py` — é onde o conhecimento de domínio deste sistema está escrito.
 
@@ -20,6 +20,7 @@ Os textos da coluna *Nota* são os comentários do próprio `models.py` — é o
 - **Consumíveis** (3): `consumiveis`, `consumivel_equipamento`, `tipos_consumivel`
 - **Projetos e entregáveis** (11): `categorias_entregavel`, `entregaveis`, `entregavel_historico`, `modelos_entregavel`, `mudancas_modelo`, `mudancas_modelo_itens`, `projeto_baseline`, `projeto_mensal`, `projeto_snapshot`, `projetos`, `tipos_projeto`
 - **Missões (kanban)** (8): `missao_cartao_comentarios`, `missao_cartao_historico`, `missao_cartao_itens`, `missao_cartoes`, `missao_colunas`, `missao_modelos`, `missao_snapshot`, `missoes`
+- **Fluxos de revisão e notificações** (6): `fluxo_arquivos`, `fluxo_modelos`, `fluxo_participantes`, `fluxo_passagens`, `fluxos`, `notificacoes`
 - **Custos** (4): `custo_composicoes`, `custo_cotacoes`, `custo_lancamentos`, `custo_versoes`
 - **Tempos** (1): `tempo_apontamentos`
 - **PDR (P&D de reagentes)** (3): `pdr_apresentacoes`, `pdr_documentos`, `pdr_produtos`
@@ -1274,6 +1275,198 @@ Modelo `Missao`. 8 colunas.
 | `ordem` | INTEGER | sim | — | `0` |  |
 | `criado_por` | VARCHAR(120) | sim | — | `''` |  |
 | `criado_em` | DATETIME | sim | — | `(dinâmico)` |  |
+
+---
+
+## Fluxos de revisão e notificações
+
+```mermaid
+erDiagram
+    fluxo_arquivos {
+        INTEGER id PK
+        INTEGER passagem_id FK
+        VARCHAR sha256
+        VARCHAR nome_original
+        VARCHAR ext
+        VARCHAR mime
+        INTEGER tamanho
+    }
+    fluxo_modelos {
+        INTEGER id PK
+        VARCHAR nome
+        TEXT descricao
+        TEXT papeis
+        TEXT etapas
+        BOOLEAN ativo
+        DATETIME criado_em
+        VARCHAR criado_por
+        DATETIME atualizado_em
+        VARCHAR atualizado_por
+    }
+    fluxo_participantes {
+        INTEGER id PK
+        INTEGER fluxo_id FK
+        VARCHAR papel
+        INTEGER user_id FK
+    }
+    fluxo_passagens {
+        INTEGER id PK
+        INTEGER fluxo_id FK
+        VARCHAR acao
+        VARCHAR de_etapa
+        VARCHAR para_etapa
+        INTEGER rodada
+        TEXT comentario
+        INTEGER por_id FK
+        INTEGER em_nome_de_id FK
+        DATETIME em
+    }
+    fluxos {
+        INTEGER id PK
+        VARCHAR ref_tipo
+        INTEGER ref_id
+        INTEGER modelo_id FK
+        VARCHAR modelo_nome
+        VARCHAR titulo
+        TEXT etapas
+        TEXT papeis
+        VARCHAR etapa_atual
+        VARCHAR status
+        INTEGER rodada
+        DATE prazo
+        INTEGER iniciado_por_id FK
+        DATETIME iniciado_em
+        DATETIME entrou_etapa_em
+        DATETIME concluido_em
+        INTEGER versao
+    }
+    notificacoes {
+        INTEGER id PK
+        INTEGER user_id FK
+        VARCHAR tipo
+        VARCHAR titulo
+        VARCHAR texto
+        VARCHAR link
+        VARCHAR origem_tipo
+        INTEGER origem_id
+        DATETIME criada_em
+        DATETIME lida_em
+    }
+    fluxo_modelos ||--o{ fluxos : "modelo_id"
+    fluxo_passagens ||--o{ fluxo_arquivos : "passagem_id"
+    fluxos ||--o{ fluxo_participantes : "fluxo_id"
+    fluxos ||--o{ fluxo_passagens : "fluxo_id"
+```
+
+**Ligações para fora deste domínio:**
+
+| Daqui | Coluna | Aponta para |
+|---|---|---|
+| `fluxo_participantes` | `user_id` | `users` |
+| `fluxo_passagens` | `em_nome_de_id` | `users` |
+| `fluxo_passagens` | `por_id` | `users` |
+| `fluxos` | `iniciado_por_id` | `users` |
+| `notificacoes` | `user_id` | `users` |
+
+### `fluxo_arquivos`
+
+Modelo `FluxoArquivo`. 7 colunas.
+
+| Coluna | Tipo | Nulo | Chave | Padrão | Nota |
+|---|---|---|---|---|---|
+| `id` | INTEGER | não | PK | — |  |
+| `passagem_id` | INTEGER | não | FK → `fluxo_passagens.id` índice | — |  |
+| `sha256` | VARCHAR(64) | não | índice | — |  |
+| `nome_original` | VARCHAR(300) | não | — | `''` |  |
+| `ext` | VARCHAR(10) | sim | — | `''` |  |
+| `mime` | VARCHAR(120) | sim | — | `''` |  |
+| `tamanho` | INTEGER | sim | — | `0` |  |
+
+### `fluxo_modelos`
+
+Modelo `FluxoModelo`. 10 colunas.
+
+| Coluna | Tipo | Nulo | Chave | Padrão | Nota |
+|---|---|---|---|---|---|
+| `id` | INTEGER | não | PK | — |  |
+| `nome` | VARCHAR(80) | não | — | — | único sem diferenciar maiúsculas (código) |
+| `descricao` | TEXT | sim | — | `''` |  |
+| `papeis` | TEXT | não | — | `'[]'` | JSON [{chave, nome, padrao_user_id}] |
+| `etapas` | TEXT | não | — | `'[]'` | JSON [{chave, nome, papel, tipo, devolve_para}] |
+| `ativo` | BOOLEAN | não | índice | `True` | Arquivar em vez de excluir: um modelo com fluxo nunca sai do banco, e o arquivado só deixa de aparecer na hora de iniciar. |
+| `criado_em` | DATETIME | sim | — | `(dinâmico)` |  |
+| `criado_por` | VARCHAR(120) | sim | — | `''` |  |
+| `atualizado_em` | DATETIME | sim | — | `(dinâmico)` |  |
+| `atualizado_por` | VARCHAR(120) | sim | — | `''` |  |
+
+### `fluxo_participantes`
+
+Modelo `FluxoParticipante`. 4 colunas.
+
+| Coluna | Tipo | Nulo | Chave | Padrão | Nota |
+|---|---|---|---|---|---|
+| `id` | INTEGER | não | PK | — |  |
+| `fluxo_id` | INTEGER | não | FK → `fluxos.id` índice | — |  |
+| `papel` | VARCHAR(40) | não | — | — |  |
+| `user_id` | INTEGER | sim | FK → `users.id` índice | — |  |
+
+### `fluxo_passagens`
+
+Modelo `FluxoPassagem`. 10 colunas.
+
+| Coluna | Tipo | Nulo | Chave | Padrão | Nota |
+|---|---|---|---|---|---|
+| `id` | INTEGER | não | PK | — |  |
+| `fluxo_id` | INTEGER | não | FK → `fluxos.id` índice | — |  |
+| `acao` | VARCHAR(12) | não | — | — | ver ACOES_PASSAGEM |
+| `de_etapa` | VARCHAR(40) | sim | — | `''` |  |
+| `para_etapa` | VARCHAR(40) | sim | — | `''` | vazio = encerrou |
+| `rodada` | INTEGER | não | — | `1` |  |
+| `comentario` | TEXT | sim | — | `''` |  |
+| `por_id` | INTEGER | sim | FK → `users.id` | — |  |
+| `em_nome_de_id` | INTEGER | sim | FK → `users.id` | — | Preenchido quando a gestão agiu no lugar do responsável da etapa: a trilha mostra "Gestor, em nome de Marcos" em vez de fingir que foi o Marcos. |
+| `em` | DATETIME | não | índice | `(dinâmico)` |  |
+
+### `fluxos`
+
+Modelo `Fluxo`. 17 colunas.
+
+| Coluna | Tipo | Nulo | Chave | Padrão | Nota |
+|---|---|---|---|---|---|
+| `id` | INTEGER | não | PK | — |  |
+| `ref_tipo` | VARCHAR(20) | não | — | — | documento\|entregavel |
+| `ref_id` | INTEGER | não | — | — |  |
+| `modelo_id` | INTEGER | sim | FK → `fluxo_modelos.id` | — |  |
+| `modelo_nome` | VARCHAR(80) | sim | — | `''` | congelado na criação |
+| `titulo` | VARCHAR(300) | sim | — | `''` | Congelado: "Manual do Usuário PT · Analisador X1". Sobrevive ao documento renomeado e é o que a notificação e a lista "Em andamento" mostram. |
+| `etapas` | TEXT | não | — | `'[]'` | cópia do modelo |
+| `papeis` | TEXT | não | — | `'[]'` | cópia do modelo (nomes) |
+| `etapa_atual` | VARCHAR(40) | sim | — | `''` | chave; vazio quando encerrado |
+| `status` | VARCHAR(12) | não | índice | `'andamento'` |  |
+| `rodada` | INTEGER | não | — | `1` | soma a cada devolução |
+| `prazo` | DATE | sim | — | — |  |
+| `iniciado_por_id` | INTEGER | sim | FK → `users.id` | — |  |
+| `iniciado_em` | DATETIME | sim | — | `(dinâmico)` |  |
+| `entrou_etapa_em` | DATETIME | sim | — | `(dinâmico)` | aging da etapa |
+| `concluido_em` | DATETIME | sim | — | — |  |
+| `versao` | INTEGER | não | — | `1` | lock otimista |
+
+### `notificacoes`
+
+Modelo `Notificacao`. 10 colunas.
+
+| Coluna | Tipo | Nulo | Chave | Padrão | Nota |
+|---|---|---|---|---|---|
+| `id` | INTEGER | não | PK | — |  |
+| `user_id` | INTEGER | não | FK → `users.id` | — | CASCADE pelo mesmo motivo de tempo_apontamentos.user_id: auth.py apaga o User de verdade (?permanente=true), e sem isto o Postgres recusaria. |
+| `tipo` | VARCHAR(10) | não | — | `'info'` | acao\|info |
+| `titulo` | VARCHAR(200) | não | — | `''` |  |
+| `texto` | VARCHAR(400) | sim | — | `''` |  |
+| `link` | VARCHAR(300) | sim | — | `''` | Relativo ("/?doc=12", "/projetos?projeto=3&entregavel=9"): o mesmo banco serve pela rede interna e pelo túnel, com hosts diferentes. |
+| `origem_tipo` | VARCHAR(20) | sim | — | `''` | De onde veio (ex.: 'fluxo' + id do fluxo). Sem FK: a origem pode ser de qualquer módulo, e o aviso sobrevive a ela. |
+| `origem_id` | INTEGER | sim | — | — |  |
+| `criada_em` | DATETIME | não | — | `(dinâmico)` |  |
+| `lida_em` | DATETIME | sim | — | — | NULL = não lida |
 
 ---
 

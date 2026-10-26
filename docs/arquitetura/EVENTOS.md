@@ -50,8 +50,8 @@ conteúdo do payload. Não há broadcast geral.
 | Room | Quem entra | Recebe |
 |---|---|---|
 | `role:admin` | todo admin conectado | **tudo** |
-| `role:gestor` | gestores | documentos, etapas, responsáveis, projetos, missões, PDR |
-| `role:tecnico` | técnicos | projetos/entregáveis, missões, PDR |
+| `role:gestor` | gestores | documentos, etapas, responsáveis, projetos, missões, fluxos, PDR |
+| `role:tecnico` | técnicos | projetos/entregáveis, missões, fluxos, PDR |
 | `setor:<X>` | quem abriu o setor | eventos de documento daquele setor |
 | `equipamento:<Y>` | quem abriu o equipamento | eventos daquele equipamento |
 | `doc:<N>` | quem está com a ficha aberta | eventos daquele documento |
@@ -69,6 +69,14 @@ toda chamada.)
 **Missões não tem sala por missão.** O backend emite para os papéis com acesso e
 o front filtra pelo `missao_id` do payload. Simplificação assumida no MVP do
 módulo.
+
+**O aviso pessoal ("é sua vez") não passa pelo barramento.** Os fluxos de
+revisão avisam quem passa a ter a etapa gravando na tabela `notificacoes`, e o
+sino consulta `/api/notificacoes/contagem`. Dois motivos: quem estava fora
+precisa achar o aviso esperando ao entrar, e o `replay_request` devolve a trilha
+de `audit_logs` sem filtrar por sala — um aviso pessoal gravado ali chegaria a
+quem reconectasse. Os eventos `FLUXO_*`, que só dizem que o item andou, seguem
+pelo barramento normalmente.
 
 ---
 
@@ -124,6 +132,7 @@ Famílias, pelo prefixo:
 | `PRODUTO_`, `APRESENTACAO_`, `REIMPORT` | PDR |
 | `CUSTO_` | Custos |
 | `TEMPO_` | Tempos |
+| `FLUXO_` | Fluxos de revisão (`INICIADO`, `MOVIDO`, `CONCLUIDO`, `CANCELADO`) |
 | `NOTIFICATION`, `USER_` | Sistema |
 
 **Tempos publica só as mutações de folha** — iniciar, pausar, retomar e parar o

@@ -224,9 +224,15 @@ Em cada passagem:
 - quem agiu não recebe nada sobre a própria ação, e cada pessoa recebe no máximo
   uma notificação por passagem (Giullia tem dois papéis no modelo "Manual").
 
-Entrega: grava a linha em `notificacoes` e publica `NOTIFICATION` para
-`target_user_id` via `publish_event`. Quem está com uma tela de socket aberta vê
-o toast na hora. Para todo o resto, o sino consulta a contagem.
+Entrega: grava a linha em `notificacoes`. O sino consulta a contagem (a cada
+30 s, ao focar a aba e logo depois de uma ação do próprio usuário) e põe "(n)"
+no título da aba.
+
+> **Mudou na implementação:** a primeira versão desta spec publicava
+> `NOTIFICATION` pelo `publish_event`. Descartado: o `replay_request` devolve a
+> trilha de `audit_logs` inteira para qualquer conexão, sem filtrar por sala, e
+> um aviso pessoal gravado ali vazaria para quem reconectasse. Só os eventos
+> `FLUXO_*`, que não são pessoais, passam pelo barramento.
 
 ## Telas
 

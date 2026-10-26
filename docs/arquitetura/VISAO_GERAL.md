@@ -62,6 +62,8 @@ flowchart TB
             MIS["missoes.py"]
             CUS["custos/"]
             TEM["tempos/"]
+            FLX["fluxos/"]
+            NOT["notificacoes/"]
             PDR["pdr/"]
             KS["killswitch.py"]
         end
@@ -163,7 +165,7 @@ Detalhes em [EVENTOS.md](EVENTOS.md) e
 
 ## 5. Dados
 
-43 tabelas em 9 domínios — o dicionário completo, com os comentários de domínio
+60 tabelas em 11 domínios — o dicionário completo, com os comentários de domínio
 de cada coluna e os diagramas ER, está em
 [`../referencia/dados.md`](../referencia/dados.md).
 
