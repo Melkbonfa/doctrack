@@ -161,6 +161,10 @@ app.register_blueprint(tempos_bp)
 from cadernos import cadernos_bp, init_realtime as cadernos_init_realtime
 app.register_blueprint(cadernos_bp)
 
+# Notificações — a caixa de entrada de cada pessoa (o sino de todas as telas).
+from notificacoes import notificacoes_bp
+app.register_blueprint(notificacoes_bp)
+
 # Kill switch — trava de emergência do sistema inteiro. Registrado por ÚLTIMO de
 # propósito: o guardião abaixo precisa reconhecer os endpoints deste blueprint
 # para deixá-los passar com o sistema travado.
@@ -3279,6 +3283,12 @@ def _purgar_lixeira_cadernos():
     return purgar_lixeira()
 
 
+def _purgar_notificacoes_lidas():
+    """Apaga as notificações lidas há mais de 90 dias (as não lidas ficam)."""
+    from notificacoes.core import purgar_lidas
+    return purgar_lidas()
+
+
 def rodar_tarefas_diarias():
     """As tarefas que precisam de uma execução por dia, em um lugar só.
 
@@ -3303,6 +3313,7 @@ def rodar_tarefas_diarias():
                      # Esvazia a lixeira dos cadernos (itens com mais de
                      # CADERNOS_LIXEIRA_DIAS). Blob só sai se ficou órfão.
                      ("cadernos", _purgar_lixeira_cadernos),
+                     ("notificacoes", _purgar_notificacoes_lidas),
                      ("auditoria", _purgar_auditoria)):
         try:
             resultado[nome] = fn()
