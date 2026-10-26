@@ -2091,6 +2091,12 @@ async function pfCarregarEquip(p){
   pfEquipChange(false);
 }
 
+/* SKU digitado no projeto novo: refaz a sugestão (o de mesmo SKU vem escolhido),
+   a menos que a pessoa já tenha escolhido o equipamento à mão. */
+function pfSkuChange(){
+  if (!_formProjId && !_pfEquipTocado) pfCarregarEquip(null);
+}
+
 function pfEquipChange(manual){
   if (manual) _pfEquipTocado = true;
   const v = document.getElementById("pf-equip").value;
