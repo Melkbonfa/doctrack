@@ -13,6 +13,7 @@
 <!-- Bibliotecas servidas pelo próprio app (static/vendor): em rede fabril sem
      saída para a internet, o CDN deixava o dashboard sem gráficos e sem tempo real. -->
 <script src="/static/vendor/chart.umd.js?v={{ asset_v }}"></script>
+<link rel="stylesheet" href="/static/fluxos-painel.css?v={{ asset_v }}">
 {%- endblock %}
 
 {% block nav_user_role %}SUPER ADMIN{% endblock %}
@@ -378,6 +379,7 @@
 <script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/fluxos-painel.js?v={{ asset_v }}"></script>
 <script src="/static/app.js?v={{ asset_v }}"></script>
 <script src="/static/socket-client.js?v={{ asset_v }}"></script>
 <script src="/static/app-realtime.js?v={{ asset_v }}"></script>

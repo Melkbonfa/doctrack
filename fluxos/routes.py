@@ -214,6 +214,7 @@ def _resumo(f):
         "iniciado_em":  f.iniciado_em.strftime("%d/%m/%Y") if f.iniciado_em else "",
         "concluido_em": f.concluido_em.strftime("%d/%m/%Y %H:%M") if f.concluido_em else "",
         "link":         _link_do_fluxo(f),
+        "participantes_ids": [p.user_id for p in f.participantes if p.user_id],
     }
 
 
@@ -780,8 +781,9 @@ def agir(fid):
                     texto_info=f"{f.titulo} — rodada {f.rodada}")
         else:
             verbo = "aprovou" if acao == "aprovar" else "enviou"
+            feito = "aprovou" if acao == "aprovar" else "concluiu"
             _avisar(f, para_etapa=para, encerra=False, ator=u,
-                    texto_acao=f"{f.titulo} — {quem} {verbo} {de_nome}{anexos}",
+                    texto_acao=f"{f.titulo} — {quem} {feito} {de_nome}{anexos}",
                     titulo_info=f"{quem} {verbo} para {para_nome}",
                     texto_info=f.titulo)
     db.session.commit()

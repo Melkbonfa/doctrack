@@ -1444,12 +1444,79 @@ async function abrirProjModal(id){
     `<div class="equip-tab-panel${i===ativa?" active":""}" id="proj-panel-cat${i}">${c.entregaveis.map(e => projRowHtml(e, ordenavel)).join("")}</div>`
   ).join("");
   ativarOrdemEntregaveis("modal", ordenavel ? paineis.querySelectorAll(".equip-tab-panel") : [], p.id);
+  _pintarChipsFluxo(p);
 
   renderPmoSection(p);
 
   const m = document.getElementById("modal-projeto");
   m.setAttribute("aria-hidden", "false");
   m.classList.add("open");
+}
+
+/* Selo do fluxo de revisão ("Diagramação · Marcos · R2") em cada linha do
+   modal: uma chamada em lote por projeto, pintada depois — o modal não espera
+   por ela. */
+function _pintarChipsFluxo(p){
+  if (!window.DT_FLUXO) return;
+  const ids = [];
+  (p.categorias || []).forEach(c => (c.entregaveis || []).forEach(e => ids.push(e.id)));
+  window.DT_FLUXO.resumos("entregavel", ids).then(rs => {
+    if (_projAtualId !== p.id) return;
+    Object.keys(rs).forEach(id => {
+      const nome = document.querySelector(`#proj-modal-panels .ent-row[data-id="${id}"] .ent-row-nome`);
+      if (nome && !nome.querySelector(".fx-chip")) nome.insertAdjacentHTML("beforeend", window.DT_FLUXO.chip(rs[id]));
+    });
+  });
+}
+
+function _entregavelDoProjetoAberto(eid){
+  for (const c of ((_projDetalheAtual || {}).categorias || []))
+    for (const e of (c.entregaveis || [])) if (e.id === eid) return e;
+  return null;
+}
+
+/* Depois de uma ação no fluxo o status do entregável pode ter mudado (iniciar →
+   em progresso, aprovar → concluído): recarrega o modal e o popover aberto. */
+async function _aposFluxoEntregavel(eid){
+  try{
+    if (_projAtualId) await abrirProjModal(_projAtualId);
+    const e = _entregavelDoProjetoAberto(eid);
+    if (!e || !_popEntregavel || _popEntregavel.id !== eid) return;
+    _popEntregavel = e;
+    document.getElementById("pop-status").value = e.status;
+    document.getElementById("pop-pct").value = e.percentual ?? 0;
+    document.getElementById("pop-pct-val").textContent = (e.percentual ?? 0) + "%";
+    document.getElementById("pop-inicio").value = _toIso(e.data_inicio);
+    document.getElementById("pop-conclusao").value = _toIso(e.data_conclusao);
+    popStatusChange();
+    carregarHistoricoPop(e.id);
+  }catch(err){ /* o popover fica com o valor anterior até reabrir */ }
+}
+
+/* Deep-link /projetos?projeto=<id>&entregavel=<id> — é o link das notificações
+   do fluxo. Lido ANTES de _salvarFiltro, que reescreve a URL só com o filtro. */
+function _lerDeepLink(){
+  const qs = new URLSearchParams(location.search);
+  return {projeto: parseInt(qs.get("projeto") || "0"), entregavel: parseInt(qs.get("entregavel") || "0")};
+}
+
+async function _abrirDeepLink(alvo){
+  if (!alvo.projeto) return;
+  // Como o ?doc= do Documentos: abre uma vez e sai da URL, senão o F5 reabriria.
+  try{
+    const u = new URL(location.href);
+    u.searchParams.delete("projeto"); u.searchParams.delete("entregavel");
+    history.replaceState(null, "", u.pathname + u.search + u.hash);
+  }catch(e){}
+  try{
+    await abrirProjModal(alvo.projeto);
+  }catch(e){ toast("Projeto não encontrado ou fora do seu acesso", true); return; }
+  const e = alvo.entregavel ? _entregavelDoProjetoAberto(alvo.entregavel) : null;
+  if (!e) return;
+  const cats = (_projDetalheAtual.categorias || []).filter(c => (c.entregaveis || []).length);
+  const i = cats.findIndex(c => (c.entregaveis || []).some(x => x.id === e.id));
+  if (i >= 0) switchProjTab("cat" + i);
+  abrirPop(e);
 }
 
 /* ── Bloco PMO no modal: indicadores EVM + Curva-S + lançamentos mensais ── */
@@ -2836,6 +2903,12 @@ function abrirPop(e){
   document.getElementById("pop-hist").innerHTML = "";
   carregarHistoricoPop(e.id);
 
+  const fx = document.getElementById("pop-fluxo");
+  if (fx && window.DT_FLUXO){
+    window.DT_FLUXO.montar(fx, {ref_tipo: "entregavel", ref_id: e.id,
+                                aoMudar: () => _aposFluxoEntregavel(e.id)});
+  }
+
   popStatusChange();
   document.getElementById("edit-pop").style.display = "flex";
 }
@@ -3018,6 +3091,7 @@ function _temJsPDF(){
   if (!token()){ window.location.href = "/"; return; }
   // Técnico entra em modo restrito (só os entregáveis dele); leitura não entra.
   if (!["admin", "gestor", "tecnico"].includes(userRole())){ window.location.href = "/hub"; return; }
+  const deep = _lerDeepLink();
   try{
     // Os modelos vêm antes: o filtro (da URL ou do último uso) é validado
     // contra eles, e é ele que recorta todas as chamadas abaixo.
@@ -3031,6 +3105,7 @@ function _temJsPDF(){
     populateDashProjSel();
     renderCharts();
     conectarSocket();
+    _abrirDeepLink(deep);
   }catch(e){ toast(e.message, true); }
 })();
 
