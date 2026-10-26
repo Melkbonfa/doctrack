@@ -144,6 +144,36 @@ def _marcar_troca_status(doc, caller, status_antigo):
         doc.concluido_por = ""
 
 
+def aplicar_status_documento(doc, novo, caller):
+    """Troca o status do documento pelo mesmo caminho da tela. NÃO comita.
+
+    Versão, marcos temporais, trilha e a sincronização com os cartões do kanban
+    — tudo o que `update_status` fazia, num lugar só, para que o fluxo de
+    revisão (fluxos/routes.py) não reescreva a regra. Devolve os eventos de sync
+    para o chamador emitir depois do commit, junto com `publicar_troca_status`.
+    """
+    antigo = doc.status
+    doc.status = novo
+    doc.updated_em = datetime.now()
+    doc.version = (doc.version or 0) + 1
+    if novo == antigo:
+        return []
+    _marcar_troca_status(doc, caller, antigo)
+    _registrar_historico(doc, caller, status_antigo=antigo, status_novo=novo)
+    # documento é a fonte da verdade: move os cartões vinculados no kanban
+    # (mesma transação; eventos emitidos após o commit)
+    return sincronizar_cartoes_documento(doc, caller)
+
+
+def publicar_troca_status(doc, antigo, caller, eventos_sync):
+    """Auditoria e tempo real de uma troca de status — chamar DEPOIS do commit."""
+    log_action(caller, "STATUS_CHANGE", entidade=doc.documento, campo="status", antigo=antigo, novo=doc.status, documento_id=doc.id, ip=get_client_ip())
+    _emit(EventType.DOCUMENT_STATUS_UPDATED,
+          {"documento_id": doc.id, "old_value": antigo, "new_value": doc.status, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
+          caller)
+    emitir_eventos_sync(eventos_sync, caller)
+
+
 def _aplicar_responsaveis(doc, data, caller):
     """Aplica `responsaveis_ids` (N:N) mantendo `responsavel` como texto exibido.
 
@@ -530,6 +560,9 @@ def delete_documento(doc_id):
     caller = get_jwt_identity()
     doc = Documento.query.filter(Documento.ativo == True, Documento.id == doc_id).first()
     if not doc: return jsonify({"erro": "Não encontrado"}), 404
+    from fluxos.models import tem_fluxo_ativo, MSG_FLUXO_ATIVO
+    if tem_fluxo_ativo("documento", doc.id):
+        return jsonify({"erro": MSG_FLUXO_ATIVO}), 409
     nome = doc.documento
     snapshot_data = json.dumps(doc.snapshot())
     doc.ativo = False; doc.deleted_at = datetime.now(); db.session.commit()
@@ -563,6 +596,12 @@ def update_aplicabilidade(doc_id):
 
     novo = bool(data.get("aplicavel"))
     antigo = bool(doc.aplicavel)
+    if not novo:
+        # Tirar do escopo um documento em revisão deixaria o fluxo andando sobre
+        # algo que não conta mais — e as notificações chegando do mesmo jeito.
+        from fluxos.models import tem_fluxo_ativo, MSG_FLUXO_ATIVO
+        if tem_fluxo_ativo("documento", doc.id):
+            return jsonify({"erro": MSG_FLUXO_ATIVO}), 409
     # motivo só existe enquanto o documento está em N/A; religar limpa
     if novo:
         codigo, motivo = "", ""
@@ -1210,7 +1249,12 @@ def _sha_orfao(sha):
         return False
     # Import tardio: não amarra a ordem em que os blueprints são importados.
     from cadernos.models import CadernoArquivo
-    return CadernoArquivo.query.filter_by(sha256=sha).first() is None
+    if CadernoArquivo.query.filter_by(sha256=sha).first() is not None:
+        return False
+    # Os anexos das passagens de um fluxo de revisão são o registro das rodadas
+    # (o PDF revisado na rodada 2) e seguram o blob como os outros.
+    from fluxos.models import FluxoArquivo
+    return FluxoArquivo.query.filter_by(sha256=sha).first() is None
 
 
 @documentos_bp.route("/api/documentos/<int:doc_id>/arquivos", methods=["GET"])
@@ -1366,21 +1410,9 @@ def update_status(doc_id):
         return jsonify({"erro": f"Status inválido para o setor {doc.setor}. Use: {', '.join(setor_status_list)}"}), 400
 
     antigo = doc.status
-    doc.status = novo
-    doc.updated_em = datetime.now()
-    doc.version = (doc.version or 0) + 1
-    if novo != antigo:
-        _marcar_troca_status(doc, caller, antigo)
-        _registrar_historico(doc, caller, status_antigo=antigo, status_novo=novo)
-    # documento é a fonte da verdade: move os cartões vinculados no kanban
-    # (mesma transação; eventos emitidos após o commit)
-    eventos_sync = sincronizar_cartoes_documento(doc, caller) if novo != antigo else []
+    eventos_sync = aplicar_status_documento(doc, novo, caller)
     db.session.commit()
-    log_action(caller, "STATUS_CHANGE", entidade=doc.documento, campo="status", antigo=antigo, novo=novo, documento_id=doc.id, ip=get_client_ip())
-    _emit(EventType.DOCUMENT_STATUS_UPDATED,
-          {"documento_id": doc.id, "old_value": antigo, "new_value": novo, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
-          caller)
-    emitir_eventos_sync(eventos_sync, caller)
+    publicar_troca_status(doc, antigo, caller, eventos_sync)
     return jsonify({"mensagem": f"Status atualizado", "documento": doc.to_dict()}), 200
 
 

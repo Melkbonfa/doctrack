@@ -146,7 +146,7 @@ def _nome_decorator(no):
 ARQUIVOS_DE_ROTA = [
     "servidor.py", "auth.py", "documentos.py", "entregaveis.py", "missoes.py",
     "killswitch.py", "custos/routes.py", "tempos/routes.py", "pdr/routes.py",
-    "cadernos/routes.py",
+    "cadernos/routes.py", "fluxos/routes.py", "notificacoes/routes.py",
 ]
 
 PAPEIS = ["admin", "gestor", "tecnico", "leitura"]
@@ -336,6 +336,9 @@ DOMINIOS = {
     "Caderno": "cadernos", "CadernoMembro": "cadernos", "CadernoNo": "cadernos",
     "CadernoPagina": "cadernos", "CadernoPaginaVersao": "cadernos",
     "CadernoArquivo": "cadernos", "CadernoExportacao": "cadernos",
+
+    "FluxoModelo": "fluxos", "Fluxo": "fluxos", "FluxoParticipante": "fluxos",
+    "FluxoPassagem": "fluxos", "FluxoArquivo": "fluxos", "Notificacao": "fluxos",
 }
 
 TITULOS_DOMINIO = {
@@ -349,10 +352,12 @@ TITULOS_DOMINIO = {
     "tempos": "Tempos",
     "pdr": "PDR (P&D de reagentes)",
     "cadernos": "Cadernos de laboratório",
+    "fluxos": "Fluxos de revisão e notificações",
 }
 
 ORDEM_DOMINIOS = ["acesso", "equipamentos", "documentos", "consumiveis",
-                  "projetos", "missoes", "custos", "tempos", "pdr", "cadernos"]
+                  "projetos", "missoes", "fluxos", "custos", "tempos", "pdr",
+                  "cadernos"]
 
 
 def _colunas_comentadas(arquivo):
@@ -394,7 +399,7 @@ def coletar_tabelas():
 
     comentarios = {}
     for arq in ("models.py", "custos/models.py", "tempos/models.py", "pdr/models.py",
-                "cadernos/models.py"):
+                "cadernos/models.py", "fluxos/models.py", "notificacoes/models.py"):
         comentarios.update(_colunas_comentadas(arq))
 
     tabelas = []

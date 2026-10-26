@@ -161,6 +161,15 @@ app.register_blueprint(tempos_bp)
 from cadernos import cadernos_bp, init_realtime as cadernos_init_realtime
 app.register_blueprint(cadernos_bp)
 
+# Notificações — a caixa de entrada de cada pessoa (o sino de todas as telas).
+from notificacoes import notificacoes_bp
+app.register_blueprint(notificacoes_bp)
+
+# Fluxos de revisão (escrita → diagramação → revisão) em documentos e
+# entregáveis, sob /fluxos. Avisa quem passa a ter a etapa pelo sino.
+from fluxos import fluxos_bp, init_realtime as fluxos_init_realtime
+app.register_blueprint(fluxos_bp)
+
 # Kill switch — trava de emergência do sistema inteiro. Registrado por ÚLTIMO de
 # propósito: o guardião abaixo precisa reconhecer os endpoints deste blueprint
 # para deixá-los passar com o sistema travado.
@@ -218,6 +227,7 @@ missoes_init_realtime(socketio, publish_event, AuditLog, EventType)
 custos_init_realtime(socketio, publish_event, AuditLog, EventType)
 tempos_init_realtime(socketio, publish_event, AuditLog, EventType)
 cadernos_init_realtime(socketio, publish_event, AuditLog, EventType)
+fluxos_init_realtime(socketio, publish_event, AuditLog, EventType)
 # Só o socketio: o kill switch avisa as abas abertas na hora em que trava, mas
 # não publica evento de domínio nem escreve no barramento.
 killswitch.init_realtime(socketio)
@@ -3279,6 +3289,12 @@ def _purgar_lixeira_cadernos():
     return purgar_lixeira()
 
 
+def _purgar_notificacoes_lidas():
+    """Apaga as notificações lidas há mais de 90 dias (as não lidas ficam)."""
+    from notificacoes.core import purgar_lidas
+    return purgar_lidas()
+
+
 def rodar_tarefas_diarias():
     """As tarefas que precisam de uma execução por dia, em um lugar só.
 
@@ -3303,6 +3319,7 @@ def rodar_tarefas_diarias():
                      # Esvazia a lixeira dos cadernos (itens com mais de
                      # CADERNOS_LIXEIRA_DIAS). Blob só sai se ficou órfão.
                      ("cadernos", _purgar_lixeira_cadernos),
+                     ("notificacoes", _purgar_notificacoes_lidas),
                      ("auditoria", _purgar_auditoria)):
         try:
             resultado[nome] = fn()
@@ -3340,6 +3357,8 @@ def init_app(app_=None):
             _seed_tipos_projeto()
             _seed_categorias_entregavel()
             _vincular_entregaveis_ao_modelo()
+            from fluxos.models import semear_modelo_padrao
+            semear_modelo_padrao()
             # Migração automática de 'Fabricante' para 'Manuais' nos registros existentes
             from sqlalchemy import text
             db.session.execute(text("UPDATE documentos SET setor = 'Manuais' WHERE setor = 'Fabricante'"))

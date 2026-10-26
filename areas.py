@@ -44,6 +44,8 @@ _IC_CUSTOS = ('<circle cx="12" cy="12" r="9"/>'
               '0 1.3-1.1 2.3-3 2.3a3.5 3.5 0 0 1-3-1.5"/>'
               '<path d="M12 5.5v13"/>')
 
+_IC_FLUXOS = ('<path d="M4 7h11"/><path d="M4 12h7"/><path d="M4 17h11"/>'
+              '<path d="M17 9l3 3-3 3"/>')
 _IC_INOV = ('<path d="M9 18h6"/><path d="M10 21.5h4"/>'
             '<path d="M12 2.5a6.5 6.5 0 0 0-3.8 11.8c.5.4.8 1 .8 1.6V16h6v-.1c0-.6.3-1.2.8-1.6'
             'A6.5 6.5 0 0 0 12 2.5z"/>')
@@ -69,6 +71,8 @@ AREAS = [
             # auditoria externa e fica de fora (o gate real está em cada rota
             # /tempos/api/*; aqui só se esconde o card).
             {"label": "Tempos", "url": "/tempos/", "role": "tecnico", "module": "tempos", "icon": _IC_TEMPOS},
+            # Fluxos de revisão (manuais, ITs…) — quem participa é técnico.
+            {"label": "Fluxos", "url": "/fluxos/", "role": "tecnico", "module": "fluxos", "icon": _IC_FLUXOS},
         ],
     },
     {
@@ -91,6 +95,7 @@ AREAS = [
         "icon": _IC_INOV,
         "modulos": [
             {"label": "Projetos", "url": "/projetos?area=inov", "role": "gestor", "module": "ent", "icon": _IC_PROJ},
+            {"label": "Fluxos", "url": "/fluxos/", "role": "tecnico", "module": "fluxos", "icon": _IC_FLUXOS},
         ],
     },
 ]

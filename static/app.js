@@ -1785,6 +1785,11 @@ function renderTipoPanel(tipo){
       <div id="et-arqplat-${tipo}">${renderArquivoPlataforma(d, tipo)}</div>
     </div>
 
+    ${currentUser.role!=='leitura' ? `<div class="doc-sec">
+      <div class="doc-sec-title">Fluxo de revisão</div>
+      <div class="fx-host" data-fluxo-doc="${d.id}"></div>
+    </div>` : ''}
+
     <div class="doc-sec">
       <div class="doc-sec-title">Missões vinculadas</div>
       <div class="doc-missoes" data-missoes-tipo="${tipo}">${renderMissoesDoc(tipo)}</div>
@@ -2221,6 +2226,31 @@ function refreshHistSections(){
   const ativo = document.querySelector('#equip-panels .equip-tab-panel.active');
   (ativo ? ativo.querySelectorAll('[data-hist-tipo]') : []).forEach(
     el => carregarHistorico(el.dataset.histTipo));
+  // O fluxo de revisão segue a mesma regra: só o do painel visível.
+  (ativo ? ativo.querySelectorAll('[data-fluxo-doc]') : []).forEach(montarFluxoDoc);
+}
+
+// Fluxo de revisão do documento (fluxos-painel.js). Uma ação no fluxo pode mudar
+// o status do documento (iniciar → Em andamento, aprovar → Concluído, com os
+// arquivos finais publicados): depois dela a ficha é reidratada com o documento
+// do servidor, como faz o "Salvar alterações".
+function montarFluxoDoc(el){
+  if(!window.DT_FLUXO) return;
+  const id = Number(el.dataset.fluxoDoc);
+  window.DT_FLUXO.montar(el, {ref_tipo:'documento', ref_id:id,
+                              aoMudar: ()=>_recarregarDocDoFluxo(id)});
+}
+
+async function _recarregarDocDoFluxo(id){
+  try{
+    const res = await apiFetch('/documentos/'+id);
+    if(!res || !res.ok) return;
+    _aplicarDocLocal(await res.json());
+    const key = _equipCtx && _equipCtx.g && _equipCtx.g.key;
+    const abaEl = document.querySelector('#equip-tabs .equip-modal-tab.active');
+    renderDashboard(); renderDocs();
+    if(key) openEquipModal(key, { aba: abaEl ? abaEl.dataset.tab : null, manterAberto:true });
+  }catch(e){ /* a ficha só fica com o status antigo até a próxima abertura */ }
 }
 
 async function deleteEquip(){

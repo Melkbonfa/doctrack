@@ -1,0 +1,33 @@
+/* fluxos.css — página /fluxos/ (Em andamento + Modelos). O painel do fluxo em
+   si mora em fluxos-painel.css, compartilhado com Documentos e Projetos. */
+
+.fx-filtro{ display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--t3); cursor:pointer; }
+
+#tbl-andamento tr.fx-linha{ cursor:pointer; }
+#tbl-andamento tr.fx-linha:hover td{ background:var(--bg-hover, rgba(255,255,255,.04)); }
+#tbl-andamento tr.fx-linha:focus-visible{ outline:var(--focus-ring, 2px solid #22d3ee); outline-offset:-2px; }
+#tbl-andamento td.num, #tbl-andamento th.num{ text-align:right; white-space:nowrap; }
+.fx-item{ color:var(--t1); font-weight:500; }
+.fx-item-tipo{ color:var(--t4); font-size:11.5px; }
+.fx-parado{ color:var(--amber); font-weight:600; }
+.fx-atraso{ color:var(--red); }
+
+.fx-modelo-card{ display:flex; flex-direction:column; gap:12px; margin-bottom:14px; }
+.fx-modelo-card.arquivado{ opacity:.6; }
+.fx-modelo-topo{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+
+/* Editor de modelo (no modal). */
+.fx-modal{ max-width:820px; width:calc(100vw - 32px); }
+.fx-ed{ display:flex; flex-direction:column; gap:8px; }
+.fx-ed-sec{ margin-top:10px; font-size:10.5px; font-weight:600; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--t4); }
+.fx-ed-linha{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.fx-ed-linha .form-input{ flex:1 1 150px; min-width:0; }
+.fx-ed-linha .ed-e-tipo{ flex:0 1 130px; }
+.fx-ed-num{ flex:0 0 22px; text-align:center; color:var(--t4); font-weight:600; }
+.fx-ed-mover{ display:inline-flex; gap:2px; }
+
+@media (max-width:640px){
+  #tbl-andamento th:nth-child(2), #tbl-andamento td:nth-child(2),
+  #tbl-andamento th:nth-child(7), #tbl-andamento td:nth-child(7){ display:none; }
+}

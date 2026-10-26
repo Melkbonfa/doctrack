@@ -1,0 +1,87 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   notificacoes-widget.css — o sino, presente em todas as telas.
+
+   Carregado FORA de blocos Jinja (como tempos-widget.css). Fica empilhado acima
+   do cronômetro (#dt-tempo, bottom:84px) pelo mesmo motivo de ele não usar
+   bottom:24px: o .toast ocupa aquele canto com z-index 9999. Abaixo de
+   .modal-overlay (9000), para nunca cobrir um diálogo.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#dt-sino{
+  position:fixed; right:24px; bottom:136px; z-index:8000;
+  width:44px; height:44px; padding:0; border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:var(--bg-elevated, #1b1e3a); color:var(--t3, #94a3d4);
+  border:1px solid var(--border-soft, rgba(34,211,238,.18));
+  box-shadow:var(--shadow-lg, 0 10px 30px rgba(0,0,0,.35));
+  cursor:pointer; transition:color .15s, border-color .15s;
+}
+#dt-sino:hover, #dt-sino.tem{ color:var(--t1, #f1f5f9); border-color:var(--cyan-brand, #06b6d4); }
+#dt-sino:focus-visible{ outline:var(--focus-ring, 2px solid #22d3ee); outline-offset:2px; }
+#dt-sino.chegou svg{ animation:dt-sino-balanca .9s ease-in-out 2; transform-origin:50% 10%; }
+@keyframes dt-sino-balanca{
+  0%,100%{ transform:rotate(0) } 20%{ transform:rotate(14deg) }
+  40%{ transform:rotate(-12deg) } 60%{ transform:rotate(7deg) } 80%{ transform:rotate(-4deg) }
+}
+@media (prefers-reduced-motion:reduce){ #dt-sino.chegou svg{ animation:none; } }
+
+.dt-sino-badge{
+  position:absolute; top:-4px; right:-4px; min-width:19px; height:19px; padding:0 5px;
+  border-radius:999px; background:var(--red, #f43f5e); color:#fff;
+  font:600 11px/19px var(--font-body, system-ui); text-align:center;
+  box-shadow:0 0 0 2px var(--bg-base, #0f1129);
+}
+
+#dt-sino-painel{
+  position:fixed; right:24px; bottom:188px; z-index:8001;
+  width:min(380px, calc(100vw - 32px)); max-height:min(62vh, 560px); overflow-y:auto;
+  background:var(--bg-elevated, #1b1e3a);
+  border:1px solid var(--border-mid, rgba(34,211,238,.28)); border-radius:var(--r, 12px);
+  box-shadow:var(--shadow-lg, 0 10px 30px rgba(0,0,0,.35));
+  font-family:var(--font-body, system-ui); font-size:13px; color:var(--t2, #c7d2fe);
+}
+#dt-sino-painel[hidden]{ display:none; }
+
+.dt-sino-topo{
+  position:sticky; top:0; display:flex; align-items:center; justify-content:space-between;
+  gap:8px; padding:12px 14px; background:inherit;
+  border-bottom:1px solid var(--border-soft, rgba(34,211,238,.18)); color:var(--t1, #f1f5f9);
+}
+.dt-sino-link{
+  background:none; border:0; padding:0; cursor:pointer; font:inherit; font-size:12px;
+  color:var(--cyan-brand, #06b6d4);
+}
+.dt-sino-link:hover{ text-decoration:underline; }
+
+.dt-sino-secao{
+  padding:12px 14px 4px; font-size:10.5px; font-weight:600; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--t4, #7884c9);
+}
+.dt-sino-vazio{ padding:6px 14px 10px; color:var(--t4, #7884c9); }
+
+.dt-sino-item{
+  display:flex; flex-direction:column; gap:2px; padding:9px 14px;
+  text-decoration:none; color:inherit; border-left:3px solid transparent;
+}
+.dt-sino-item:hover{ background:var(--bg-hover, rgba(255,255,255,.04)); }
+.dt-sino-item.vez{ border-left-color:var(--cyan-brand, #06b6d4); }
+.dt-sino-item.nova.acao{ border-left-color:var(--amber, #f59e0b); }
+.dt-sino-item.nova.info{ border-left-color:var(--t4, #7884c9); }
+.dt-sino-item.lida{ opacity:.62; }
+.dt-sino-tit{ color:var(--t1, #f1f5f9); font-weight:500; }
+.dt-sino-item.lida .dt-sino-tit{ font-weight:400; }
+.dt-sino-sub{ color:var(--t3, #94a3d4); font-size:12px; }
+.dt-sino-quando{ color:var(--t4, #7884c9); font-size:11px; }
+.dt-sino-atraso{ color:var(--red, #f43f5e); }
+
+.dt-sino-rodape{
+  display:block; padding:10px 14px; text-align:center; font-size:12px;
+  color:var(--cyan-brand, #06b6d4); text-decoration:none;
+  border-top:1px solid var(--border-soft, rgba(34,211,238,.18));
+}
+.dt-sino-rodape:hover{ text-decoration:underline; }
+
+@media (max-width:640px){
+  #dt-sino{ right:12px; bottom:120px; width:40px; height:40px; }
+  #dt-sino-painel{ right:16px; bottom:168px; }
+}

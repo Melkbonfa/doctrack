@@ -837,6 +837,59 @@ def listar_responsaveis():
                                   "role": u.role} for u in users]})
 
 
+def efeitos_status(e, novo, hoje_iso):
+    """Datas e percentual que acompanham um status. Não grava histórico."""
+    if novo == "concluido":
+        e.percentual = 100
+        if not (e.data_conclusao or "").strip():       # conclusão = hoje (se não veio explícita)
+            e.data_conclusao = hoje_iso
+        if not (e.data_inicio or "").strip():          # início = conclusão (se não veio)
+            e.data_inicio = e.data_conclusao
+    elif novo == "na":
+        e.percentual = None
+        e.data_conclusao = ""                          # não se aplica: some do cálculo
+    elif novo == "pendente":
+        e.percentual = 0
+        # A data de conclusão é PRESERVADA de propósito: apagá-la reescrevia
+        # a curva-S histórica. `pct_em` já ignora o que foi reaberto.
+    elif novo == "em_progresso" and not (e.data_inicio or "").strip():
+        e.data_inicio = hoje_iso
+
+
+def aplicar_status_entregavel(e, novo, email):
+    """Troca o status do entregável pelo mesmo caminho da tela. NÃO comita.
+
+    Usado pelo fluxo de revisão (fluxos/routes.py). Grava a transição em
+    `entregavel_historico` — é ela que reconstrói a curva-S — e a foto do dia
+    do projeto. Devolve o status anterior; a emissão fica com
+    `publicar_entregavel`, depois do commit.
+    """
+    status_antigo, pct_antigo = e.status, e.percentual
+    e.status = novo
+    efeitos_status(e, novo, datetime.now().strftime("%Y-%m-%d"))
+    if e.status != status_antigo or e.percentual != pct_antigo:
+        db.session.add(EntregavelHistorico(
+            entregavel_id=e.id, status_antigo=status_antigo or "",
+            status_novo=e.status or "", percentual=e.percentual,
+            em=datetime.now(), por=email))
+    e.atualizado_por = email
+    e.atualizado_em = datetime.now()
+    if e.projeto is not None:
+        e.projeto.registrar_snapshot()
+    return status_antigo
+
+
+def publicar_entregavel(e, email, status_antigo):
+    """Auditoria e tempo real de `aplicar_status_entregavel` — depois do commit."""
+    if status_antigo != e.status:
+        _emit("ENTREGAVEL_UPDATED", {"projeto_id": e.projeto_id, "entregavel_id": e.id},
+              email, campo="status", antigo=str(status_antigo), novo=str(e.status),
+              entidade=f"{e.projeto.nome} · {e.tipo}")
+    _emit("ENTREGAVEL_UPDATED",
+          {"entregavel": e.to_dict(), "projeto_id": e.projeto_id,
+           "avanco_projeto": e.projeto.avanco}, email)
+
+
 @entregaveis_bp.route("/api/entregaveis/<int:eid>", methods=["PUT"])
 @require_role("admin", "gestor", "tecnico")
 def atualizar_entregavel(eid):
@@ -886,24 +939,14 @@ def atualizar_entregavel(eid):
         novo = (data.get("status") or "").strip()
         if novo not in STATUS_ENTREGAVEL:
             return jsonify({"erro": f"status inválido. Use: {', '.join(STATUS_ENTREGAVEL)}"}), 400
+        if novo == "na" and novo != e.status:
+            from fluxos.models import tem_fluxo_ativo, MSG_FLUXO_ATIVO
+            if tem_fluxo_ativo("entregavel", e.id):
+                return jsonify({"erro": MSG_FLUXO_ATIVO}), 409
         if novo != e.status:
             mudancas.append(("status", e.status, novo))
             e.status = novo
-        if novo == "concluido":
-            e.percentual = 100
-            if not (e.data_conclusao or "").strip():       # conclusão = hoje (se não veio explícita)
-                e.data_conclusao = hoje_iso
-            if not (e.data_inicio or "").strip():          # início = conclusão (se não veio)
-                e.data_inicio = e.data_conclusao
-        elif novo == "na":
-            e.percentual = None
-            e.data_conclusao = ""                          # não se aplica: some do cálculo
-        elif novo == "pendente":
-            e.percentual = 0
-            # A data de conclusão é PRESERVADA de propósito: apagá-la reescrevia
-            # a curva-S histórica. `pct_em` já ignora o que foi reaberto.
-        elif novo == "em_progresso" and not (e.data_inicio or "").strip():
-            e.data_inicio = hoje_iso
+        efeitos_status(e, novo, hoje_iso)
 
     if "percentual" in data and e.status == "em_progresso":
         try:
@@ -1004,6 +1047,9 @@ def adicionar_entregavel(pid):
 @require_role("admin", "gestor")
 def excluir_entregavel(eid):
     e = Entregavel.query.get_or_404(eid)
+    from fluxos.models import tem_fluxo_ativo, MSG_FLUXO_ATIVO
+    if tem_fluxo_ativo("entregavel", e.id):
+        return jsonify({"erro": MSG_FLUXO_ATIVO}), 409
     pid, nome, tipo, projeto = e.projeto_id, e.projeto.nome, e.tipo, e.projeto
     projeto.entregaveis.remove(e)   # delete-orphan apaga; o avanço já reflete a saída
     db.session.flush()

@@ -6,7 +6,7 @@
 
 # Referência da API
 
-279 rotas registradas: **163** de API (`/api/...`) e **116** de página.
+300 rotas registradas: **167** de API (`/api/...`) e **133** de página.
 
 A coluna **Acesso** é lida dos decorators no fonte:
 
@@ -190,6 +190,28 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `DELETE` | `/api/tipos-projeto/<int:tid>` | admin, gestor | Exclui o tipo e o modelo de entregáveis dele. Recusa enquanto houver |
 | `PUT` | `/api/tipos-projeto/<int:tid>` | admin, gestor | Renomeia o tipo e/ou troca a área dele. O nome novo é propagado para os |
 
+## `fluxos/routes.py`
+
+| Método | Rota | Acesso | O que faz |
+|---|---|---|---|
+| `GET` | `/fluxos` | página (casca) |  |
+| `GET` | `/fluxos/` | página (casca) |  |
+| `GET` | `/fluxos/api/arquivos/<int:aid>/conteudo` | admin, gestor, tecnico |  |
+| `GET` | `/fluxos/api/comigo` | admin, gestor, tecnico | Os fluxos cuja etapa atual é minha — o estado vivo, não as notificações. |
+| `GET` | `/fluxos/api/em-andamento` | admin, gestor, tecnico |  |
+| `POST` | `/fluxos/api/fluxos` | admin, gestor, tecnico |  |
+| `GET` | `/fluxos/api/fluxos/<int:fid>` | admin, gestor, tecnico |  |
+| `POST` | `/fluxos/api/fluxos/<int:fid>/acao` | admin, gestor, tecnico |  |
+| `POST` | `/fluxos/api/fluxos/<int:fid>/cancelar` | admin, gestor, tecnico |  |
+| `POST` | `/fluxos/api/fluxos/<int:fid>/reatribuir` | admin, gestor, tecnico |  |
+| `GET` | `/fluxos/api/modelos` | admin, gestor, tecnico |  |
+| `POST` | `/fluxos/api/modelos` | admin, gestor |  |
+| `DELETE` | `/fluxos/api/modelos/<int:mid>` | admin, gestor |  |
+| `PUT` | `/fluxos/api/modelos/<int:mid>` | admin, gestor |  |
+| `GET` | `/fluxos/api/pessoas` | admin, gestor, tecnico |  |
+| `GET` | `/fluxos/api/por-ref` | admin, gestor, tecnico |  |
+| `GET` | `/fluxos/api/por-refs` | admin, gestor, tecnico |  |
+
 ## `killswitch.py`
 
 | Método | Rota | Acesso | O que faz |
@@ -236,6 +258,15 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `POST` | `/api/missoes/reordenar` | admin, gestor, tecnico | Duas formas (tudo numa única transação, ordem = índice da lista): |
 | `POST` | `/api/missoes/snapshot` | admin, gestor |  |
 | `GET` | `/api/missoes/usuarios` | admin, gestor, tecnico | Só nomes de usuários ativos, para o autocomplete de responsáveis. |
+
+## `notificacoes/routes.py`
+
+| Método | Rota | Acesso | O que faz |
+|---|---|---|---|
+| `GET` | `/api/notificacoes` | admin, gestor, tecnico |  |
+| `POST` | `/api/notificacoes/<int:nid>/lida` | admin, gestor, tecnico |  |
+| `GET` | `/api/notificacoes/contagem` | admin, gestor, tecnico |  |
+| `POST` | `/api/notificacoes/lidas` | admin, gestor, tecnico |  |
 
 ## `pdr/routes.py`
 

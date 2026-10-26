@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Fluxos — DocTrack{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/fluxos.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/fluxos-painel.css?v={{ asset_v }}">
+{%- endblock %}
+
+{% block brand_version %}FLUXOS DE REVISÃO{% endblock %}
+
+{% block nav %}
+    <span class="nav-section-label">Módulo</span>
+    <button type="button" class="nav-item active" data-page="andamento">
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 7h11M4 12h7M4 17h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M17 9l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Em andamento <span class="nav-count" id="n-andamento"></span>
+    </button>
+    <button type="button" class="nav-item" data-page="modelos" id="nav-modelos" hidden>
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Modelos
+    </button>
+{%- endblock %}
+
+{% block refresh_fn %}carregarTudo(){% endblock %}
+
+{% block breadcrumb %}
+<span>DocTrack</span><span style="color:var(--t4)">/</span>
+<span>Fluxos</span><span style="color:var(--t4)">/</span>
+<span class="current" id="breadcrumb-current">Em andamento</span>
+{%- endblock %}
+
+{% block content %}
+
+<!-- ══════════ EM ANDAMENTO ══════════ -->
+<section class="page active" id="page-andamento">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Em andamento</div>
+      <div class="page-sub">Documentos e entregáveis em revisão: em que etapa estão, com
+        quem e há quantos dias. Clique numa linha para abrir o item.</div>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <label class="fx-filtro"><input type="checkbox" id="f-meus"> Só onde participo</label>
+    <input type="search" class="search-input" id="f-q" placeholder="Buscar por item ou pessoa…">
+    <span class="filter-count" id="f-total"></span>
+  </div>
+
+  <div class="card">
+    <div class="tbl-wrap">
+      <table class="tbl" id="tbl-andamento">
+        <thead><tr>
+          <th>Item</th><th>Modelo</th><th>Etapa</th><th>Com quem</th>
+          <th class="num">Na etapa</th><th class="num">Rodada</th><th>Prazo</th>
+        </tr></thead>
+        <tbody id="tb-andamento"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ MODELOS ══════════ -->
+<section class="page" id="page-modelos">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Modelos de fluxo</div>
+      <div class="page-sub">Etapas e papéis de cada tipo de trabalho. Editar um modelo vale
+        para os próximos fluxos; os que já estão andando guardam a própria cópia.</div>
+    </div>
+    <div class="page-actions">
+      <label class="fx-filtro"><input type="checkbox" id="f-arquivados"> Mostrar arquivados</label>
+      <button class="btn btn-primary btn-sm" id="btn-novo-modelo">+ Novo modelo</button>
+    </div>
+  </div>
+  <div id="fx-modelos"></div>
+</section>
+
+{%- endblock %}
+
+{% block postmain %}
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal fx-modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+    <div class="modal-title" id="modal-titulo">Modelo de fluxo</div>
+    <div class="modal-sub" id="modal-sub"></div>
+    <div id="modal-corpo"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="modal-salvar">Salvar</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"><span class="toast-dot" id="toast-dot"></span><span id="toast-msg"></span></div>
+{%- endblock %}
+
+{% block scripts %}
+<script src="/static/common.js?v={{ asset_v }}"></script>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/fluxos.js?v={{ asset_v }}"></script>
+{%- endblock %}
