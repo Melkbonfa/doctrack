@@ -41,7 +41,10 @@ body.theme-light .ent-charts .card::before{display:none}
 .ent-pop{position:fixed;inset:0;background:rgba(10,12,30,.65);display:flex;align-items:center;
   justify-content:center;z-index:9100;backdrop-filter:blur(2px)}
 .ent-pop-card{background:var(--bg-surface);border:1px solid var(--border-mid);border-radius:var(--r2);
-  padding:20px;width:min(380px,92vw);box-shadow:var(--shadow-md);color:var(--t1)}
+  padding:20px;width:min(440px,94vw);box-shadow:var(--shadow-md);color:var(--t1);
+  /* Com o painel do fluxo o cartão passa da altura da tela: centralizado e sem
+     rolagem, o topo (título e status) ficava fora de alcance. */
+  max-height:calc(100vh - 32px);overflow-y:auto}
 
 /* ── Abas (Dashboard | Projetos) — estilo .nav-item/underline ciano ── */
 .ent-tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--border-soft)}
