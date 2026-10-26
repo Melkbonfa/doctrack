@@ -526,3 +526,4 @@ select.input{cursor:pointer}
 .pop-art-ciclo{flex-basis:100%;color:var(--amber,#f59e0b);font-size:12px}
 /* A prévia de "o que muda nos entregáveis" vem em linhas. */
 #cf-msg{white-space:pre-line}
+.pop-art-desv{align-self:flex-start}

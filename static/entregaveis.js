@@ -1512,7 +1512,7 @@ async function _pintarArtefatoPop(e){
           <span class="sg-badge">${esc(d.status)}${d.aplicavel ? "" : " · N/A"}</span>
           ${d.antes_do_projeto ? `<div class="pop-art-ciclo">Concluído ${d.concluido_em ? "em " + esc(d.concluido_em) : ""} antes do início deste projeto — para este projeto conta como pendente. Inicie um fluxo de revisão para o novo ciclo.</div>` : ""}
         </div>`).join("")}
-        ${canEditProj() ? `<button type="button" class="lnk" onclick="desvincularEntregavel(${e.id})">Desvincular do documento</button>` : ""}`;
+        ${canEditProj() ? `<button type="button" class="btn btn-ghost btn-sm pop-art-desv" onclick="desvincularEntregavel(${e.id})" title="O entregável volta a ter status próprio; o documento não muda">Desvincular do documento</button>` : ""}`;
     } else {
       host.innerHTML = "";
     }
