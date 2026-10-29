@@ -14,6 +14,26 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Projeto ↔ equipamento ↔ documento (ondas A e B do estudo de ligações)
+- **Adicionado** o projeto do PDE ganha **equipamento**: criar o projeto já cria
+  o equipamento (nome e SKU do projeto, com os 12 documentos) ou liga a um
+  existente — o de mesmo SKU vem sugerido. O card do equipamento, em Equipamentos
+  e no Documentos, mostra o projeto com o avanço.
+- **Adicionado** o item do modelo de entregáveis ganha **natureza** (documento,
+  documento do fabricante, peça de comunicação, software, cadastro, validação,
+  capacitação) e, para documento, **qual** documento do equipamento ele é. Nesta
+  versão só "documento" tem efeito.
+- **Adicionado** entregável ligado a documento **espelha o status do documento**
+  (com histórico; os 4 checklists contam juntos), mostra o documento no popover e
+  usa o **fluxo de revisão do documento** — o mesmo nas duas telas. A ficha do
+  documento mostra de que entregável e projeto ele é.
+- **Adicionado** ciclo do projeto: documento concluído antes do início do projeto
+  conta como pendente para ele, e iniciar um fluxo num documento concluído o
+  reabre para *Em andamento*.
+- **Alterado** mudar o status de um entregável ligado pelo projeto responde 409
+  (o status vem do documento); "Desvincular do documento" devolve o status
+  próprio. Trocar o equipamento de um projeto mostra antes o que muda.
+
 ### Replay do tempo real respeita as salas
 - **Corrigido** o `replay_request` do Socket.IO e o `GET /api/events/replay`
   devolviam a trilha de `audit_logs` inteira para qualquer conta autenticada,

@@ -14,6 +14,14 @@ apontamentos de tempo podem apontar para ele.
 O módulo responde três perguntas: o que temos cadastrado, o quanto o cadastro
 está completo, e o quanto o produto está desenvolvido.
 
+## O projeto que desenvolve o equipamento
+
+Um projeto do PDE pode apontar para o equipamento — ou criá-lo, com os 12
+documentos, na hora em que nasce. O card do equipamento (aqui e no Documentos)
+mostra o projeto com o avanço e o link para ele, e os entregáveis do projeto que
+são documentos deste equipamento passam a seguir o status deles. Ver
+[projetos-entregaveis.md](projetos-entregaveis.md#equipamento-do-projeto-e-natureza-dos-entregáveis).
+
 ## Taxonomia
 
 Três níveis, independentes do fabricante:

@@ -1422,6 +1422,7 @@ function renderEquipHeader(){
     <div class="equip-id-badges">
       ${badges}
       ${_equipCtx.equip_id?`<a class="btn btn-ghost btn-sm" href="/equipamentos?equip=${_equipCtx.equip_id}" title="Abrir o card deste equipamento no módulo Equipamentos" style="text-decoration:none">↗ Abrir no módulo Equipamentos</a>`:''}
+      ${(e.projetos||[]).map(p=>`<a class="btn btn-ghost btn-sm" href="/projetos?projeto=${p.id}" title="Projeto que desenvolve este equipamento" style="text-decoration:none">↗ Projeto ${esc(p.nome)}</a>`).join('')}
     </div>
     <div class="equip-id-hint" style="font-size:11px;color:var(--t3);margin-top:6px">A identidade (nome, SKU, fabricante, ANVISA, família…) é editada no módulo <b>Equipamentos</b> e reflete aqui automaticamente.</div>`;
 }
@@ -1787,6 +1788,7 @@ function renderTipoPanel(tipo){
 
     ${currentUser.role!=='leitura' ? `<div class="doc-sec">
       <div class="doc-sec-title">Fluxo de revisão</div>
+      <div class="doc-vinc" data-vinc-doc="${d.id}"></div>
       <div class="fx-host" data-fluxo-doc="${d.id}"></div>
     </div>` : ''}
 
@@ -2228,6 +2230,18 @@ function refreshHistSections(){
     el => carregarHistorico(el.dataset.histTipo));
   // O fluxo de revisão segue a mesma regra: só o do painel visível.
   (ativo ? ativo.querySelectorAll('[data-fluxo-doc]') : []).forEach(montarFluxoDoc);
+  (ativo ? ativo.querySelectorAll('[data-vinc-doc]') : []).forEach(montarVinculoDoc);
+}
+
+// O caminho de volta: de que entregável (de que projeto) este documento é.
+async function montarVinculoDoc(el){
+  try{
+    const res = await apiFetch('/projetos/por-documento/' + el.dataset.vincDoc);
+    if(!res || !res.ok){ el.innerHTML = ''; return; }
+    const j = await res.json();
+    el.innerHTML = (j.vinculos||[]).map(v =>
+      `<a class="doc-vinc-link" href="${esc(v.link)}">📁 É o entregável “${esc(v.entregavel_tipo)}” do projeto ${esc(v.projeto_nome)} ↗</a>`).join('');
+  }catch(e){ el.innerHTML = ''; }
 }
 
 // Fluxo de revisão do documento (fluxos-painel.js). Uma ação no fluxo pode mudar

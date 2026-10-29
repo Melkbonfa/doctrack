@@ -1463,6 +1463,11 @@ class Projeto(db.Model):
     data_fim_prev    = db.Column(db.String(40), default="")
     data_fim_real    = db.Column(db.String(40), default="")
     orcamento        = db.Column(db.Float, default=0.0)   # BAC – Budget At Completion
+    # O produto que o projeto desenvolve (só PDE). É o eixo das ligações: o
+    # entregável de natureza "documento" acha o documento pelo equipamento do
+    # projeto — ver vinculos.py. Nulo = projeto sem produto ligado.
+    equipamento_id   = db.Column(db.Integer, db.ForeignKey("equipamentos.id"),
+                                 nullable=True, index=True)
     # Itens do modelo (chaves de ModeloEntregavel) que o projeto já conhecia ao
     # nascer ou na última aplicação do modelo — ligados ou não. A prévia de
     # modelo_sync só propõe criar o que NÃO está aqui: item tirado de propósito
@@ -1476,6 +1481,8 @@ class Projeto(db.Model):
     entregaveis = db.relationship("Entregavel", back_populates="projeto",
                                   cascade="all, delete-orphan",
                                   order_by="[Entregavel.ordem, Entregavel.id]")
+    equipamento = db.relationship("Equipamento", foreign_keys=[equipamento_id],
+                                  lazy="joined")
     mensais = db.relationship("ProjetoMensal", back_populates="projeto",
                               cascade="all, delete-orphan",
                               order_by="ProjetoMensal.competencia")
@@ -1792,6 +1799,11 @@ class Projeto(db.Model):
             "orcamento":        self.orcamento or 0.0,
             "previsao_termino": self.previsao_termino(),
             "pmo":              self.pmo_metrics(),
+            "equipamento_id":   self.equipamento_id,
+            "equipamento":      ({"id": self.equipamento.id, "nome": self.equipamento.nome,
+                                  "sku": self.equipamento.sku or "",
+                                  "ativo": bool(self.equipamento.ativo)}
+                                 if self.equipamento else None),
         }
         if com_entregaveis:
             d["entregaveis"] = [e.to_dict() for e in self.entregaveis]
@@ -1828,6 +1840,10 @@ class Entregavel(db.Model):
     # avaliada (o backfill da subida resolve e nunca deixa NULL).
     modelo_chave   = db.Column(db.String(32), default="", index=True)
     modelo_origem  = db.Column(db.Text, default="")
+    # Natureza e alvo PRÓPRIOS (vazio = herda do item do modelo). Só o avulso, ou
+    # a exceção deliberada, preenche — ver vinculos.natureza_alvo.
+    natureza       = db.Column(db.String(20), default="")
+    alvo           = db.Column(db.String(60), default="")
     atualizado_por = db.Column(db.String(120), default="")
     atualizado_em  = db.Column(db.DateTime, default=datetime.now,
                                onupdate=datetime.now)
@@ -1894,6 +1910,8 @@ class Entregavel(db.Model):
             "data_conclusao": self.data_conclusao or "",
             "ordem":          self.ordem or 0,
             "do_modelo":      bool(self.modelo_chave),
+            "natureza_propria": self.natureza or "",
+            "alvo_proprio":   self.alvo or "",
             "atrasado":       self.atrasado,
             "atualizado_por": self.atualizado_por or "",
             "atualizado_em":  self.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.atualizado_em else "",
@@ -1999,6 +2017,11 @@ class ModeloEntregavel(db.Model):
     peso          = db.Column(db.Float, default=1.0)   # esforço relativo padrão
     responsavel_padrao = db.Column(db.String(200), default="")
     ordem         = db.Column(db.Integer, default=0)
+    # O que o entregável É (vinculos.NATUREZAS) e, para documento, QUAL documento
+    # do equipamento (tipo_doc ou "checklists"). Vale para todos os projetos do
+    # modelo na hora: o vínculo é calculado, não copiado.
+    natureza      = db.Column(db.String(20), default="")
+    alvo          = db.Column(db.String(60), default="")
 
     def to_dict(self):
         return {
@@ -2010,6 +2033,8 @@ class ModeloEntregavel(db.Model):
             "peso":               self.peso if self.peso is not None else 1.0,
             "responsavel_padrao": self.responsavel_padrao or "",
             "ordem":              self.ordem or 0,
+            "natureza":           self.natureza or "",
+            "alvo":               self.alvo or "",
         }
 
 

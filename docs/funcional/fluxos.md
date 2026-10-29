@@ -83,6 +83,16 @@ começa em 1 e só sobe na devolução.
 | Documento do setor PRE | não toca | não toca |
 | Entregável | *pendente → em progresso* | *concluído* |
 
+Iniciar um fluxo num documento já *Concluído* (Manuais e PDE) o reabre para *Em
+andamento*: é uma revisão, o novo ciclo de um projeto sobre um equipamento que
+já existia.
+
+**Entregável que é um documento** (natureza "documento", ver
+[projetos-entregaveis.md](projetos-entregaveis.md#equipamento-do-projeto-e-natureza-dos-entregáveis))
+não tem fluxo próprio: o popover dele mostra o fluxo do documento, e iniciar um
+fluxo no entregável responde 409. O selo da linha no projeto também é o do
+documento.
+
 O PRE fica de fora porque o pipeline dele tem marcos externos (treinamento,
 homologação) que o fluxo não conhece. **Cancelar não mexe no status.** O
 percentual do entregável continua sendo do responsável.

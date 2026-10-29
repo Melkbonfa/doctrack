@@ -936,6 +936,8 @@ function renderView(e,s,f){
     <div class="vw-hero-main">
       <div class="vw-name">${esc(e.nome||"—")}</div>
       <div class="vw-chips">${chips.join("")}</div>
+      ${(e.projetos||[]).length?`<div class="vw-projetos">Projeto: ${e.projetos.map(p=>
+        `<a href="${esc(p.link||("/projetos?projeto="+p.id))}" title="Abrir o projeto que desenvolve este equipamento">${esc(p.nome)}${p.avanco!=null?` · ${p.avanco}%`:""} ↗</a>`).join(" · ")}</div>`:""}
     </div>
   </div>
   <div class="vw-body">

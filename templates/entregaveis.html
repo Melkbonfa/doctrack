@@ -245,6 +245,8 @@
         <option value="em_progresso">Em progresso</option>
         <option value="concluido">Concluído</option>
       </select>
+      <!-- Entregável que É um documento: o status vem de lá (vinculos.py). -->
+      <div class="pop-artefato" id="pop-artefato" hidden></div>
       <div id="pop-pct-wrap" style="margin-top:8px">
         <label class="muted">Percentual: <b id="pop-pct-val">0%</b></label>
         <input type="range" id="pop-pct" min="0" max="100" step="5" style="width:100%"
@@ -310,7 +312,7 @@
 
       <div class="g2">
         <div class="form-group"><label class="form-label" for="pf-nome">Nome *</label><input class="form-input" id="pf-nome" placeholder="Nome do projeto"></div>
-        <div class="form-group"><label class="form-label" for="pf-sku">SKU</label><input class="form-input" id="pf-sku" placeholder="Opcional"></div>
+        <div class="form-group"><label class="form-label" for="pf-sku">SKU</label><input class="form-input" id="pf-sku" placeholder="Opcional" onchange="pfSkuChange()"></div>
       </div>
       <div class="g2">
         <div class="form-group">
@@ -346,6 +348,14 @@
         <div class="form-group"><label class="form-label" for="pf-lancamento">Data de lançamento</label><input type="date" class="form-input" id="pf-lancamento"></div>
       </div>
       <div class="form-group"><label class="form-label" for="pf-desc">Descrição</label><textarea class="form-input" id="pf-desc" rows="2" placeholder="Opcional"></textarea></div>
+
+      <!-- O produto do projeto (só PDE): o card em Equipamentos e Documentos.
+           Opções e sugestão pelo SKU vêm de /api/projetos/equipamentos-opcoes. -->
+      <div class="form-group" id="pf-equip-wrap" style="display:none">
+        <label class="form-label" for="pf-equip">Equipamento</label>
+        <select class="form-input" id="pf-equip" onchange="pfEquipChange(true)"></select>
+        <div class="pf-equip-hint" id="pf-equip-hint"></div>
+      </div>
 
       <!-- Entregáveis iniciais (só na criação) -->
       <div id="pf-ent-wrap" style="display:none">
@@ -431,6 +441,13 @@
       <div class="form-group"><label class="form-label" for="mdf-peso">Peso padrão (esforço)
           <span class="muted" style="font-weight:400">— 1 = padrão; 8 = pesa 8× mais no avanço</span></label>
         <input class="form-input" id="mdf-peso" inputmode="decimal" value="1"></div>
+      <div class="g2">
+        <div class="form-group"><label class="form-label" for="mdf-natureza">O que este entregável é</label>
+          <select class="form-input" id="mdf-natureza" onchange="mdfNaturezaChange()"></select></div>
+        <div class="form-group" id="mdf-alvo-wrap"><label class="form-label" for="mdf-alvo">É o documento</label>
+          <select class="form-input" id="mdf-alvo"></select></div>
+      </div>
+      <p class="pf-equip-hint" id="mdf-nat-hint"></p>
       <div class="modal-footer"><button class="btn btn-ghost" onclick="fecharModeloForm()">Cancelar</button><button class="btn btn-primary" onclick="salvarModeloForm()">Salvar</button></div>
     </div>
   </div>

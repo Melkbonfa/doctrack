@@ -6,7 +6,7 @@
 
 # Referência da API
 
-300 rotas registradas: **167** de API (`/api/...`) e **133** de página.
+305 rotas registradas: **172** de API (`/api/...`) e **133** de página.
 
 A coluna **Acesso** é lida dos decorators no fonte:
 
@@ -157,6 +157,7 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `PUT` | `/api/categorias-entregavel/ordem` | admin, gestor | Corpo: {"ids": [...]} com TODAS as categorias, na nova ordem. |
 | `DELETE` | `/api/entregaveis/<int:eid>` | admin, gestor |  |
 | `PUT` | `/api/entregaveis/<int:eid>` | admin, gestor, tecnico |  |
+| `GET` | `/api/entregaveis/<int:eid>/artefato` | admin, gestor, tecnico | O artefato de um entregável, para o popover aberto de fora do modal do |
 | `GET` | `/api/entregaveis/<int:eid>/historico` | admin, gestor, tecnico |  |
 | `GET` | `/api/entregaveis/export` | admin, gestor |  |
 | `GET` | `/api/entregaveis/responsaveis` | admin, gestor, tecnico | Usuários atribuíveis a um entregável (picker do front). |
@@ -184,7 +185,11 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `DELETE` | `/api/projetos/<int:pid>/mensal/<competencia>` | admin, gestor |  |
 | `GET` | `/api/projetos/<int:pid>/mudancas-modelo` | admin, gestor | Aplicações de modelo que mexeram neste projeto, com o que mudou nele. |
 | `POST` | `/api/projetos/<int:pid>/restaurar` | admin, gestor |  |
+| `GET` | `/api/projetos/<int:pid>/vinculo-previa` | admin, gestor | O que muda nos entregáveis se o projeto passar a apontar para outro |
 | `GET` | `/api/projetos/alertas` | admin, gestor, tecnico | Fatos acionáveis derivados do que já está no banco. |
+| `GET` | `/api/projetos/equipamentos-opcoes` | admin, gestor | Equipamentos para o campo do formulário. O de mesmo SKU vem primeiro. |
+| `GET` | `/api/projetos/naturezas` | admin, gestor, tecnico |  |
+| `GET` | `/api/projetos/por-documento/<int:doc_id>` | admin, gestor, tecnico | O caminho de volta: de que entregável (de que projeto) este documento é. |
 | `GET` | `/api/tipos-projeto` | admin, gestor, tecnico | Tipos cadastrados + quanto cada um é usado (projetos, inclusive |
 | `POST` | `/api/tipos-projeto` | admin, gestor | Cria um tipo. `copiar_de` (opcional) clona o modelo de entregáveis de um |
 | `DELETE` | `/api/tipos-projeto/<int:tid>` | admin, gestor | Exclui o tipo e o modelo de entregáveis dele. Recusa enquanto houver |

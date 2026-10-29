@@ -208,6 +208,9 @@ Fase 0.
   A área no modelo, que entra na Fase 1, já é a base para isso.
 - Os "outros pontos sobre essa janela" que o André vai trazer.
 - Um card de portfólio no hub principal para quem tem mais de uma área.
-- Ligar projeto PDR a produto ou KIT do módulo PDR, como hoje o projeto se liga
-  a equipamento e missão.
+- Ligar projeto PDR a produto ou KIT do módulo PDR. (Este texto dizia "como hoje
+  o projeto se liga a equipamento e missão", o que não era verdade no código; a
+  ligação com equipamento chegou depois — ver
+  [ESTUDO_ligacoes_entregaveis.md](ESTUDO_ligacoes_entregaveis.md), onda F para
+  o PDR.)
 - Um eixo regulatório (RUO/IVD) separado do modelo.

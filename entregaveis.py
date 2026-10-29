@@ -64,10 +64,11 @@ from models import (db, Projeto, Entregavel, EntregavelHistorico, ProjetoMensal,
                     CategoriaEntregavel, User, MudancaModelo, MudancaModeloItem,
                     CATEGORIA_ENTREGAVEL_MAX, STATUS_ENTREGAVEL, MOSCOW,
                     TIPO_PROJETO_MAX, STATUS_PROJETO, STATUS_PROJETO_ABERTO,
-                    AREA_PROJETO_LEGADO, _parse_iso)
+                    AREA_PROJETO_LEGADO, _parse_iso, Equipamento, Documento)
 from areas import AREAS, AREA_SLUGS
 from auth import require_role, get_client_ip
 import modelo_sync
+import vinculos
 
 entregaveis_bp = Blueprint("entregaveis", __name__)
 
@@ -385,6 +386,46 @@ def _entregaveis_do_payload(itens, tipo):
                       .order_by(ModeloEntregavel.ordem, ModeloEntregavel.id).all())]
 
 
+def _aplicar_equipamento(p, data, email):
+    """Liga, cria ou desliga o equipamento do projeto a partir do corpo.
+    (mudou, resposta_de_erro). NÃO comita. Ver vinculos.py."""
+    criar = bool(data.get("criar_equipamento"))
+    if not criar and "equipamento_id" not in data:
+        return False, None
+    novo = data.get("equipamento_id")
+    if (criar or novo) and vinculos.area_do_projeto(p) != "pde":
+        return False, (jsonify({"erro": "Só projetos da área PDE se ligam a um equipamento"}), 400)
+    if criar:
+        from servidor import sku_duplicado          # import tardio: servidor importa este
+        dup = sku_duplicado(p.sku) if (p.sku or "").strip() else None
+        if dup:
+            return False, (jsonify({
+                "erro": f'Já existe o equipamento "{dup.nome}" com o SKU {dup.sku}. '
+                        f'Ligue o projeto a ele em vez de criar outro.',
+                "sku_duplicado": {"id": dup.id, "nome": dup.nome, "sku": dup.sku or ""}}), 409)
+        equip = vinculos.criar_equipamento_para(p, email)
+    elif novo not in (None, "", 0):
+        try:
+            equip = db.session.get(Equipamento, int(novo))
+        except (TypeError, ValueError):
+            return False, (jsonify({"erro": "equipamento_id inválido"}), 400)
+        if equip is None or not equip.ativo:
+            return False, (jsonify({"erro": "Equipamento não encontrado"}), 404)
+    else:
+        equip = None
+    if (equip.id if equip else None) == p.equipamento_id:
+        return False, None
+    p.equipamento = equip
+    p.equipamento_id = equip.id if equip else None
+    db.session.flush()
+    return True, None
+
+
+def _publicar_espelhos(espelhos, email):
+    for e, antigo in espelhos:
+        publicar_entregavel(e, email, antigo)
+
+
 @entregaveis_bp.route("/api/projetos", methods=["POST"])
 @require_role("admin", "gestor")
 def criar_projeto():
@@ -476,6 +517,13 @@ def criar_projeto():
         db.session.flush()
         _aplicar_responsaveis(e, it.get("responsaveis_ids"))
 
+    # O produto do projeto: escolhido ou criado agora (com os 12 documentos).
+    _, erro = _aplicar_equipamento(p, data, email)
+    if erro:
+        db.session.rollback()
+        return erro
+    espelhos = vinculos.sincronizar_projeto(p, email)
+
     # Linha de base v1 + primeira foto: o projeto já nasce com histórico.
     p.registrar_baseline(email, motivo="Linha de base inicial")
     p.registrar_snapshot()
@@ -483,6 +531,7 @@ def criar_projeto():
 
     _emit("PROJETO_CREATED", {"projeto": p.to_dict(), "projeto_id": p.id}, email,
           entidade=f"Projeto:{p.nome}")
+    _publicar_espelhos(espelhos, email)
     return jsonify({"projeto": p.to_dict()}), 201
 
 
@@ -497,8 +546,12 @@ def detalhe_projeto(pid):
 
     # Abas na ordem do cadastro; categoria fora dele (legado) vai para o fim.
     grupos = {c: [] for c in _categorias()}
+    modelos = vinculos.modelos_por_chave(e.modelo_chave for e in p.entregaveis)
     for e in p.entregaveis:
-        grupos.setdefault(e.categoria, []).append(e.to_dict())
+        de = e.to_dict()
+        de["natureza"], de["alvo"] = vinculos.natureza_alvo(e, modelos)
+        de["artefato"] = vinculos.artefato_do(e, modelos)
+        grupos.setdefault(e.categoria, []).append(de)
     categorias = [{"categoria": c, "entregaveis": v} for c, v in grupos.items() if v]
     d = p.to_dict(com_pmo=True, com_financeiro=pode_ver_financeiro(role))
     d["categorias"] = categorias
@@ -554,7 +607,14 @@ def editar_projeto(pid):
             return jsonify({"erro": "orçamento inválido"}), 400
         novos["orcamento"] = orc
 
-    # 2) APLICA
+    # 2) APLICA — o equipamento primeiro: é a única parte que ainda pode recusar.
+    equip_antes = p.equipamento.nome if p.equipamento else ""
+    mudou_equip, erro = _aplicar_equipamento(p, data, email)
+    if erro:
+        db.session.rollback()
+        return erro
+    if mudou_equip:
+        mudancas.append(("equipamento", equip_antes, p.equipamento.nome if p.equipamento else ""))
     for campo, novo in novos.items():
         antigo = getattr(p, campo)
         antigo = antigo if campo == "orcamento" else (antigo or "")
@@ -574,9 +634,13 @@ def editar_projeto(pid):
             or f"Replanejamento ({', '.join(mudou_baseline)})"
         baseline = p.registrar_baseline(email, motivo=motivo)
 
+    # Equipamento novo, ou início do projeto mexido (muda o ciclo): o documento
+    # manda de novo. Barato — só os entregáveis de natureza documento consultam.
+    espelhos = vinculos.sincronizar_projeto(p, email)
     p.registrar_snapshot()
     db.session.commit()
 
+    _publicar_espelhos(espelhos, email)
     for campo, antigo, novo in mudancas:
         _emit("PROJETO_UPDATED", {"projeto_id": p.id}, email, campo=campo,
               antigo=str(antigo), novo=str(novo), entidade=f"Projeto:{p.nome}")
@@ -856,7 +920,7 @@ def efeitos_status(e, novo, hoje_iso):
         e.data_inicio = hoje_iso
 
 
-def aplicar_status_entregavel(e, novo, email):
+def aplicar_status_entregavel(e, novo, email, percentual=None):
     """Troca o status do entregável pelo mesmo caminho da tela. NÃO comita.
 
     Usado pelo fluxo de revisão (fluxos/routes.py). Grava a transição em
@@ -867,6 +931,8 @@ def aplicar_status_entregavel(e, novo, email):
     status_antigo, pct_antigo = e.status, e.percentual
     e.status = novo
     efeitos_status(e, novo, datetime.now().strftime("%Y-%m-%d"))
+    if novo == "em_progresso" and percentual is not None:
+        e.percentual = percentual       # o espelho do documento traz o % pela etapa
     if e.status != status_antigo or e.percentual != pct_antigo:
         db.session.add(EntregavelHistorico(
             entregavel_id=e.id, status_antigo=status_antigo or "",
@@ -910,13 +976,36 @@ def atualizar_entregavel(eid):
         if not _responsavel_por(e, user):
             return jsonify({"erro": "Você não é responsável por este entregável"}), 403
         proibidos = {"responsaveis", "responsaveis_ids", "peso",
-                     "data_inicio_prev", "data_fim_prev"}
+                     "data_inicio_prev", "data_fim_prev", "natureza", "alvo"}
         if proibidos & set(data):
             return jsonify({"erro": "Perfil técnico só pode alterar status e percentual"}), 403
 
     status_antigo, pct_antigo = e.status, e.percentual
     mudancas = []
     hoje_iso = datetime.now().strftime("%Y-%m-%d")
+
+    # Natureza própria (gestão): "nenhuma" desliga o vínculo herdado do modelo.
+    if "natureza" in data or "alvo" in data:
+        nat, alvo, err = vinculos.validar_natureza_alvo(
+            data.get("natureza", e.natureza), data.get("alvo", e.alvo), no_entregavel=True)
+        if err:
+            return jsonify({"erro": err}), 400
+        if (nat, alvo) != ((e.natureza or ""), (e.alvo or "")):
+            mudancas.append(("natureza", f"{e.natureza}/{e.alvo}", f"{nat}/{alvo}"))
+            e.natureza, e.alvo = nat, alvo
+
+    # Ligado a um documento, o status vem de lá: mudar aqui criaria duas
+    # verdades. Reenviar o mesmo valor (o popover manda tudo) passa.
+    docs = vinculos.documentos_do(e)
+    if docs:
+        quer_status = "status" in data and (data.get("status") or "").strip() != e.status
+        quer_pct = ("percentual" in data and e.status == "em_progresso"
+                    and str(data.get("percentual")) != str(e.percentual))
+        if quer_status or quer_pct:
+            nomes = ", ".join(d.tipo_doc_label or d.documento for d in docs[:2])
+            return jsonify({"erro": f"O status deste entregável vem do documento ({nomes}). "
+                                    "Mude no documento — ou desvincule o entregável dele.",
+                            "documentos": [d.id for d in docs]}), 409
 
     # datas explícitas primeiro (aceita ISO yyyy-mm-dd ou ""), para que os
     # autopreenchimentos abaixo respeitem o que o usuário informou.
@@ -983,6 +1072,7 @@ def atualizar_entregavel(eid):
 
     e.atualizado_por = email
     e.atualizado_em = datetime.now()
+    espelho = vinculos.sincronizar_entregavel(e, email)    # natureza recém-trocada
     if e.projeto is not None:
         e.projeto.registrar_snapshot()
     db.session.commit()
@@ -1430,6 +1520,9 @@ def adicionar_modelo():
     categoria, err = _categoria_do_payload(data.get("categoria"), _categorias())
     if err:
         return jsonify({"erro": err}), 400
+    natureza, alvo, err = vinculos.validar_natureza_alvo(data.get("natureza"), data.get("alvo"))
+    if err:
+        return jsonify({"erro": err}), 400
     ult = (ModeloEntregavel.query.filter_by(tipo_projeto=tipo_projeto)
            .order_by(ModeloEntregavel.ordem.desc()).first())
     m = ModeloEntregavel(
@@ -1438,6 +1531,7 @@ def adicionar_modelo():
         tipo=tipo,
         peso=peso,
         responsavel_padrao=(data.get("responsavel_padrao") or "").strip(),
+        natureza=natureza, alvo=alvo,
         ordem=((ult.ordem + 1) if ult else 0))
     db.session.add(m)
     db.session.commit()
@@ -1498,7 +1592,24 @@ def editar_modelo(mid):
             m.ordem = int(data.get("ordem"))
         except (TypeError, ValueError):
             return jsonify({"erro": "ordem deve ser número"}), 400
+    espelhos = []
+    if "natureza" in data or "alvo" in data:
+        natureza, alvo, err = vinculos.validar_natureza_alvo(
+            data.get("natureza", m.natureza), data.get("alvo", m.alvo))
+        if err:
+            return jsonify({"erro": err}), 400
+        if (natureza, alvo) != ((m.natureza or ""), (m.alvo or "")):
+            m.natureza, m.alvo = natureza, alvo
+            # O vínculo é calculado: vale na hora para todo projeto deste modelo
+            # que já tem equipamento.
+            for e in Entregavel.query.filter_by(modelo_chave=m.chave).all():
+                mudou, antigo = vinculos.sincronizar_entregavel(e, get_jwt_identity())
+                if mudou:
+                    espelhos.append((e, antigo))
+            for p in {e.projeto for e, _ in espelhos if e.projeto}:
+                p.registrar_snapshot()
     db.session.commit()
+    _publicar_espelhos(espelhos, get_jwt_identity())
     _emit("PROJETO_UPDATED", {"modelo": m.to_dict()}, get_jwt_identity(),
           entidade=f"Modelo {m.tipo_projeto} · {m.tipo}", campo="modelo_editado")
     return jsonify({"modelo": m.to_dict()})
@@ -1555,7 +1666,16 @@ def aplicar_propagacao():
     except modelo_sync.ErroPropagacao as e:
         db.session.rollback()
         return jsonify({"erro": e.mensagem}), e.status
+    espelhos = []
+    for pid in (data.get("projetos") or {}):
+        try:
+            p = db.session.get(Projeto, int(pid))
+        except (TypeError, ValueError):
+            p = None
+        if p is not None:
+            espelhos += vinculos.sincronizar_projeto(p, email)   # itens criados agora
     db.session.commit()
+    _publicar_espelhos(espelhos, email)
     d = mud.to_dict()
     _emit("PROJETO_UPDATED", {"mudanca_modelo": d}, email,
           entidade=f"Modelo {tipo}", campo="modelo_aplicado",
@@ -1606,6 +1726,67 @@ def mudancas_modelo_do_projeto(pid):
 
 
 # ── RESUMO ───────────────────────────────────────────────────────────────────
+
+# ── LIGAÇÕES: projeto ↔ equipamento ↔ documento (vinculos.py) ─────────────────
+
+@entregaveis_bp.route("/api/projetos/naturezas", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def listar_naturezas():
+    return jsonify({"naturezas": [{"chave": k, "rotulo": r} for k, r in vinculos.NATUREZAS],
+                    "alvos_documento": [{"chave": k, "rotulo": r}
+                                        for k, r in vinculos.alvos_documento()],
+                    "sem_vinculo": vinculos.SEM_VINCULO})
+
+
+@entregaveis_bp.route("/api/projetos/equipamentos-opcoes", methods=["GET"])
+@require_role("admin", "gestor")
+def opcoes_equipamento():
+    """Equipamentos para o campo do formulário. O de mesmo SKU vem primeiro."""
+    q = (request.args.get("q") or "").strip().lower()
+    sku = (request.args.get("sku") or "").strip().lower()
+    equips = Equipamento.query.filter_by(ativo=True).order_by(Equipamento.nome).all()
+    if q:
+        equips = [x for x in equips if q in (x.nome or "").lower() or q in (x.sku or "").lower()]
+    usados = vinculos.projetos_por_equipamento([x.id for x in equips])
+    out = [{"id": x.id, "nome": x.nome, "sku": x.sku or "", "fabricante": x.fabricante or "",
+            "mesmo_sku": bool(sku) and (x.sku or "").strip().lower() == sku,
+            "projetos": [p["nome"] for p in usados.get(x.id, [])]} for x in equips]
+    out.sort(key=lambda o: (not o["mesmo_sku"], o["nome"].lower()))
+    return jsonify({"opcoes": out[:300]})
+
+
+@entregaveis_bp.route("/api/projetos/<int:pid>/vinculo-previa", methods=["GET"])
+@require_role("admin", "gestor")
+def previa_vinculo(pid):
+    """O que muda nos entregáveis se o projeto passar a apontar para outro
+    equipamento. A tela mostra antes de gravar: o documento passa a mandar."""
+    p = _get_projeto(pid)
+    eid = request.args.get("equipamento_id", type=int)
+    return jsonify({"entregaveis": vinculos.previa_vinculo(p, eid)})
+
+
+@entregaveis_bp.route("/api/entregaveis/<int:eid>/artefato", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def artefato_do_entregavel(eid):
+    """O artefato de um entregável, para o popover aberto de fora do modal do
+    projeto (a ficha do Dashboard lista entregáveis sem calcular vínculos)."""
+    e = Entregavel.query.get_or_404(eid)
+    return jsonify({"artefato": vinculos.artefato_do(e)})
+
+
+@entregaveis_bp.route("/api/projetos/por-documento/<int:doc_id>", methods=["GET"])
+@require_role("admin", "gestor", "tecnico")
+def projetos_do_documento(doc_id):
+    """O caminho de volta: de que entregável (de que projeto) este documento é."""
+    doc = db.session.get(Documento, doc_id)
+    if doc is None or not doc.ativo:
+        return jsonify({"erro": "Documento não encontrado"}), 404
+    return jsonify({"vinculos": [
+        {"projeto_id": p.id, "projeto_nome": p.nome, "entregavel_id": e.id,
+         "entregavel_tipo": e.tipo, "status": e.status,
+         "link": f"/projetos?projeto={p.id}&entregavel={e.id}"}
+        for p, e in vinculos.entregaveis_do_documento(doc)]})
+
 
 @entregaveis_bp.route("/api/entregaveis/resumo", methods=["GET"])
 @require_role("admin", "gestor", "tecnico")

@@ -60,7 +60,10 @@ async function api(url, opts={}){
   }
   if (!res.ok){
     const body = await res.json().catch(()=>({}));
-    throw new Error(body.erro || ("HTTP " + res.status));
+    const err = new Error(body.erro || ("HTTP " + res.status));
+    err.corpo = body;          // ex.: sku_duplicado, para a tela oferecer o equipamento existente
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -1417,6 +1420,8 @@ async function abrirProjModal(id){
   const partes = [];
   partes.push(modeloTagHtml(p));
   if (p.sku) partes.push("SKU " + esc(p.sku));
+  if (p.equipamento)
+    partes.push(`Equipamento <a class="proj-equip-link" href="/equipamentos?equip=${p.equipamento.id}" title="Abrir o card do equipamento">${esc(p.equipamento.nome)} ↗</a>`);
   if (p.lancamento) partes.push("Lançamento " + esc(fmtLanc(p.lancamento)));
   const periodo = periodoProjeto(p);
   if (periodo) partes.push("Prazo " + esc(periodo));
@@ -1477,12 +1482,71 @@ function _entregavelDoProjetoAberto(eid){
 
 /* Depois de uma ação no fluxo o status do entregável pode ter mudado (iniciar →
    em progresso, aprovar → concluído): recarrega o modal e o popover aberto. */
+/* O entregável que É um documento mostra o documento, trava o status (que vem
+   de lá) e usa o fluxo DO DOCUMENTO — um trabalho, um fluxo, um sino. Os
+   checklists são 4 documentos com 4 fluxos: o popover lista e leva a cada um. */
+async function _pintarArtefatoPop(e){
+  const host = document.getElementById("pop-artefato");
+  let art = e.artefato;
+  if (art === undefined){          // aberto pela ficha do Dashboard: busca à parte
+    try{ art = (await api(`/api/entregaveis/${e.id}/artefato`)).artefato; }catch(_){ art = null; }
+    if (!_popEntregavel || _popEntregavel.id !== e.id) return;
+    _popEntregavel.artefato = art;
+  }
+  const docs = (art && art.documentos) || [];
+  const ligado = docs.length > 0;
+  document.getElementById("pop-status").disabled = ligado;
+  document.getElementById("pop-pct").disabled = ligado;
+  if (host){
+    host.hidden = !art;
+    if (art && !ligado){
+      host.innerHTML = `<div class="pop-art-tit">📄 Deveria ser o documento <b>${esc(art.alvo_rotulo)}</b>, mas o equipamento não tem esse documento ativo.</div>`;
+    } else if (ligado){
+      const eq = art.equipamento;
+      host.innerHTML = `
+        <div class="pop-art-tit">📄 Este entregável é ${docs.length > 1 ? "os documentos" : "o documento"}
+          <b>${esc(art.alvo_rotulo)}</b>${eq ? ` de <a href="/equipamentos?equip=${eq.id}">${esc(eq.nome)} ↗</a>` : ""}.
+          O status vem de lá.</div>
+        ${docs.map(d => `<div class="pop-art-doc">
+          <a href="${esc(d.link)}" title="Abrir no Documentos">${esc(d.titulo)} ↗</a>
+          <span class="sg-badge">${esc(d.status)}${d.aplicavel ? "" : " · N/A"}</span>
+          ${d.antes_do_projeto ? `<div class="pop-art-ciclo">Concluído ${d.concluido_em ? "em " + esc(d.concluido_em) : ""} antes do início deste projeto — para este projeto conta como pendente. Inicie um fluxo de revisão para o novo ciclo.</div>` : ""}
+        </div>`).join("")}
+        ${canEditProj() ? `<button type="button" class="btn btn-ghost btn-sm pop-art-desv" onclick="desvincularEntregavel(${e.id})" title="O entregável volta a ter status próprio; o documento não muda">Desvincular do documento</button>` : ""}`;
+    } else {
+      host.innerHTML = "";
+    }
+  }
+  const fx = document.getElementById("pop-fluxo");
+  if (!fx || !window.DT_FLUXO) return;
+  if (docs.length === 1){
+    window.DT_FLUXO.montar(fx, {ref_tipo: "documento", ref_id: docs[0].id,
+                                aoMudar: () => _aposFluxoEntregavel(e.id)});
+  } else if (docs.length > 1){
+    window.DT_FLUXO.limpar(fx, `<div class="fx-vazio">Cada checklist tem o seu fluxo de revisão — abra pelo link do documento acima.</div>`);
+  } else {
+    window.DT_FLUXO.montar(fx, {ref_tipo: "entregavel", ref_id: e.id,
+                                aoMudar: () => _aposFluxoEntregavel(e.id)});
+  }
+}
+
+async function desvincularEntregavel(eid){
+  if (!(await confirmar("Desvincular este entregável do documento? Ele volta a ter status próprio neste projeto; o documento não muda.",
+        {title: "Desvincular do documento", okLabel: "Desvincular", danger: false}))) return;
+  try{
+    await api("/api/entregaveis/" + eid, {method: "PUT", body: JSON.stringify({natureza: "nenhuma"})});
+    toast("Entregável desvinculado");
+    await _aposFluxoEntregavel(eid);
+  }catch(err){ toast(err.message, true); }
+}
+
 async function _aposFluxoEntregavel(eid){
   try{
     if (_projAtualId) await abrirProjModal(_projAtualId);
     const e = _entregavelDoProjetoAberto(eid);
     if (!e || !_popEntregavel || _popEntregavel.id !== eid) return;
     _popEntregavel = e;
+    _pintarArtefatoPop(e);
     document.getElementById("pop-status").value = e.status;
     document.getElementById("pop-pct").value = e.percentual ?? 0;
     document.getElementById("pop-pct-val").textContent = (e.percentual ?? 0) + "%";
@@ -1685,8 +1749,11 @@ function projRowHtml(e, ordenavel){
   const alca = ordenavel
     ? `<span class="ent-row-alca" title="Arraste para mudar a ordem" aria-hidden="true"><svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><circle cx="2" cy="2" r="1.3"/><circle cx="6" cy="2" r="1.3"/><circle cx="2" cy="7" r="1.3"/><circle cx="6" cy="7" r="1.3"/><circle cx="2" cy="12" r="1.3"/><circle cx="6" cy="12" r="1.3"/></svg></span>`
     : "";
+  const doc = (e.artefato && e.artefato.documentos && e.artefato.documentos.length)
+    ? `<span class="ent-doc" title="Este entregável é o documento ${esc(e.artefato.alvo_rotulo)} — o status vem de lá">📄</span>`
+    : "";
   return `<div class="ent-row" data-id="${e.id}" onclick='abrirPop(${_attrJson(e)})'>
-    <span class="ent-row-nome">${alca}${esc(e.tipo)}</span>
+    <span class="ent-row-nome">${alca}${doc}${esc(e.tipo)}</span>
     <span class="quem">${esc(quem)} ${peso}${atraso} <span class="sg-badge ${badgeCls}"${extra}>${statusLabel}</span>${delBtn}</span>
   </div>`;
 }
@@ -1965,6 +2032,7 @@ function pfRemoveEntregavel(i){
 
 /* Ao escolher o tipo na criação: carrega a lista-padrão do modelo (substitui a atual). */
 async function onTipoProjetoChange(){
+  pfCarregarEquip(_formProjId ? _projDetalheAtual : null);   // só o PDE tem equipamento
   if (_formProjId) return;   // edição não recarrega template
   const tipo = document.getElementById("pf-tipo").value;
   const hint = document.getElementById("pf-ent-hint");
@@ -1986,8 +2054,93 @@ async function onTipoProjetoChange(){
   }catch(err){ toast(err.message, true); }
 }
 
+/* ── Equipamento do projeto (vinculos.py) ──
+   Só PDE. Na criação o padrão é criar o equipamento com o nome e o SKU do
+   projeto — ele nasce com os 12 documentos —, a menos que já exista um com o
+   mesmo SKU, que vem escolhido. Trocar depois mostra antes o que muda nos
+   entregáveis, porque o documento passa a mandar no status deles. */
+let _pfEquipOpcoes = [], _pfEquipTocado = false, _pfEquipOriginal = null;
+const _PF_NOVO = "__novo";
+
+function _pfAreaPde(){
+  const tipo = document.getElementById("pf-tipo").value;
+  const t = _tipoInfo(tipo);
+  return t ? t.area === "pde" : (_formProjId ? _areaLegado === "pde" : false);
+}
+
+async function pfCarregarEquip(p){
+  const wrap = document.getElementById("pf-equip-wrap");
+  if (!wrap) return;
+  if (!_pfAreaPde() || !canEditProj()){ wrap.style.display = "none"; return; }
+  wrap.style.display = "";
+  const sku = document.getElementById("pf-sku").value.trim();
+  try{
+    _pfEquipOpcoes = (await api("/api/projetos/equipamentos-opcoes?sku=" + encodeURIComponent(sku))).opcoes || [];
+  }catch(err){ _pfEquipOpcoes = []; }
+  const sel = document.getElementById("pf-equip");
+  const op = o => `<option value="${o.id}">${esc(o.nome)}${o.sku ? " · " + esc(o.sku) : ""}${o.mesmo_sku ? " ★ mesmo SKU" : ""}${o.projetos.length ? " — projeto: " + esc(o.projetos.join(", ")) : ""}</option>`;
+  sel.innerHTML = `<option value="${_PF_NOVO}">Criar equipamento novo (nome e SKU do projeto)</option>
+    <option value="">Sem equipamento</option>` + _pfEquipOpcoes.map(op).join("");
+  if (p){
+    _pfEquipOriginal = p.equipamento_id || "";
+    sel.value = String(_pfEquipOriginal);
+  } else if (!_pfEquipTocado){
+    const mesmo = _pfEquipOpcoes.find(o => o.mesmo_sku);
+    sel.value = mesmo ? String(mesmo.id) : _PF_NOVO;
+  }
+  pfEquipChange(false);
+}
+
+/* SKU digitado no projeto novo: refaz a sugestão (o de mesmo SKU vem escolhido),
+   a menos que a pessoa já tenha escolhido o equipamento à mão. */
+function pfSkuChange(){
+  if (!_formProjId && !_pfEquipTocado) pfCarregarEquip(null);
+}
+
+function pfEquipChange(manual){
+  if (manual) _pfEquipTocado = true;
+  const v = document.getElementById("pf-equip").value;
+  const o = _pfEquipOpcoes.find(x => String(x.id) === v);
+  const hint = document.getElementById("pf-equip-hint");
+  hint.textContent = v === _PF_NOVO
+    ? "Nasce em Equipamentos e no Documentos com os 12 documentos. Os entregáveis que são documentos passam a seguir o status deles."
+    : o ? (o.mesmo_sku ? "Já existe um equipamento com este SKU — o projeto fica ligado a ele." :
+           "Os entregáveis que são documentos passam a seguir os documentos deste equipamento.")
+    : "Sem equipamento, nenhum entregável fica ligado a documento.";
+}
+
+/* Corpo da ligação para o POST/PUT, ou null se nada mudou. */
+function _pfCorpoEquip(){
+  const wrap = document.getElementById("pf-equip-wrap");
+  if (!wrap || wrap.style.display === "none") return null;
+  const v = document.getElementById("pf-equip").value;
+  if (_formProjId && v === String(_pfEquipOriginal || "")) return null;
+  if (v === _PF_NOVO) return {criar_equipamento: true};
+  return {equipamento_id: v ? Number(v) : null};
+}
+
+/* Na edição, antes de trocar: o que muda nos entregáveis. */
+async function _pfConfirmaTrocaEquip(corpo){
+  if (!_formProjId || !corpo) return true;
+  if (corpo.criar_equipamento)
+    return confirmar("Criar um equipamento novo para este projeto? Os entregáveis que são documentos passam a seguir os documentos dele, que nascem todos em Elaborar.",
+                     {title: "Equipamento do projeto", okLabel: "Criar e ligar", danger: false});
+  let previa = [];
+  try{
+    previa = (await api(`/api/projetos/${_formProjId}/vinculo-previa?equipamento_id=${corpo.equipamento_id || ""}`)).entregaveis || [];
+  }catch(err){ toast(err.message, true); return false; }
+  const muda = previa.filter(x => x.muda);
+  if (!muda.length) return true;
+  const rot = s => ({na: "N/A", pendente: "pendente", em_progresso: "em progresso", concluido: "concluído"})[s] || s;
+  const linhas = muda.map(x => `• ${x.tipo}: ${rot(x.antes.status)} → ${rot(x.depois.status)}${x.antes_do_projeto ? " (documento concluído antes do início do projeto)" : ""}`).join("\n");
+  return confirmar(`Ao ligar, o documento passa a mandar no status destes entregáveis:\n\n${linhas}`,
+                   {title: "O que muda nos entregáveis", okLabel: "Ligar mesmo assim", danger: false});
+}
+
 function abrirFormProjeto(){
   _formProjId = null;
+  _pfEquipTocado = false;
+  _pfEquipOriginal = null;
   document.getElementById("pf-title").textContent = "Novo projeto";
   _preencherForm(null);
   document.getElementById("pf-arquivar").style.display = "none";
@@ -2002,6 +2155,7 @@ function abrirFormProjeto(){
     _fillTipoSelect(_tipoInfo(sugerido).nome);
     onTipoProjetoChange();
   }
+  pfCarregarEquip(null);
   _abrirModal("modal-proj-form");
   setTimeout(() => document.getElementById("pf-nome").focus(), 60);
 }
@@ -2016,6 +2170,7 @@ function editarProjetoAtual(){
   // Na edição não mexemos na lista de entregáveis (isso é feito no detalhe)
   document.getElementById("pf-tipo").disabled = false;
   document.getElementById("pf-ent-wrap").style.display = "none";
+  pfCarregarEquip(p);
   _abrirModal("modal-proj-form");
 }
 
@@ -2056,6 +2211,9 @@ async function salvarFormProjeto(){
   };
   const motivo = (document.getElementById("pf-motivo").value || "").trim();
   if (motivo) payload.motivo_replanejamento = motivo;
+  const corpoEquip = _pfCorpoEquip();
+  if (corpoEquip) Object.assign(payload, corpoEquip);
+  if (!(await _pfConfirmaTrocaEquip(corpoEquip))) return;
   try{
     if (_formProjId){
       await api("/api/projetos/" + _formProjId, { method: "PUT", body: JSON.stringify(payload) });
@@ -2068,7 +2226,17 @@ async function salvarFormProjeto(){
     fecharFormProjeto();
     fecharProjModal();
     await _recarregarTudo();
-  }catch(err){ toast(err.message, true); }
+  }catch(err){
+    toast(err.message, true);
+    // SKU já usado: deixa o existente escolhido — o segundo clique liga a ele.
+    const dup = err.corpo && err.corpo.sku_duplicado;
+    if (dup){
+      await pfCarregarEquip(null);
+      document.getElementById("pf-equip").value = String(dup.id);
+      _pfEquipTocado = true;
+      pfEquipChange(false);
+    }
+  }
 }
 
 async function arquivarProjetoAtual(){
@@ -2154,8 +2322,34 @@ function _tipoAtual(){ return _tipos.find(t => t.nome === _modelosTipoAtual) || 
 
 function _plural(n, um, varios){ return `${n} ${n === 1 ? um : varios}`; }
 
+let _naturezas = null;
+async function loadNaturezas(){
+  if (!_naturezas) _naturezas = await api("/api/projetos/naturezas");
+  return _naturezas;
+}
+
+function _rotuloNatureza(m){
+  if (!m.natureza || !_naturezas) return "";
+  if (m.natureza === "documento"){
+    const a = _naturezas.alvos_documento.find(x => x.chave === m.alvo);
+    return "📄 " + (a ? a.rotulo : m.alvo);
+  }
+  const n = _naturezas.naturezas.find(x => x.chave === m.natureza);
+  return n ? n.rotulo : m.natureza;
+}
+
+function mdfNaturezaChange(){
+  const nat = document.getElementById("mdf-natureza").value;
+  document.getElementById("mdf-alvo-wrap").style.display = nat === "documento" ? "" : "none";
+  document.getElementById("mdf-nat-hint").textContent = nat === "documento"
+    ? "Nos projetos com equipamento, este entregável passa a ser esse documento: status, fluxo e arquivos vêm de lá. Vale na hora para os projetos já criados."
+    : nat ? "Registrado. Esta natureza ganha ligação própria nas próximas etapas (ver o estudo de ligações)."
+    : "Sem natureza, o entregável tem status próprio no projeto.";
+}
+
 async function loadModelos(){
-  const [data] = await Promise.all([api("/api/modelos"), loadTipos(), loadCategorias()]);
+  const [data] = await Promise.all([api("/api/modelos"), loadTipos(), loadCategorias(),
+                                    loadNaturezas().catch(() => null)]);
   _modelosCache = data.modelos || {};
   // o tipo selecionado pode ter sido renomeado/excluído (inclusive por outra pessoa)
   if (!_tipoAtual()) _modelosTipoAtual = _tipos.length ? _tipos[0].nome : "";
@@ -2323,6 +2517,7 @@ function renderModelos(){
     html += grupos[c].map((m, i) =>
       `<div class="modelos-row">
         <span class="modelos-nome">${esc(m.tipo)}</span>
+        ${m.natureza ? `<span class="modelos-nat" title="O que este entregável é">${esc(_rotuloNatureza(m))}</span>` : ""}
         ${(m.peso != null && m.peso !== 1) ? `<span class="modelos-resp" title="Peso padrão (esforço)">×${m.peso}</span>` : ""}
         <span class="modelos-resp">${esc(m.responsavel_padrao || "—")}</span>
         ${pode ? `<span class="modelos-acts">
@@ -2474,11 +2669,21 @@ async function modeloAdicionar(){
 
 let _modeloEditId = null;
 
-function modeloEditar(mid){
+async function modeloEditar(mid){
   const itens = _modelosCache[_modelosTipoAtual] || [];
   const m = itens.find(x => x.id === mid);
   if (!m) return;
   _modeloEditId = mid;
+  try{
+    const nat = await loadNaturezas();
+    document.getElementById("mdf-natureza").innerHTML =
+      nat.naturezas.map(n => `<option value="${esc(n.chave)}">${esc(n.rotulo)}</option>`).join("");
+    document.getElementById("mdf-alvo").innerHTML =
+      nat.alvos_documento.map(a => `<option value="${esc(a.chave)}">${esc(a.rotulo)}</option>`).join("");
+    document.getElementById("mdf-natureza").value = m.natureza || "";
+    document.getElementById("mdf-alvo").value = m.alvo || "Manual_Usuario";
+  }catch(err){ toast(err.message, true); }
+  mdfNaturezaChange();
   _fillCatSelect("mdf-cat", m.categoria);
   document.getElementById("mdf-nome").value = m.tipo || "";
   document.getElementById("mdf-resp").value = m.responsavel_padrao || "";
@@ -2499,6 +2704,9 @@ async function salvarModeloForm(){
     categoria: document.getElementById("mdf-cat").value || "Produto",
     responsavel_padrao: document.getElementById("mdf-resp").value.trim(),
     peso: document.getElementById("mdf-peso").value,
+    natureza: document.getElementById("mdf-natureza").value,
+    alvo: document.getElementById("mdf-natureza").value === "documento"
+      ? document.getElementById("mdf-alvo").value : "",
   };
   try{
     await api("/api/modelos/" + _modeloEditId, { method: "PUT", body: JSON.stringify(payload) });
@@ -2903,11 +3111,7 @@ function abrirPop(e){
   document.getElementById("pop-hist").innerHTML = "";
   carregarHistoricoPop(e.id);
 
-  const fx = document.getElementById("pop-fluxo");
-  if (fx && window.DT_FLUXO){
-    window.DT_FLUXO.montar(fx, {ref_tipo: "entregavel", ref_id: e.id,
-                                aoMudar: () => _aposFluxoEntregavel(e.id)});
-  }
+  _pintarArtefatoPop(e);
 
   popStatusChange();
   document.getElementById("edit-pop").style.display = "flex";
@@ -2953,6 +3157,11 @@ async function salvarPop(){
   };
   if (payload.status === "em_progresso")
     payload.percentual = parseInt(document.getElementById("pop-pct").value, 10);
+  const art = _popEntregavel.artefato;
+  if (art && art.documentos && art.documentos.length){
+    delete payload.status;          // vem do documento (o servidor recusaria a troca)
+    delete payload.percentual;
+  }
   // Campos de gestão: o backend recusa (403) se vierem de um técnico, então só
   // enviamos quando o perfil pode mesmo alterá-los.
   if (canEditProj()){

@@ -1,6 +1,8 @@
 # Estudo — ligar projetos, entregáveis e o resto do DocTrack
 
-Data: 2026-10-26 · Situação: **estudo para decisão**, nada implementado.
+Data: 2026-10-26 · Situação: **ondas A e B implementadas** (branch
+`feat/projeto-equipamento`, com o **ciclo do projeto** escolhido na decisão 1);
+as demais seguem como proposta.
 Ponto de partida: o branch de fluxos de revisão
 ([spec](../superpowers/specs/2026-10-26-fluxos-revisao-design.md)) e o
 levantamento de ligação entre módulos feito na mesma conversa.

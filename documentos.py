@@ -162,7 +162,25 @@ def aplicar_status_documento(doc, novo, caller):
     _registrar_historico(doc, caller, status_antigo=antigo, status_novo=novo)
     # documento é a fonte da verdade: move os cartões vinculados no kanban
     # (mesma transação; eventos emitidos após o commit)
-    return sincronizar_cartoes_documento(doc, caller)
+    return sincronizar_cartoes_documento(doc, caller) + _espelhar(doc, caller)
+
+
+def _espelhar(doc, caller):
+    """O documento mudou: os entregáveis de projeto que SÃO ele acompanham
+    (vinculos.py). Devolve no formato dos eventos de sync, para sair junto."""
+    import vinculos      # import tardio: vinculos importa entregaveis, que importa models
+    return [("ENTREGAVEL_ESPELHO", {"entregavel": e, "antigo": a})
+            for e, a in vinculos.sincronizar_do_documento(doc, caller)]
+
+
+def _emitir_sync(eventos, caller):
+    """Cartões do kanban pelo Missões; entregáveis espelhados pelo Projetos."""
+    emitir_eventos_sync([ev for ev in eventos if ev[0] != "ENTREGAVEL_ESPELHO"], caller)
+    espelhos = [ev[1] for ev in eventos if ev[0] == "ENTREGAVEL_ESPELHO"]
+    if espelhos:
+        from entregaveis import publicar_entregavel
+        for d in espelhos:
+            publicar_entregavel(d["entregavel"], caller, d["antigo"])
 
 
 def publicar_troca_status(doc, antigo, caller, eventos_sync):
@@ -171,7 +189,7 @@ def publicar_troca_status(doc, antigo, caller, eventos_sync):
     _emit(EventType.DOCUMENT_STATUS_UPDATED,
           {"documento_id": doc.id, "old_value": antigo, "new_value": doc.status, "status_global": doc.status_global, "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
-    emitir_eventos_sync(eventos_sync, caller)
+    _emitir_sync(eventos_sync, caller)
 
 
 def _aplicar_responsaveis(doc, data, caller):
@@ -546,12 +564,13 @@ def update_documento(doc_id):
                              status_novo=doc.status)
     # documento é a fonte da verdade: se o status mudou, move os cartões
     # vinculados no kanban (mesma transação; eventos emitidos após o commit)
-    eventos_sync = sincronizar_cartoes_documento(doc, caller) if status_mudou else []
+    eventos_sync = (sincronizar_cartoes_documento(doc, caller) + _espelhar(doc, caller)
+                    if status_mudou else [])
     db.session.commit()
     _emit(EventType.DOCUMENT_UPDATED,
           {"documento_id": doc.id, "documento": doc.to_dict(), "setor": doc.setor, "equipamento": doc.equipamento},
           caller)
-    emitir_eventos_sync(eventos_sync, caller)
+    _emitir_sync(eventos_sync, caller)
     return jsonify({"mensagem": "Documento atualizado", "documento": doc.to_dict()}), 200
 
 @documentos_bp.route("/api/documentos/<int:doc_id>", methods=["DELETE"])
@@ -622,7 +641,10 @@ def update_aplicabilidade(doc_id):
     _registrar_historico(doc, caller, evento="escopo", aplicavel=novo,
                          status_antigo=doc.status, status_novo=doc.status,
                          motivo=doc.motivo_na_label)
+    # Fora do escopo do equipamento, o entregável que é este documento vira N/A.
+    eventos_sync = _espelhar(doc, caller)
     db.session.commit()
+    _emitir_sync(eventos_sync, caller)
 
     log_action(caller, "UPDATE", entidade=doc.documento, campo="aplicavel",
                antigo="Aplica" if antigo else "N/A",

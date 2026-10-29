@@ -290,7 +290,10 @@ def _membro_ativo(uid):
 def _ao_iniciar(f, alvo, u):
     """Iniciar leva o item para 'em andamento'. Devolve o que publicar depois."""
     if f.ref_tipo == "documento":
-        if alvo.setor in SETORES_SINCRONIZADOS and alvo.status == STATUS_FABRICANTE[0]:
+        # Elaborar → Em andamento; e Concluído → Em andamento: um fluxo novo num
+        # documento pronto é uma revisão (o ciclo do projeto, vinculos.py).
+        if alvo.setor in SETORES_SINCRONIZADOS and alvo.status in (STATUS_FABRICANTE[0],
+                                                                   STATUS_FABRICANTE[-1]):
             from documentos import aplicar_status_documento
             antigo = alvo.status
             return ("documento", alvo, antigo,
@@ -541,7 +544,22 @@ def por_refs():
     visao = _Visao(u)
     fluxos = Fluxo.query.filter(Fluxo.ref_tipo == ref_tipo, Fluxo.ref_id.in_(ids),
                                 Fluxo.status == "andamento").all()
-    return jsonify({"resumos": {str(f.ref_id): _resumo(f) for f in fluxos if visao.fluxo(f)}})
+    resumos = {str(f.ref_id): _resumo(f) for f in fluxos if visao.fluxo(f)}
+    if ref_tipo == "entregavel":
+        # O entregável que É um documento mostra o fluxo do documento.
+        import vinculos
+        doc_de = {}
+        for e in Entregavel.query.filter(Entregavel.id.in_(ids)).all():
+            for d in vinculos.documentos_do(e):
+                doc_de.setdefault(d.id, e.id)
+        if doc_de:
+            for f in Fluxo.query.filter(Fluxo.ref_tipo == "documento",
+                                        Fluxo.ref_id.in_(list(doc_de)),
+                                        Fluxo.status == "andamento").all():
+                chave = str(doc_de[f.ref_id])
+                if chave not in resumos and visao.fluxo(f):
+                    resumos[chave] = _resumo(f)
+    return jsonify({"resumos": resumos})
 
 
 @fluxos_bp.route("/api/em-andamento", methods=["GET"])
@@ -614,6 +632,16 @@ def iniciar():
     if not _Visao(u).alvo(ref_tipo, alvo):
         return negar_acesso(f"iniciar fluxo em {ref_tipo} #{ref_id} fora do alcance",
                             "Você não tem acesso a este item")
+    if ref_tipo == "entregavel":
+        import vinculos
+        docs = vinculos.documentos_do(alvo)
+        if docs:
+            # Um trabalho, um fluxo: o do documento, que o painel do entregável
+            # já mostra. Dois fluxos para a mesma coisa divergiriam.
+            return jsonify({"erro": "Este entregável é o documento "
+                                    f"{docs[0].tipo_doc_label or docs[0].documento}: "
+                                    "o fluxo de revisão é o do documento.",
+                            "documento_id": docs[0].id}), 409
     if ref_tipo == "entregavel" and alvo.status == "na":
         return jsonify({"erro": "Entregável marcado como não se aplica não recebe fluxo"}), 400
     if ref_tipo == "documento" and not alvo.aplicavel:
