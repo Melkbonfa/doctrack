@@ -34,6 +34,20 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
   (o status vem do documento); "Desvincular do documento" devolve o status
   próprio. Trocar o equipamento de um projeto mostra antes o que muda.
 
+### Replay do tempo real respeita as salas
+- **Corrigido** o `replay_request` do Socket.IO e o `GET /api/events/replay`
+  devolviam a trilha de `audit_logs` inteira para qualquer conta autenticada,
+  inclusive o perfil leitura. Quem reconectava recebia os apontamentos de horas
+  dos colegas (que ao vivo só vão para o dono), eventos de documento de setores
+  que não acompanhava e as linhas de auditoria de login, exclusão e acesso
+  negado. Agora o replay entrega só o que a conexão receberia ao vivo, pelo mesmo
+  `_resolve_rooms`; o admin continua recebendo tudo.
+- **Alterado** o pedido de replay leva as salas finas da conexão (`rooms`), e a
+  resposta traz `ate` (até onde o servidor olhou), que o cliente usa para avançar
+  o cursor. `GET /api/events/replay` passa a devolver o mesmo objeto do socket
+  (`since`, `events`, `count`, `ate`) em vez da lista solta, e aceita `?rooms=`.
+  Nenhuma tela usava essa rota.
+
 ### Fluxos de revisão e notificações
 O manual sai da mão da autora para o diagramador e volta para a revisão até ser
 aprovado, e cada um sabe com quem ele está sem perguntar.

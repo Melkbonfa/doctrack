@@ -12,10 +12,11 @@ aviso pessoal por dois motivos:
 
   1. **Quem estava fora não recebe.** O socket entrega a quem está com a tela
      aberta; a pessoa que entra amanhã precisa achar o aviso esperando por ela.
-  2. **O replay vazaria.** `replay_request` (servidor.py) devolve a trilha de
-     `audit_logs` inteira para qualquer conexão, sem filtrar por sala. Um aviso
-     pessoal gravado ali chegaria a quem reconectasse. Por isso a notificação
-     NUNCA passa por `publish_event`: o sino consulta a contagem pela API.
+  2. **Lido e não lido são estado, não evento.** O replay devolve o que a
+     conexão perdeu desde um id — já filtrado pelas salas dela —, mas não sabe o
+     que a pessoa já viu, e cada aviso viraria uma linha de auditoria por pessoa e
+     por passagem. Por isso a notificação NUNCA passa por `publish_event`: o sino
+     consulta a contagem pela API.
 """
 from datetime import datetime
 

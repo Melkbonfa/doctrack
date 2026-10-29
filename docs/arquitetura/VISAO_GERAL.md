@@ -155,8 +155,8 @@ evento para replay. Nenhuma rota deve chamar `socketio.emit()` direto.
 
 O detalhe que faz isso valer a pena é que `audit_logs` é ao mesmo tempo a
 trilha de auditoria e o *event store*: o cliente que ficou offline pede
-`replay_request` com o último id que viu e recebe o que perdeu, sem estado de
-sessão no servidor.
+`replay_request` com o último id que viu e recebe o que perdeu — só o que teria
+recebido ao vivo, pelas mesmas salas —, sem estado de sessão no servidor.
 
 Detalhes em [EVENTOS.md](EVENTOS.md) e
 [ADR-0003](decisoes/ADR-0003-event-bus-e-audit-log.md).

@@ -10,8 +10,8 @@
                      vivo, que não some só porque o aviso foi lido
      Avisos          a caixa de entrada (/api/notificacoes)
 
-   Sem socket, de propósito: o aviso pessoal não passa pelo barramento (o replay
-   devolve audit_logs sem filtro — ver notificacoes/models.py). A contagem é
+   Sem socket, de propósito: o aviso pessoal não passa pelo barramento (lido e
+   não lido são estado da tabela — ver notificacoes/models.py). A contagem é
    consultada ao abrir a página, a cada 30 s, quando a aba volta ao foco e quando
    alguém dispara `dt:notificacoes-atualizar` (o painel do fluxo, depois de uma
    ação). Com aviso novo, o título da aba ganha "(n)" — é o que chama a atenção

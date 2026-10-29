@@ -72,11 +72,12 @@ módulo.
 
 **O aviso pessoal ("é sua vez") não passa pelo barramento.** Os fluxos de
 revisão avisam quem passa a ter a etapa gravando na tabela `notificacoes`, e o
-sino consulta `/api/notificacoes/contagem`. Dois motivos: quem estava fora
-precisa achar o aviso esperando ao entrar, e o `replay_request` devolve a trilha
-de `audit_logs` sem filtrar por sala — um aviso pessoal gravado ali chegaria a
-quem reconectasse. Os eventos `FLUXO_*`, que só dizem que o item andou, seguem
-pelo barramento normalmente.
+sino consulta `/api/notificacoes/contagem`. Quem estava fora precisa achar o aviso
+esperando ao entrar, com o estado de lido e não lido, e isso o barramento não
+guarda: o replay só cobre a janela de reconexão e não sabe o que já foi visto.
+Gravado em `audit_logs`, cada aviso ainda viraria uma linha de auditoria por
+pessoa e por passagem. Os eventos `FLUXO_*`, que só dizem que o item andou,
+seguem pelo barramento normalmente.
 
 ---
 
@@ -102,12 +103,38 @@ Eventos que o cliente envia:
 |---|---|
 | `subscribe` | entra nas rooms pedidas (só prefixos `setor:`, `equipamento:`, `doc:`) |
 | `unsubscribe` | sai das rooms |
-| `replay_request` | pede o que perdeu desde um id (limite de 500 eventos) |
+| `replay_request` | pede o que perdeu desde um id, com as salas finas que tinha (`{since, rooms}`); até 500 eventos |
 | `ping_app` | diagnóstico de conexão |
 | `join_apresentacao` | entra na sala de uma apresentação PDR |
 
 Eventos que o servidor envia: `connected`, `subscribed`, `event`, `replay`,
 `pong_app`, `auth_error`, `sistema_travado`.
+
+### O replay entrega só o que chegaria ao vivo
+
+`audit_logs` guarda mais do que o barramento entrega a cada um: as linhas de
+`log_action` (login, exclusão, acesso negado) e os eventos de sala restrita —
+`TEMPO_*` vai só para o dono. O replay aplica o mesmo critério do envio ao vivo
+(`event_bus.eventos_para_salas`): um evento volta para a conexão só se
+`_resolve_rooms` incluir uma das salas dela.
+
+- `role:<perfil>` e `user:<id>` saem do banco, relidos a cada pedido; o que o
+  cliente diz não conta para essas duas.
+- As salas finas (`setor:`, `equipamento:`, `doc:`) vêm no próprio pedido,
+  porque na reconexão o cliente pede o replay **antes** do `subscribe` que as
+  restaura. São as mesmas que o `subscribe` aceitaria, então não abrem nada novo.
+  As salas em que a conexão já está (inclusive `apres:`) também contam.
+- O admin recebe tudo, como ao vivo.
+
+A resposta traz `ate`, o id da última linha examinada: o cliente avança o
+cursor até ali mesmo quando nada foi entregue, senão varreria as mesmas linhas
+filtradas a cada reconexão. Quando o limite de 500 corta a resposta, `ate` é a
+última entregue e o resto vem no pedido seguinte. `GET /api/events/replay` é o
+mesmo replay por HTTP, com `?rooms=` repetível.
+
+Até a versão anterior o replay devolvia a tabela inteira para qualquer conexão
+autenticada: qualquer técnico que reconectasse recebia os apontamentos de horas
+dos colegas e quem fez login quando.
 
 > **O handshake do Socket.IO não passa pelo `before_request` do Flask**, então o
 > guardião do kill switch é checado explicitamente em `on_connect`. Sem essa
