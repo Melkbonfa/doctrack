@@ -14,6 +14,17 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Tempo real na tela de Documentos e nos fluxos
+- **Corrigido** a tela de Documentos não tinha tempo real: o `app-realtime.js`
+  era um modelo de integração nunca ligado (lia o token de uma chave antiga e
+  ninguém o iniciava) e ainda redefinia o `showToast` do `app.js`. Agora a tela
+  assina as salas de setor e se atualiza sozinha quando outra pessoa muda um
+  documento; a ficha aberta ganha um aviso em vez de ser redesenhada por baixo de
+  quem digita.
+- **Adicionado** o painel do fluxo de revisão se atualiza sozinho quando outra
+  pessoa age (com aviso se você estiver escrevendo nele), o sino reconta na hora
+  nas telas com socket, e a página `/fluxos/` acompanha a lista "Em andamento".
+
 ### Projeto ↔ equipamento ↔ documento (ondas A e B do estudo de ligações)
 - **Adicionado** o projeto do PDE ganha **equipamento**: criar o projeto já cria
   o equipamento (nome e SKU do projeto, com os 12 documentos) ou liga a um

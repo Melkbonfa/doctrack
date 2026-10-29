@@ -36,6 +36,8 @@ class DocTrackSocket {
       "DOCUMENT_STATUS_UPDATED", "ETAPA_UPDATED", "ETAPA_COMPLETED",
       "RESPONSAVEL_ASSIGNED", "RESPONSAVEL_REMOVED", "RESPONSAVEL_CHANGED",
       "NOTIFICATION",
+      // Fluxos de revisão: o painel do fluxo e o sino se atualizam com eles.
+      "FLUXO_INICIADO", "FLUXO_MOVIDO", "FLUXO_CONCLUIDO", "FLUXO_CANCELADO",
     ];
   }
 
@@ -142,6 +144,11 @@ class DocTrackSocket {
 
     this._dispatch(event.event_type, event);
     this._dispatch("*", event); // listener catch-all opcional
+    // Repassa para os componentes globais da página (painel do fluxo, sino), que
+    // não conhecem esta instância. Projetos e Missões, com socket próprio, fazem
+    // o mesmo repasse à mão.
+    try { window.dispatchEvent(new CustomEvent("dt:evento", { detail: event })); }
+    catch (err) { /* navegador sem CustomEvent: só os listeners diretos recebem */ }
   }
 
   // -------------------------------------------------------------------------

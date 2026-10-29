@@ -346,6 +346,21 @@ document.addEventListener("keydown", ev => {
   if(ev.key === "Enter" && ev.target.matches("tr.fx-linha")) window.location.href = ev.target.dataset.link;
 });
 
+/* Tempo real: a lista "Em andamento" acompanha os fluxos sem F5. O socket também
+   repassa os eventos ao sino (socket-client.js → dt:evento). */
+function tempoReal(){
+  if(typeof DocTrackSocket === "undefined" || typeof io === "undefined") return;
+  try{
+    const dt = new DocTrackSocket({token: getToken()});
+    let t = null;
+    const agenda = () => { clearTimeout(t); t = setTimeout(carregarAndamento, 500); };
+    ["FLUXO_INICIADO", "FLUXO_MOVIDO", "FLUXO_CONCLUIDO", "FLUXO_CANCELADO"].forEach(ev => dt.on(ev, agenda));
+    dt.on("__connect__", () => { const l = el("sync-label"); if(l) l.textContent = "Tempo real · conectado"; });
+    dt.on("__disconnect__", () => { const l = el("sync-label"); if(l) l.textContent = "Tempo real · reconectando…"; });
+    dt.connect();
+  }catch(e){ /* a página funciona sem tempo real */ }
+}
+
 function carregarTudo(){
   carregarAndamento();
   if(el("page-modelos").classList.contains("active")) carregarModelos();
@@ -365,6 +380,7 @@ function boot(){
   else { el("btn-novo-modelo").hidden = true; }
   if(typeof initTheme === "function") initTheme();
   carregarTudo();
+  tempoReal();
 }
 
 if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

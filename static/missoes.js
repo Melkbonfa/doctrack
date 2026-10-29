@@ -1015,6 +1015,10 @@ function conectarSocket(){
   try{
     // Polling primeiro; WebSocket só se o servidor anunciar (ver servidor.websocket_disponivel).
     const s=io({auth:{token:token()}, transports:["polling","websocket"]});
+    // Fluxos de revisão: o sino desta tela reconta na hora (ver notificacoes-widget.js).
+    ["FLUXO_INICIADO", "FLUXO_MOVIDO", "FLUXO_CONCLUIDO", "FLUXO_CANCELADO"].forEach(ev=>s.on(ev,e=>{
+      try{ window.dispatchEvent(new CustomEvent("dt:evento",{detail:e})); }catch(_){}
+    }));
     const label=document.getElementById("sync-label");
     s.on("connect",()=>{ if(label) label.textContent="Conectado"; });
     s.on("disconnect",()=>{ if(label) label.textContent="Offline"; });

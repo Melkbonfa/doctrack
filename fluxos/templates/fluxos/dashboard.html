@@ -94,7 +94,9 @@
 {%- endblock %}
 
 {% block scripts %}
+<script src="/static/vendor/socket.io.min.js?v={{ asset_v }}"></script>
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/socket-client.js?v={{ asset_v }}"></script>
 <script src="/static/fluxos.js?v={{ asset_v }}"></script>
 {%- endblock %}

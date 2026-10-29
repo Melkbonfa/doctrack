@@ -123,6 +123,13 @@ O aviso **não passa pelo barramento de tempo real**: o sino consulta
 depois de uma ação. Ver [EVENTOS.md](../arquitetura/EVENTOS.md) para o motivo. As
 notificações lidas há mais de 90 dias saem na tarefa diária; as não lidas ficam.
 
+**Tempo real.** Nas telas com socket (Documentos, Projetos, Equipamentos,
+Missões e a própria `/fluxos/`), um evento `FLUXO_*`:
+- recarrega o painel do fluxo daquele item — ou, se a pessoa estiver escrevendo
+  nele, mostra "O fluxo mudou — Atualizar";
+- faz o sino recontar na hora, sem esperar os 30 s;
+- atualiza a lista "Em andamento" e o selo da linha em Projetos.
+
 ## Pontos de atenção
 
 - **Etapa sem responsável:** se a pessoa de um papel for desativada ou excluída,
