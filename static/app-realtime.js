@@ -35,7 +35,14 @@
   var ESPERA_MS = 600;
 
   var dt = null, timer = null;
-  var lote = {docs: {}, buscar: {}, tudo: false, alheio: false};
+  var lote = loteVazio();
+
+  /* `alheios` guarda POR DOCUMENTO quem mudou por outra pessoa: um lote pode
+     juntar a minha mudança num documento da ficha com a de outra pessoa em outro
+     equipamento, e isso não deve avisar a ficha. */
+  function loteVazio(){
+    return {docs: {}, buscar: {}, tudo: false, tudoAlheio: false, alheios: {}};
+  }
 
   function meuEmail(){
     try{ return (JSON.parse(localStorage.getItem("doctrack_user") || "{}") || {}).email || ""; }
@@ -87,18 +94,20 @@
   }
 
   function anotar(e, o){
+    var alheio = !e || (e.user_email || "") !== meuEmail();
+    var id = o.doc ? o.doc.id : o.buscar;
     if(o.doc) lote.docs[o.doc.id] = o.doc;
     if(o.buscar) lote.buscar[o.buscar] = true;
-    if(o.tudo) lote.tudo = true;
-    if(!e || (e.user_email || "") !== meuEmail()) lote.alheio = true;
+    if(o.tudo){ lote.tudo = true; if(alheio) lote.tudoAlheio = true; }
+    if(alheio && id) lote.alheios[id] = true;
     clearTimeout(timer);
     timer = setTimeout(aplicarLote, ESPERA_MS);
   }
 
   async function aplicarLote(){
     var l = lote;
-    lote = {docs: {}, buscar: {}, tudo: false, alheio: false};
-    var ids = Object.keys(l.docs).concat(Object.keys(l.buscar)).map(Number);
+    lote = loteVazio();
+    var alheios = Object.keys(l.alheios).map(Number);
     try{
       if(l.tudo){
         await loadData();
@@ -113,7 +122,7 @@
       renderDashboard();
       renderDocs();
       if(typeof loadFluxo === "function") loadFluxo();
-      if(l.alheio) avisarFicha(ids, l.tudo);
+      if(alheios.length || l.tudoAlheio) avisarFicha(alheios, l.tudoAlheio);
     }catch(e){ /* o próximo evento tenta de novo; F5 continua valendo */ }
   }
 
