@@ -122,7 +122,7 @@ from models import (
 )
 from auth import (auth_bp, log_action, require_role, get_client_ip,
                   sessao_revogada, ao_cortar_sessao)
-from event_bus import publish_event, get_events_since, EventType
+from event_bus import publish_event, eventos_para_salas, EventType
 from utils import norm, norm_sku
 import caminhos
 from scheduler import iniciar_agendador, rodar_uma_vez, agendador_habilitado, marcar_como_feito
@@ -2090,12 +2090,56 @@ def export_audit():
         download_name=f"auditoria_{datetime.now():%Y%m%d}.html"
     )
 
+# ── REPLAY ────────────────────────────────────────────────────────────────────
+# Quem reconecta recebe o que perdeu — e só o que receberia ao vivo. O filtro é o
+# de `event_bus.eventos_para_salas`; aqui se decide QUAIS salas valem para a
+# pessoa. O perfil e o id vêm do banco, não do que o cliente diz.
+
+REPLAY_LIMITE = 500
+
+# Salas que o próprio cliente pode assinar (as mesmas que `subscribe` aceita).
+# Nenhuma é restrita por perfil, então aceitá-las no pedido de replay não abre
+# nada que o `subscribe` já não abrisse.
+_SALAS_ASSINAVEIS = ("setor:", "equipamento:", "doc:")
+
+
+def _salas_do_replay(user, pedidas=(), atuais=()):
+    """Salas cujo conteúdo esta pessoa recebe ao vivo; None para o admin (tudo).
+
+    `pedidas` vêm do cliente: ao reconectar ele pede o replay ANTES de se
+    reinscrever nas salas finas, então elas vão junto no pedido. `atuais` são as
+    salas em que a conexão já está (inclui `apres:`, que o PDR assina por evento
+    próprio). `role:` e `user:` saem do banco e nunca do pedido.
+    """
+    if user.role == "admin":
+        return None
+    salas = {f"role:{user.role}", f"user:{user.id}"}
+    salas |= {s for s in atuais if isinstance(s, str)
+              and s.startswith(_SALAS_ASSINAVEIS + ("apres:",))}
+    salas |= {s for s in (pedidas or []) if isinstance(s, str) and s.startswith(_SALAS_ASSINAVEIS)}
+    return salas
+
+
+def _replay_para(user, since, pedidas=(), atuais=()):
+    try:
+        since = int(since or 0)
+    except (TypeError, ValueError):
+        since = 0
+    eventos, ate = eventos_para_salas(since, _salas_do_replay(user, pedidas, atuais),
+                                      db=db, AuditLog=AuditLog, limite=REPLAY_LIMITE)
+    return {"since": since, "events": eventos, "count": len(eventos), "ate": ate}
+
+
 @app.route("/api/events/replay", methods=["GET"])
 @jwt_required()
 def replay_events():
-    since = int(request.args.get("since", 0))
-    events = get_events_since(since, db=db, AuditLog=AuditLog, limit=500)
-    return jsonify(events)
+    """O mesmo replay do socket, por HTTP. `?rooms=` repetível, como o pedido
+    do socket. Sem chamador na interface hoje; mantida para diagnóstico."""
+    user = User.query.filter_by(email=get_jwt_identity(), ativo=True).first()
+    if not user:
+        return jsonify({"erro": "Usuário inválido"}), 401
+    return jsonify(_replay_para(user, request.args.get("since", 0),
+                                pedidas=request.args.getlist("rooms")))
 
 # /api/reimport foi REMOVIDA. Ela disparava _import_excel_to_db() numa thread
 # solta, e aquela função dropava as tabelas `documentos` e `documento_historico`
@@ -2184,10 +2228,11 @@ def _desconectar_tempo_real(user_id):
     com perfil trocado).
 
     O handshake confere a conta uma vez só; depois disso os eventos chegam pela
-    sala do perfil (`role:admin` recebe tudo) e o `replay_request` devolve a
-    trilha sem olhar o JWT de novo. Sem este corte, a aba aberta de uma conta
-    desativada seguiria recebendo dados. Se o cliente reconectar, o `connect`
-    recusa a conta inativa e põe a ativa na sala do perfil atual.
+    sala do perfil (`role:admin` recebe tudo) sem olhar o JWT de novo. Sem este
+    corte, a aba aberta de uma conta desativada seguiria recebendo dados. Se o
+    cliente reconectar, o `connect` recusa a conta inativa e põe a ativa na sala
+    do perfil atual. (O `replay_request` relê a conta no banco a cada pedido —
+    ver `_salas_do_replay` — e não entrega nada a uma conta inativa.)
     """
     for sid, _eio_sid in list(socketio.server.manager.get_participants("/", f"user:{user_id}")):
         socketio.server.disconnect(sid, namespace="/")
@@ -2197,7 +2242,7 @@ def on_subscribe(data):
     from flask import session
     if not session.get("user_id"): return
     for room in data.get("rooms", []):
-        if any(room.startswith(p) for p in ("setor:", "equipamento:", "doc:")):
+        if isinstance(room, str) and room.startswith(_SALAS_ASSINAVEIS):
             join_room(room)
     emit("subscribed", {"rooms": data.get("rooms", [])})
 
@@ -2208,9 +2253,15 @@ def on_unsubscribe(data):
 
 @socketio.on("replay_request")
 def on_replay_request(data):
-    since = int(data.get("since", 0))
-    events = get_events_since(since, db=db, AuditLog=AuditLog, limit=500)
-    emit("replay", {"since": since, "events": events, "count": len(events)})
+    from flask import session
+    from flask_socketio import rooms as salas_da_conexao
+    user = db.session.get(User, session.get("user_id") or 0)
+    if not user or not user.ativo:
+        return
+    data = data if isinstance(data, dict) else {}
+    emit("replay", _replay_para(user, data.get("since", 0),
+                                pedidas=data.get("rooms") or [],
+                                atuais=salas_da_conexao()))
 
 @socketio.on("ping_app")
 def on_ping(data):
