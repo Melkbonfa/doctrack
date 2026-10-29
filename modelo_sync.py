@@ -110,7 +110,12 @@ def _texto(v):
 def tem_andamento(e):
     """Já houve trabalho registrado: apagar mudaria o passado do projeto (a
     curva-S lê o histórico, que vai junto com o entregável)."""
-    return (e.status or "pendente") != "pendente" or bool(e.historico)
+    if (e.status or "pendente") != "pendente" or bool(e.historico):
+        return True
+    # Em revisão conta como andamento: "Aplicar o modelo" não pode apagar em
+    # silêncio um entregável que tem um fluxo correndo (e passagens anexadas).
+    from fluxos.models import tem_fluxo_ativo
+    return tem_fluxo_ativo("entregavel", e.id)
 
 
 def chave_nome(texto):

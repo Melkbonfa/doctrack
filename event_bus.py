@@ -99,6 +99,14 @@ class EventType:
     TEMPO_APONTAMENTO_UPDATED = "TEMPO_APONTAMENTO_UPDATED"
     TEMPO_APONTAMENTO_DELETED = "TEMPO_APONTAMENTO_DELETED"
 
+    # Fluxos de revisão (escrita → diagramação → revisão). O aviso pessoal de
+    # "é sua vez" NÃO passa por aqui: vai para a tabela `notificacoes`, que guarda
+    # lida/não lida para quem estava fora (ver notificacoes/models.py).
+    FLUXO_INICIADO = "FLUXO_INICIADO"
+    FLUXO_MOVIDO = "FLUXO_MOVIDO"
+    FLUXO_CONCLUIDO = "FLUXO_CONCLUIDO"
+    FLUXO_CANCELADO = "FLUXO_CANCELADO"
+
     # Sistema / notificações
     NOTIFICATION = "NOTIFICATION"
     USER_CONNECTED = "USER_CONNECTED"
@@ -162,6 +170,12 @@ def _resolve_rooms(event_type: str, payload: dict) -> list[str]:
     # Missões (kanban): módulo é técnico+ — broadcast para os papéis com acesso;
     # o front filtra pelo missao_id do payload (sem sala por missão no MVP).
     if event_type.startswith("MISSAO_"):
+        rooms.append("role:gestor")
+        rooms.append("role:tecnico")
+
+    # Fluxos: técnico+, como Missões. O payload leva só item, etapa e status — o
+    # que a pessoa precisa fazer chega pelo sino, não por aqui.
+    if event_type.startswith("FLUXO_"):
         rooms.append("role:gestor")
         rooms.append("role:tecnico")
 

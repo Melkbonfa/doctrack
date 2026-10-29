@@ -28,8 +28,10 @@ Contagem de rotas que cada papel alcança, por arquivo. Rotas `públicas` e `aut
 | `custos/routes.py` | 19 | 19 | 2 | 2 | 19 |
 | `documentos.py` | 25 | 25 | 17 | 13 | 25 |
 | `entregaveis.py` | 39 | 37 | 9 | 0 | 39 |
+| `fluxos/routes.py` | 17 | 17 | 14 | 2 | 17 |
 | `killswitch.py` | 4 | 4 | 4 | 4 | 4 |
 | `missoes.py` | 33 | 33 | 31 | 0 | 33 |
+| `notificacoes/routes.py` | 4 | 4 | 4 | 0 | 4 |
 | `pdr/routes.py` | 9 | 8 | 3 | 2 | 16 |
 | `servidor.py` | 63 | 62 | 52 | 32 | 63 |
 | `tempos/routes.py` | 18 | 18 | 18 | 2 | 18 |
@@ -47,7 +49,7 @@ As **6** rotas de API alcançáveis sem token. Esta lista deve ser curta e conhe
 | `POST` | `/api/kill-switch/unlock` | `killswitch.py` |
 | `GET` | `/api/version` | `servidor.py` |
 
-### As 20 rotas de página não entram na conta acima
+### As 22 rotas de página não entram na conta acima
 
 Elas respondem sem token, mas só devolvem HTML vazio: o token é validado no front e **todo dado chega por `/api/*`**, que é gatilhado. Ver [ADR-0004](../arquitetura/decisoes/ADR-0004-pagina-casca-api-gatilhada.md).
 
@@ -80,6 +82,7 @@ Home: `/hub/pde`
 | Missões | `/missoes` | tecnico |
 | Custos | `/custos/` | gestor |
 | Tempos | `/tempos/` | tecnico |
+| Fluxos | `/fluxos/` | tecnico |
 
 ### P&D Reagentes (`pdr`)
 
@@ -95,3 +98,4 @@ Home: `/hub/inov`
 | Módulo | URL | Papel mínimo |
 |---|---|---|
 | Projetos | `/projetos?area=inov` | gestor |
+| Fluxos | `/fluxos/` | tecnico |

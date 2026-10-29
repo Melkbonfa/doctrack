@@ -28,6 +28,41 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
   (`since`, `events`, `count`, `ate`) em vez da lista solta, e aceita `?rooms=`.
   Nenhuma tela usava essa rota.
 
+### Fluxos de revisão e notificações
+O manual sai da mão da autora para o diagramador e volta para a revisão até ser
+aprovado, e cada um sabe com quem ele está sem perguntar.
+
+- **Adicionado** módulo **Fluxos** (`/fluxos/`, card nos hubs PDE e Inovação).
+  Modelos de fluxo com papéis e etapas (execução ou revisão; a revisão aprova ou
+  devolve para uma etapa anterior). O modelo "Manual" (Escrita → Diagramação →
+  Revisão) é semeado num banco sem modelos.
+- **Adicionado** painel **Fluxo de revisão** na ficha do documento (Documentos)
+  e no popover do entregável (Projetos): iniciar escolhendo quem faz cada papel,
+  enviar/aprovar/devolver com comentário e arquivos, trocar a pessoa de um papel
+  ou cancelar (gestão ou quem iniciou, com motivo) e a linha do tempo das
+  passagens com os anexos de cada rodada. Devolver exige comentário e soma uma
+  rodada. A gestão pode agir no lugar do responsável, e a trilha registra
+  "em nome de".
+- **Adicionado** o **sino** em todas as telas, inclusive no hub: "Com você agora"
+  (o que espera pela sua ação) e "Avisos". Quem passa a ter a etapa recebe "é sua
+  vez"; os demais participantes e quem iniciou, o andamento. O título da aba
+  mostra "(n)" com avisos não lidos. As lidas há mais de 90 dias saem na tarefa
+  diária.
+- **Adicionado** iniciar o fluxo leva o documento (Manuais e PDE) para *Em
+  andamento* e o entregável para *em progresso*; aprovar leva para *Concluído* /
+  *concluído* e publica os arquivos da última versão na lista de arquivos do
+  documento. Documentos do PRE não têm o status tocado. O cartão de missão ligado
+  ao documento acompanha, pela sincronização que já existia.
+- **Adicionado** deep-link `/projetos?projeto=<id>&entregavel=<id>`, que abre o
+  projeto e o entregável (é o link das notificações), e o selo do fluxo
+  ("Diagramação · Marcos · R2") na linha do entregável.
+- **Alterado** marcar N/A ou excluir um documento ou entregável com fluxo em
+  andamento responde 409, e "Aplicar o modelo aos projetos" trata entregável com
+  fluxo ativo como "com andamento".
+- **Corrigido** `documentos._sha_orfao` passa a contar os anexos dos fluxos: sem
+  isso, purgar um caderno que compartilhasse o mesmo arquivo poderia apagar o PDF
+  de uma rodada de revisão.
+
 ### Correções da Análise de Riscos exigidas antes da QO
 A Análise de Riscos da validação (guia ANVISA) marcou estes pontos para
 corrigir antes da qualificação de operação. Nenhum deles dependia de decisão

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DocTrack — {{ area.nome }}</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/notificacoes-widget.css?v={{ asset_v }}">
 <style>
   body{
     background:var(--bg-void);color:var(--t1);font-family:var(--font-body);
@@ -88,6 +89,8 @@
     <div class="foot"><a id="back" href="/hub">← Áreas</a><a id="theme-toggle" data-label="Tema" onclick="toggleTheme()" title="Alternar tema">🌙 Tema</a><a id="logout">Sair</a></div>
   </div>
 <script src="/static/common.js?v={{ asset_v }}"></script>
+<script src="/static/auth.js?v={{ asset_v }}"></script>
+<script src="/static/notificacoes-widget.js?v={{ asset_v }}"></script>
 <script>
 // Tema em static/common.js (rótulo "Tema" via data-label do botão).
 

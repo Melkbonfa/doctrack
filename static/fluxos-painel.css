@@ -1,0 +1,93 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   fluxos-painel.css — o painel do fluxo de revisão (fluxos-painel.js).
+
+   Usado dentro da ficha do documento, do popover do entregável e da página
+   /fluxos/. Tudo prefixado com `fx-` para não colidir com o CSS dos módulos.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.fx{ display:flex; flex-direction:column; gap:10px; font-size:13px; color:var(--t2, #c7d2fe); }
+.fx-vazio{ color:var(--t4, #7884c9); font-size:12.5px; }
+.fx-sub{ color:var(--t3, #94a3d4); font-size:12px; }
+.fx-link{ background:none; border:0; padding:0; cursor:pointer; font:inherit;
+  color:var(--cyan-brand, #06b6d4); }
+.fx-link:hover{ text-decoration:underline; }
+
+.fx-cab{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.fx-modelo{ font-weight:600; color:var(--t1, #f1f5f9); }
+.fx-tag{ display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px;
+  background:var(--bg-hover, rgba(255,255,255,.06)); color:var(--t3, #94a3d4); }
+.fx-tag.forte{ background:rgba(245,158,11,.16); color:var(--amber, #f59e0b); }
+.fx-tag.atraso, .fx-atraso{ color:var(--red, #f43f5e); }
+.fx-tag.atraso{ background:rgba(244,63,94,.14); }
+
+/* Etapas em linha, com a atual destacada. Quebra em telas estreitas. */
+.fx-etapas{ display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
+.fx-etapas li{
+  position:relative; display:flex; flex-direction:column; gap:1px; min-width:110px;
+  padding:7px 12px; border-radius:var(--r-sm, 8px);
+  border:1px solid var(--border-soft, rgba(34,211,238,.18)); background:var(--bg-card, transparent);
+}
+.fx-etapas li.feita{ opacity:.7; }
+.fx-etapas li.feita .fx-etapa-nome::before{ content:"✓ "; color:var(--green, #10b981); }
+.fx-etapas li.atual{ border-color:var(--cyan-brand, #06b6d4);
+  box-shadow:0 0 0 1px var(--cyan-brand, #06b6d4) inset; }
+.fx-etapas li.futura{ opacity:.55; }
+.fx-etapa-nome{ color:var(--t1, #f1f5f9); font-weight:500; }
+.fx-etapa-quem{ color:var(--t3, #94a3d4); font-size:12px; }
+
+.fx-agora{ color:var(--t3, #94a3d4); }
+.fx-agora b{ color:var(--t1, #f1f5f9); }
+
+/* Bloco de ação de quem está com a etapa. */
+.fx-acao{ display:flex; flex-direction:column; gap:8px; padding:12px;
+  border-radius:var(--r, 12px); border:1px solid var(--cyan-brand, #06b6d4);
+  background:rgba(6,182,212,.06); }
+.fx-acao-tit b{ color:var(--t1, #f1f5f9); }
+.fx-coment{ width:100%; resize:vertical; min-height:56px; font-family:inherit; }
+.fx-arq-linha{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.fx-arq-btn{ cursor:pointer; }
+.fx-arq-lista{ color:var(--t3, #94a3d4); font-size:12px; overflow-wrap:anywhere; }
+.fx-botoes{ display:flex; gap:8px; flex-wrap:wrap; }
+.fx-devolver{ border-color:var(--amber, #f59e0b) !important; color:var(--amber, #f59e0b) !important; }
+.fx-perigo{ color:var(--red, #f43f5e) !important; }
+
+.fx-gerir, .fx-anteriores{ border-top:1px dashed var(--border-soft, rgba(34,211,238,.18)); padding-top:8px; }
+.fx-gerir summary, .fx-anteriores summary{ cursor:pointer; color:var(--t3, #94a3d4); font-size:12.5px; }
+.fx-gerir[open] > *:not(summary), .fx-anteriores[open] > *:not(summary){ margin-top:8px; }
+.fx-gerir-linha{ display:flex; gap:8px; flex-wrap:wrap; }
+.fx-gerir-linha .form-input{ flex:1 1 180px; }
+.fx-ant{ font-size:12.5px; color:var(--t3, #94a3d4); padding:3px 0; }
+.fx-ant-detalhe:not(:empty){ margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+
+/* Linha do tempo das passagens (mais nova primeiro). */
+.fx-trilha{ display:flex; flex-direction:column; gap:2px; }
+.fx-pass{ display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--border-soft, rgba(34,211,238,.12)); }
+.fx-pass-ico{ flex:0 0 22px; height:22px; border-radius:50%; display:inline-flex;
+  align-items:center; justify-content:center; font-size:12px;
+  background:var(--bg-hover, rgba(255,255,255,.06)); color:var(--t2, #c7d2fe); }
+.fx-pass.fx-devolver .fx-pass-ico{ background:rgba(245,158,11,.16); color:var(--amber, #f59e0b); }
+.fx-pass.fx-aprovar .fx-pass-ico{ background:rgba(16,185,129,.16); color:var(--green, #10b981); }
+.fx-pass.fx-cancelar .fx-pass-ico{ background:rgba(244,63,94,.14); color:var(--red, #f43f5e); }
+.fx-pass-corpo{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.fx-pass-corpo b{ color:var(--t1, #f1f5f9); }
+.fx-nome-de{ color:var(--amber, #f59e0b); font-size:12px; }
+.fx-pass-coment{ white-space:pre-wrap; overflow-wrap:anywhere; padding:6px 10px;
+  border-left:2px solid var(--border-mid, rgba(34,211,238,.28)); color:var(--t2, #c7d2fe); }
+.fx-pass-arqs{ display:flex; flex-wrap:wrap; gap:6px; }
+.fx-arq-chip{ cursor:pointer; padding:3px 9px; border-radius:999px; font:inherit; font-size:12px;
+  border:1px solid var(--border-soft, rgba(34,211,238,.18)); background:transparent;
+  color:var(--cyan-brand, #06b6d4); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fx-arq-chip:hover{ border-color:var(--cyan-brand, #06b6d4); }
+.fx-pass-em{ color:var(--t4, #7884c9); font-size:11px; }
+
+/* Formulário de início. */
+.fx-inicio:not(:empty){ margin-top:8px; }
+.fx-form{ display:flex; flex-direction:column; gap:8px; padding:12px;
+  border-radius:var(--r, 12px); border:1px solid var(--border-soft, rgba(34,211,238,.18)); }
+.fx-campo{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--t3, #94a3d4); }
+
+/* Chip de lista (linha do entregável). */
+.fx-chip{ display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px;
+  font-size:11px; white-space:nowrap; vertical-align:middle;
+  background:rgba(6,182,212,.12); color:var(--cyan-brand, #06b6d4); }
+.fx-chip.atraso{ background:rgba(244,63,94,.14); color:var(--red, #f43f5e); }

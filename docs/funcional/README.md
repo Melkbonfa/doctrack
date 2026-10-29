@@ -15,6 +15,7 @@ estes dizem o que **ficou**.
 | Consumíveis | PDE | qualquer membro da área | [consumiveis.md](consumiveis.md) |
 | Projetos e Entregáveis | PDE | gestor (técnico em modo restrito) | [projetos-entregaveis.md](projetos-entregaveis.md) |
 | Missões | PDE | técnico para cima | [missoes.md](missoes.md) |
+| Fluxos de revisão | PDE, INOV | técnico para cima | [fluxos.md](fluxos.md) |
 | Custos | PDE | admin e gestor | [custos.md](custos.md) |
 | Tempos | PDE | técnico para cima | [tempos.md](tempos.md) |
 | PDR | PDR | membros da área PDR | [pdr.md](pdr.md) |
