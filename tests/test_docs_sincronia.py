@@ -81,11 +81,15 @@ def test_todo_modelo_tem_dominio():
 def test_rotas_publicas_sao_as_esperadas():
     """A superfície pública muda com revisão, não por acidente.
 
-    Rota de API sem decorator é alcançável por qualquer um na rede. São seis, e
+    Rota de API sem decorator é alcançável por qualquer um na rede. São oito, e
     cada uma tem motivo: as duas de autenticação, as três do kill switch (que
-    precisa funcionar justamente quando ninguém consegue logar) e o health
-    check. Uma sétima aparecendo aqui é uma decisão de segurança que alguém
-    precisa ter tomado de propósito.
+    precisa funcionar justamente quando ninguém consegue logar), o health check
+    e as duas do assistente do OneNote — quem chama é o .cmd na máquina da
+    pessoa, sem o token de login, e o que autoriza é o segredo de um ticket de
+    uso único, que só deixa contar a etapa e pôr um pacote na área de espera
+    (gravar exige a pessoa logada; ver cadernos/importacao.py). Uma nona
+    aparecendo aqui é uma decisão de segurança que alguém precisa ter tomado de
+    propósito.
     """
     import sys
     sys.path.insert(0, os.path.join(RAIZ, "scripts"))
@@ -103,6 +107,8 @@ def test_rotas_publicas_sao_as_esperadas():
         "/api/kill-switch/unlock",
         "/api/kill-switch/status",
         "/api/version",
+        "/cadernos/api/importacoes/assistente/aviso",
+        "/cadernos/api/importacoes/assistente/pacote",
     }
 
     novas = publicas - esperadas

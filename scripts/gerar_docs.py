@@ -269,7 +269,9 @@ def coletar_rotas():
             "path": str(regra.rule),
             "metodos": metodos,
             "endpoint": endpoint,
-            "api": str(regra.rule).startswith("/api/"),
+            # `/api/...` do mestre e `/<módulo>/api/...` dos blueprints
+            # (cadernos, por exemplo): os dois servem dado, não casca.
+            "api": "/api/" in str(regra.rule),
             **info,
         })
 

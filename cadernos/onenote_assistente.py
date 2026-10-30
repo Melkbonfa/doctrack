@@ -17,7 +17,13 @@ fonte é uma só:
 
     scripts/onenote/extrair_onenote.ps1    → vira a função Extrair-OneNote
     scripts/onenote/assistente_onenote.ps1 → o menu, a extração e o .zip
+
+Baixado da tela de importação, o .cmd leva também o endereço do DocTrack e o
+segredo de um ticket de uso único ($DT_SERVIDOR e $DT_TICKET): com eles o
+assistente conta a etapa à tela e manda o pacote sozinho. Sem eles (rodando do
+repositório, por exemplo), o pacote fica na Área de Trabalho para enviar à mão.
 """
+import re
 import os
 from datetime import datetime
 
@@ -49,12 +55,25 @@ def _ler(caminho):
         return fh.read()
 
 
-def montar(agora=None):
+def _literal_ps(valor):
+    """Texto entre aspas simples do PowerShell. Quem chama já validou o valor;
+    isto é a segunda trava: nada além de endereço e segredo passa."""
+    if not re.fullmatch(r"[A-Za-z0-9.:/\-_\[\]]+", valor or ""):
+        raise ValueError(f"valor inesperado para o assistente: {valor!r}")
+    return "'" + valor + "'"
+
+
+def montar(agora=None, servidor=None, ticket=None):
     """Bytes do .cmd (UTF-8 sem BOM — o BOM quebraria a primeira linha do cmd;
     o PowerShell lê o arquivo explicitamente como UTF-8)."""
     agora = agora or datetime.now()
+    envio = []
+    if servidor and ticket:
+        envio = [f"$DT_SERVIDOR = {_literal_ps(servidor)}",
+                 f"$DT_TICKET = {_literal_ps(ticket)}"]
     linhas = CABECALHO + [
         f"# Gerado pelo DocTrack em {agora:%d/%m/%Y %H:%M}. Fonte: scripts/onenote/ no repositório.",
+        *envio,
         "function Extrair-OneNote {",
         _ler(EXTRATOR),
         "}",

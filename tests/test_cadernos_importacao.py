@@ -11,17 +11,21 @@ O que estes testes fixam:
     arquivo que não é zip, pacote sem manifesto).
   * **O assistente** é um .cmd só, com o extrator dentro, e não usa
     Invoke-Expression (padrão que antivírus bloqueia).
+  * **O assistente manda sozinho**: o .cmd baixado com ticket conta a etapa e
+    envia o pacote sem login; a tela acompanha e recebe o resumo. O ticket é de
+    uso único, só quem o criou o vê, e o que vai dentro do .cmd é validado.
 """
 import base64
 import io
 import json
+import re
 import zipfile
 
 import pytest
 from PIL import Image
 
 import arquivos_store
-from models import db, User
+from models import db, AuditLog, User
 from cadernos import importacao
 from cadernos.models import Caderno, CadernoArquivo, CadernoPagina
 
@@ -33,6 +37,7 @@ CACHE = r"C:\Users\x\AppData\Local\Microsoft\OneNote\16.0\cache\00001A.bin"
 def _pastas_temporarias(tmp_path, monkeypatch):
     monkeypatch.setattr(arquivos_store, "RAIZ", str(tmp_path / "arquivos"))
     monkeypatch.setattr(importacao, "PASTA_TEMP", str(tmp_path / "importacoes"))
+    monkeypatch.setattr(importacao, "_tickets", {})
     yield
 
 
@@ -225,3 +230,133 @@ def test_assistente_e_um_cmd_so_com_o_extrator_dentro(client, tecnico_token):
     assert "Cadernos-Abertos" in texto                           # o menu do assistente
     assert "iex " not in texto and "Invoke-Expression" not in texto
     assert texto.index("#>") < texto.index("function Extrair-OneNote")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# O ASSISTENTE MANDA SOZINHO (ticket)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ticket(client, token):
+    res = client.post("/cadernos/api/importacoes/tickets", json={"area": "pdr"}, headers=H(token))
+    assert res.status_code == 201, res.get_json()
+    return res.get_json()["id"]
+
+
+def _cmd_com_ticket(client, token, id_):
+    res = client.get(f"/cadernos/api/onenote/assistente?ticket={id_}&token={token}")
+    assert res.status_code == 200, res.get_json()
+    return res.data.decode("utf-8")
+
+
+def _segredo(texto):
+    return re.search(r"^\$DT_TICKET = '([^']+)'\r$", texto, re.M).group(1)
+
+
+def _estado(client, token, id_):
+    return client.get(f"/cadernos/api/importacoes/tickets/{id_}", headers=H(token))
+
+
+def _aviso(client, segredo, **dados):
+    return client.post("/cadernos/api/importacoes/assistente/aviso", json=dados,
+                       headers={"X-DocTrack-Ticket": segredo})
+
+
+def _pacote_do_assistente(client, segredo, buf):
+    return client.post("/cadernos/api/importacoes/assistente/pacote", data=buf.getvalue(),
+                       content_type="application/zip", headers={"X-DocTrack-Ticket": segredo})
+
+
+def test_assistente_com_ticket_manda_o_pacote_e_a_tela_acompanha(client, tecnico_token, area_pdr):
+    id_ = _ticket(client, tecnico_token)
+    texto = _cmd_com_ticket(client, tecnico_token, id_)
+    assert "$DT_SERVIDOR = 'http://localhost'\r\n" in texto
+    segredo = _segredo(texto)
+    assert segredo not in id_
+    assert texto.index("$DT_TICKET") < texto.index("function Extrair-OneNote")
+
+    assert _estado(client, tecnico_token, id_).get_json()["estado"] == "aguardando"
+
+    assert _aviso(client, segredo, etapa="Extraindo a página 3 de 96: Teste 1", feito=3, total=96).status_code == 200
+    e = _estado(client, tecnico_token, id_).get_json()
+    assert (e["estado"], e["etapa"], e["feito"], e["total"]) == ("trabalhando", "Extraindo a página 3 de 96: Teste 1", 3, 96)
+    assert "segredo" not in json.dumps(e) and segredo not in json.dumps(e)
+
+    res = _pacote_do_assistente(client, segredo, _pacote())
+    assert res.status_code == 201, res.get_json()
+    assert res.get_json()["caderno"] == "Projeto L-999"
+
+    e = _estado(client, tecnico_token, id_).get_json()
+    assert e["estado"] == "recebido"
+    assert e["pacote"]["resumo"]["caderno"] == "Projeto L-999" and e["pacote"]["existente"] is None
+
+    # A conferência é a mesma do envio à mão: confirmar grava o caderno.
+    ini = client.post(f"/cadernos/api/importacoes/{e['pacote']['id']}/iniciar", json={}, headers=H(tecnico_token))
+    assert ini.status_code == 202 and ini.get_json()["tarefa"]["estado"] == "pronta"
+    assert Caderno.query.filter_by(nome="Projeto L-999").count() == 1
+
+
+def test_ticket_e_de_uso_unico_e_so_de_quem_criou(client, tecnico_token, gestor_token, area_pdr):
+    id_ = _ticket(client, tecnico_token)
+    segredo = _segredo(_cmd_com_ticket(client, tecnico_token, id_))
+
+    assert _estado(client, gestor_token, id_).status_code == 404
+    assert client.get(f"/cadernos/api/onenote/assistente?ticket={id_}&token={gestor_token}").status_code == 404
+
+    errado = _aviso(client, "nao-e-o-segredo", etapa="x")
+    assert errado.status_code == 404 and "expirou" in errado.get_json()["erro"]
+    assert _aviso(client, "", etapa="x").status_code == 404
+
+    assert _pacote_do_assistente(client, segredo, _pacote()).status_code == 201
+    de_novo = _pacote_do_assistente(client, segredo, _pacote())
+    assert de_novo.status_code == 404 and "já enviou" in de_novo.get_json()["erro"]
+    assert _aviso(client, segredo, etapa="x").status_code == 404
+
+
+def test_assistente_que_para_aparece_na_tela_e_pode_rodar_de_novo(client, tecnico_token, area_pdr):
+    id_ = _ticket(client, tecnico_token)
+    segredo = _segredo(_cmd_com_ticket(client, tecnico_token, id_))
+
+    _aviso(client, segredo, erro="O assistente foi fechado sem exportar.")
+    e = _estado(client, tecnico_token, id_).get_json()
+    assert (e["estado"], e["erro"]) == ("erro", "O assistente foi fechado sem exportar.")
+
+    # Pacote ruim: a tela vê o motivo, e o mesmo .cmd ainda serve.
+    ruim = _pacote_do_assistente(client, segredo, io.BytesIO(b"isto nao e um zip"))
+    assert ruim.status_code == 400
+    e = _estado(client, tecnico_token, id_).get_json()
+    assert e["estado"] == "erro" and "não é um .zip" in e["erro"]
+
+    _aviso(client, segredo, etapa="Abrindo a cópia baixada no OneNote")
+    assert _estado(client, tecnico_token, id_).get_json()["estado"] == "trabalhando"
+    assert _pacote_do_assistente(client, segredo, _pacote()).status_code == 201
+
+
+def test_ticket_expira(client, tecnico_token, area_pdr, monkeypatch):
+    id_ = _ticket(client, tecnico_token)
+    segredo = _segredo(_cmd_com_ticket(client, tecnico_token, id_))
+    monkeypatch.setattr(importacao, "VALIDADE_TICKET_HORAS", -1)
+    assert _estado(client, tecnico_token, id_).status_code == 404
+    assert _pacote_do_assistente(client, segredo, _pacote()).status_code == 404
+
+
+def test_leitura_nao_cria_ticket(client, leitura_token, area_pdr):
+    res = client.post("/cadernos/api/importacoes/tickets", json={"area": "pdr"}, headers=H(leitura_token))
+    assert res.status_code == 403
+    # Como nas outras rotas da importação, a negação vai para a trilha (R-06).
+    assert AuditLog.query.filter_by(acao="ACESSO_NEGADO").count() == 1
+
+
+def test_assistente_sem_ticket_nao_manda_nada(client, tecnico_token):
+    texto = client.get(f"/cadernos/api/onenote/assistente?token={tecnico_token}").data.decode("utf-8")
+    assert "$DT_TICKET =" not in texto and "$DT_SERVIDOR =" not in texto
+
+
+def test_endereco_estranho_nao_vira_codigo_no_assistente(client, tecnico_token, area_pdr):
+    """O endereço vem do Host do navegador e vai entre aspas no PowerShell: o
+    que não parece endereço deixa o assistente sem envio (fica o caminho à mão)."""
+    id_ = _ticket(client, tecnico_token)
+    res = client.get(f"/cadernos/api/onenote/assistente?ticket={id_}&token={tecnico_token}",
+                     headers={"Host": "x';Remove-Item C: -Recurse;'"})
+    texto = res.data.decode("utf-8")
+    assert res.status_code == 200
+    assert "$DT_TICKET =" not in texto and "Remove-Item C:" not in texto

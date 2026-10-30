@@ -6,7 +6,7 @@
 
 # Referência da API
 
-305 rotas registradas: **172** de API (`/api/...`) e **133** de página.
+309 rotas registradas: **287** de API (`/api/...`) e **22** de página.
 
 A coluna **Acesso** é lida dos decorators no fonte:
 
@@ -64,9 +64,13 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `POST` | `/cadernos/api/cadernos/<uuid_>/nos` | autenticado | Novo grupo de seções ou seção, no fim do nível escolhido. |
 | `POST` | `/cadernos/api/cadernos/<uuid_>/restaurar` | autenticado | Tira o caderno da lixeira. |
 | `GET` | `/cadernos/api/exportacoes/<uuid_>/zip` | autenticado | Baixa o zip gerado (fica disponível por um dia). Aceita `?token=`. |
-| `POST` | `/cadernos/api/importacoes` | autenticado | Recebe o .zip do assistente, valida e devolve o resumo para confirmar. |
+| `POST` | `/cadernos/api/importacoes` | autenticado | Recebe o .zip enviado à mão, valida e devolve o resumo para confirmar. |
 | `DELETE` | `/cadernos/api/importacoes/<id_>` | autenticado |  |
 | `POST` | `/cadernos/api/importacoes/<id_>/iniciar` | autenticado | Confirma: grava o caderno (tarefa). Reimportar exige ser editor do caderno. |
+| `POST` | `/cadernos/api/importacoes/assistente/aviso` | público | O assistente conta a etapa (ou que parou) para a tela que acompanha. |
+| `POST` | `/cadernos/api/importacoes/assistente/pacote` | público | O assistente manda o .zip no corpo (application/zip). |
+| `POST` | `/cadernos/api/importacoes/tickets` | autenticado | Ticket para o assistente mandar o pacote sozinho e contar a etapa. |
+| `GET` | `/cadernos/api/importacoes/tickets/<id_>` | autenticado | O que o assistente está fazendo. Quando o pacote chega, vem o resumo. |
 | `GET` | `/cadernos/api/lixeira` | autenticado | O que foi excluído no caderno nos últimos dias (seções, grupos, páginas, arquivos). |
 | `GET` | `/cadernos/api/meta` | autenticado | Quem sou eu, a área, os modelos e as pessoas da área (ficha e membros). |
 | `DELETE` | `/cadernos/api/nos/<uuid_>` | autenticado | Manda a seção (ou o grupo, com tudo dentro) para a lixeira. |

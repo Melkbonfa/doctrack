@@ -14,6 +14,28 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Cadernos: importar do OneNote em menos passos
+Importar um caderno pedia umas doze ações e três idas e vindas entre o
+SharePoint, o assistente e o navegador: escolher o zip baixado numa caixa de
+diálogo, achar na Área de Trabalho o zip que o assistente gerava e arrastá-lo de
+volta para a tela.
+
+- **Adicionado** o assistente acha sozinho o caderno baixado do SharePoint na
+  pasta Downloads: o mais novo é a opção 1, e Enter escolhe.
+- **Adicionado** o assistente manda o pacote direto para o DocTrack e conta a
+  etapa ("Extraindo a página 40 de 96…", "Enviando…"). A janela "Importar do
+  OneNote" acompanha ao vivo e passa sozinha para a conferência. Fechar a janela
+  ou recarregar a página não perde o andamento.
+- **Adicionado** ticket de uso único (6 h) para esse envio, no lugar do token de
+  login, que ficaria gravado no .cmd. Ele só deixa contar a etapa e pôr um
+  pacote na área de espera; gravar continua exigindo a pessoa logada. As duas
+  rotas do assistente entram na lista de rotas públicas aprovadas.
+- **Mudado** enviar o .zip à mão virou plano B ("Prefere enviar o .zip à mão?"),
+  que abre sozinho quando o assistente para com erro.
+- **Corrigido** o gerador da referência (`scripts/gerar_docs.py`) tratava
+  `/<módulo>/api/...` como casca de página: uma rota de dado sem login dentro de
+  um módulo não aparecia como pública nem caía no teste da superfície pública.
+
 ### Tempo real na tela de Documentos e nos fluxos
 - **Corrigido** a tela de Documentos não tinha tempo real: o `app-realtime.js`
   era um modelo de integração nunca ligado (lia o token de uma chave antiga e

@@ -1266,27 +1266,38 @@ function barraDeProgresso(t, idBarra, idEtapa){
 
 /* ═══════════ IMPORTAÇÃO DO ONENOTE ═══════════
    O OneNote só se deixa ler na máquina de quem o tem aberto. Por isso: 1. a
-   pessoa baixa o assistente (um .cmd) e roda lá — sai um .zip; 2. envia o zip
-   aqui e confere o resumo; 3. confirma, e o servidor grava em segundo plano. */
+   pessoa baixa o assistente (um .cmd) e roda lá; 2. o assistente acha o caderno
+   baixado do SharePoint, extrai e MANDA o .zip para cá sozinho, com um ticket de
+   uso único, enquanto esta janela mostra a etapa; 3. a janela abre o resumo, e
+   ao confirmar o servidor grava em segundo plano. Enviar o .zip à mão continua
+   valendo, para quando a rede ou o antivírus barrarem o envio do assistente.
+
+   O ticket fica no sessionStorage: fechar a janela ou recarregar a página não
+   perde o caderno que o assistente está mandando. */
+let IMP = null;          // {id}: o ticket desta importação, até o pacote chegar
+let IMP_VOLTA = 0;       // cada acompanhamento tem um número; o antigo para sozinho
+
 function modalImportar(){
-  abrirModal("Importar do OneNote", "Traz um caderno inteiro, como foi feito com o L-037: seções, páginas, imagens, tabelas com as cores, anexos e os arquivos originais do OneNote.",
+  abrirModal("Importar do OneNote", "Traz um caderno inteiro: seções, páginas, imagens, tabelas com as cores, anexos e os arquivos originais do OneNote.",
     '<ol class="cd-passos">' +
-      '<li><b>Baixe o caderno do SharePoint.</b> Na pasta do caderno, use <i>Baixar</i>: vem um .zip. ' +
+      '<li><b>Baixe o caderno do SharePoint.</b> Na pasta do caderno, use <i>Baixar</i>: vem um .zip na pasta Downloads. ' +
         '<span class="cd-dica">Aberto direto do SharePoint, o OneNote não entrega todas as imagens.</span></li>' +
-      '<li><b>Rode o assistente</b> no computador que tem o OneNote: <a href="#" id="imp-assistente">baixar o assistente (.cmd)</a>. ' +
-        'Dois cliques nele, escolha <i>[A] Abrir uma cópia baixada</i> e aponte o .zip do passo 1. ' +
-        'Ele cria <i>“… (DocTrack).zip”</i> na Área de Trabalho, pasta DocTrack-OneNote. ' +
-        '<span class="cd-dica">Se o Windows avisar que protegeu o computador, use “Mais informações › Executar assim mesmo”.</span></li>' +
-      '<li><b>Envie aqui o .zip gerado pelo assistente.</b>' +
-        '<label class="cd-imp-zona" id="imp-zona"><input type="file" id="imp-arquivo" accept=".zip" hidden>' +
-        '<span id="imp-zona-txt">Clique para escolher ou arraste o arquivo para cá</span></label>' +
-        '<div class="cd-progresso" id="imp-prog" hidden><div class="cd-progresso-barra" id="imp-barra"></div></div>' +
-        '<div class="cd-dica" id="imp-etapa"></div></li>' +
-    '</ol>');
-  el("imp-assistente").addEventListener("click", e => {
-    e.preventDefault();
-    window.location.href = "/cadernos/api/onenote/assistente?token=" + encodeURIComponent(getToken());
-  });
+      '<li><b>Rode o assistente</b> no computador que tem o OneNote.' +
+        '<div class="cd-imp-acao"><button type="button" class="btn btn-primary btn-sm" id="imp-assistente">Baixar o assistente</button></div>' +
+        'Dois cliques no arquivo baixado. Ele acha o caderno do passo 1 (é só apertar Enter), extrai e manda para cá sozinho. ' +
+        '<span class="cd-dica">Se o Windows avisar que protegeu o computador, use “Mais informações › Executar assim mesmo”.</span>' +
+        '<div class="cd-imp-status" id="imp-status" hidden><div class="cd-imp-etapa" id="imp-status-txt"></div>' +
+          '<div class="cd-dica" id="imp-status-dica" hidden></div>' +
+          '<div class="cd-progresso" id="imp-status-prog" hidden><div class="cd-progresso-barra" id="imp-status-barra"></div></div></div></li>' +
+      '<li><b>Confira e confirme.</b> O resumo aparece aqui assim que o caderno chegar.</li>' +
+    '</ol>' +
+    '<details class="cd-imp-manual" id="imp-manual"><summary>Prefere enviar o .zip à mão?</summary>' +
+      '<label class="cd-imp-zona" id="imp-zona"><input type="file" id="imp-arquivo" accept=".zip" hidden>' +
+      '<span id="imp-zona-txt">Clique para escolher ou arraste o .zip que o assistente deixou na Área de Trabalho</span></label>' +
+      '<div class="cd-progresso" id="imp-prog" hidden><div class="cd-progresso-barra" id="imp-barra"></div></div>' +
+      '<div class="cd-dica" id="imp-etapa"></div>' +
+    '</details>');
+  el("imp-assistente").addEventListener("click", baixarAssistente);
   el("imp-arquivo").addEventListener("change", e => { if(e.target.files[0]) enviarPacote(e.target.files[0]); });
   const zona = el("imp-zona");
   zona.addEventListener("dragover", e => { e.preventDefault(); zona.classList.add("arrastando"); });
@@ -1296,6 +1307,92 @@ function modalImportar(){
     zona.classList.remove("arrastando");
     if(e.dataTransfer.files[0]) enviarPacote(e.dataTransfer.files[0]);
   });
+  _modalAoFechar = () => IMP_VOLTA++;
+  if(!IMP){
+    const salvo = sessionStorage.getItem("cd_imp_ticket");
+    if(salvo) IMP = {id: salvo};
+  }
+  if(IMP){
+    el("imp-assistente").textContent = "Baixar o assistente de novo";
+    acompanharAssistente();
+  }
+}
+
+function esquecerTicket(){
+  IMP = null;
+  sessionStorage.removeItem("cd_imp_ticket");
+}
+
+async function baixarAssistente(){
+  if(!IMP){
+    try{
+      const r = await api("/cadernos/api/importacoes/tickets", {method: "POST", body: json({area: AREA})});
+      IMP = {id: r.id};
+      sessionStorage.setItem("cd_imp_ticket", r.id);
+    } catch(e){ toast(e.message, true); return; }
+  }
+  // Navegação direta: é um download, a página fica onde está.
+  window.location.href = "/cadernos/api/onenote/assistente?ticket=" + IMP.id + "&token=" + encodeURIComponent(getToken());
+  el("imp-assistente").textContent = "Baixar o assistente de novo";
+  acompanharAssistente();
+}
+
+/* Consulta o ticket a cada 1,5 s enquanto a janela está aberta. Quando o
+   pacote chega, a própria janela vira a conferência. */
+function acompanharAssistente(){
+  const volta = ++IMP_VOLTA;
+  const vale = () => volta === IMP_VOLTA && IMP && el("imp-status");
+  const passo = async () => {
+    if(!vale()) return;
+    let r = null;
+    try{ r = await api("/cadernos/api/importacoes/tickets/" + IMP.id); }
+    catch(e){
+      if(!vale()) return;
+      if(e.status === 404){
+        esquecerTicket();
+        mostrarAssistente({estado: "erro", erro: e.message, expirou: true});
+        el("imp-assistente").textContent = "Baixar o assistente";
+        return;
+      }
+      // Falha de rede: tenta de novo na próxima volta.
+    }
+    if(!vale()) return;
+    if(r && r.estado === "recebido" && r.pacote){
+      esquecerTicket();
+      confirmarImportacao(r.pacote);
+      return;
+    }
+    if(r) mostrarAssistente(r);
+    setTimeout(passo, 1500);
+  };
+  passo();
+}
+
+function frase(s){ s = (s || "").trim(); return /[.!?…]$/.test(s) ? s : s + "."; }
+
+function mostrarAssistente(r){
+  const box = el("imp-status");
+  if(!box) return;
+  box.hidden = false;
+  const erro = r.estado === "erro";
+  box.classList.toggle("erro", erro);
+  let txt, dica = "";
+  if(erro){
+    txt = frase(r.erro || "O assistente parou");
+    if(!r.expirou){
+      dica = "O mesmo arquivo baixado serve para tentar de novo. Ou envie o .zip à mão, abaixo.";
+      el("imp-manual").open = true;
+    }
+  }
+  else if(r.estado === "aguardando") txt = "Esperando o assistente. Abra o arquivo baixado (dois cliques).";
+  else if(r.estado === "recebendo") txt = "O caderno chegou. Conferindo o pacote…";
+  else txt = r.etapa || "O assistente está trabalhando…";
+  el("imp-status-txt").textContent = txt;
+  el("imp-status-dica").textContent = dica;
+  el("imp-status-dica").hidden = !dica;
+  const barra = !erro && r.total > 0;
+  el("imp-status-prog").hidden = !barra;
+  if(barra) barraDeProgresso({feito: r.feito, total: r.total}, "imp-status-barra", null);
 }
 
 /* Envio com XMLHttpRequest: o fetch não informa o progresso do upload, e o
@@ -1333,6 +1430,7 @@ async function enviarPacote(arquivo){
     toast(e.message, true);
     return;
   }
+  esquecerTicket();             // foi à mão: o assistente desta rodada não serve mais
   confirmarImportacao(r);
 }
 
