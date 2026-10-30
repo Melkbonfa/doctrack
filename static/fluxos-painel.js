@@ -203,6 +203,21 @@
       }).join("") + '<div class="fx-ant-detalhe"></div></details>';
   }
 
+  /* ── tempo real ───────────────────────────────────────────────────────────
+     A página que tem socket repassa cada evento como `dt:evento`
+     (socket-client.js; Projetos e Missões fazem o repasse no socket próprio).
+     FLUXO_* do item que um painel mostra recarrega aquele painel — a menos que a
+     pessoa esteja escrevendo nele: aí aparece um aviso e ela atualiza quando
+     quiser, sem perder o comentário ou os arquivos escolhidos. */
+  var _paineis = [];
+  window.addEventListener("dt:evento", function(ev){
+    var e = (ev && ev.detail) || {};
+    if(!/^FLUXO_/.test(e.event_type || "")) return;
+    var p = e.payload || {};
+    _paineis = _paineis.filter(function(c){ return document.body.contains(c.host); });
+    _paineis.forEach(function(c){ c.aoEventoExterno(p); });
+  });
+
   /* ── controlador de um host ───────────────────────────────────────────── */
   function montar(host, opts){
     // O popover do entregável reaproveita o mesmo host a cada abertura: montar de
@@ -366,6 +381,7 @@
       else if(tipo === "reatribuir" || tipo === "cancelar") gerir(tipo, b);
       else if(tipo === "arquivo") abrirArquivo(b.dataset.id, b.dataset.ext, b.dataset.nome);
       else if(tipo === "ver-anterior") verAnterior(b.dataset.id);
+      else if(tipo === "atualizar") recarregar();
     });
     host.addEventListener("change", function(ev){
       if(!ev.target.classList.contains("fx-arq")) return;
@@ -385,7 +401,30 @@
     // Para de desenhar (uma resposta atrasada não pinta por cima do que vier).
     function parar(){ seq++; estado.dados = null; }
 
+    function editando(){
+      var c = host.querySelector(".fx-coment"), m = host.querySelector(".fx-g-motivo"),
+          i = host.querySelector(".fx-inicio");
+      return !!((c && c.value.trim()) || estado.arquivos.length || (m && m.value.trim()) ||
+                (i && i.innerHTML.trim()));
+    }
+
+    var tExterno = null;
+    function aoEventoExterno(p){
+      if(p.ref_tipo !== opts.ref_tipo || Number(p.ref_id) !== Number(opts.ref_id)) return;
+      clearTimeout(tExterno);
+      tExterno = setTimeout(function(){
+        if(!editando()){ recarregar(); return; }
+        if(host.querySelector(".fx-aviso-rt")) return;
+        var a = document.createElement("div");
+        a.className = "fx-aviso-rt";
+        a.innerHTML = '<span>O fluxo mudou enquanto você escrevia.</span>' +
+          '<button type="button" class="fx-link" data-fx="atualizar">Atualizar</button>';
+        host.insertBefore(a, host.firstChild);
+      }, 400);
+    }
+
     host.__dtFluxo = {recarregar: recarregar, trocar: trocar, parar: parar};
+    _paineis.push({host: host, aoEventoExterno: aoEventoExterno});
     trocar(opts);
     return host.__dtFluxo;
   }

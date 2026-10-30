@@ -139,6 +139,15 @@ cycle time e throughput; e alertas (`/api/documentos/alertas`) do que precisa de
 atenção hoje. O `peso` de cada documento é o esforço relativo, usado na
 ponderação.
 
+## Tempo real
+
+A tela atualiza sozinha quando outra pessoa muda um documento: status, campos,
+responsáveis, criação e exclusão. Uma rajada de mudanças vira uma atualização só.
+A ficha do equipamento aberta **não** é redesenhada por baixo de quem está
+digitando; aparece "Esta ficha foi atualizada por outra pessoa — Atualizar a
+ficha". O painel do fluxo de revisão dentro da ficha se atualiza sozinho. Ver
+[EVENTOS.md](../arquitetura/EVENTOS.md#quais-telas-têm-socket).
+
 ## Quem pode o quê
 
 | Ação | Papel |

@@ -221,6 +221,18 @@
 
   /* ── ciclo de vida ────────────────────────────────────────────────────── */
   window.addEventListener("dt:notificacoes-atualizar", function(){ contar(); });
+  // Fluxo andou (evento repassado pelo socket da página, quando ela tem um):
+  // reconta na hora em vez de esperar os 30 s, e redesenha o painel aberto.
+  // O aviso em si continua vindo da API — o evento só diz que vale perguntar.
+  var tFluxo = null;
+  window.addEventListener("dt:evento", function(ev){
+    var t = ((ev && ev.detail) || {}).event_type || "";
+    if(!/^FLUXO_/.test(t)) return;
+    clearTimeout(tFluxo);
+    tFluxo = setTimeout(function(){
+      contar().then(function(){ if(painel && !painel.hidden) carregarPainel(); });
+    }, 800);
+  });
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) contar(); });
 
   window.DT_SINO = {atualizar: contar};

@@ -143,6 +143,34 @@ dos colegas e quem fez login quando.
 
 ---
 
+### Quais telas têm socket
+
+| Tela | Socket | Reage a |
+|---|---|---|
+| Documentos | `DocTrackSocket` em `app-realtime.js`, assinando `setor:PRE/Manuais/PDE` | `DOCUMENT_*` e responsáveis: aplica no cache e redesenha em lote; ficha aberta ganha aviso em vez de ser redesenhada |
+| Equipamentos | `DocTrackSocket` em `equipamentos.js` | os eventos de equipamento da própria tela |
+| Projetos | `io()` próprio em `entregaveis.js` | projetos, entregáveis, PMO e `FLUXO_*` (selo da linha e modal) |
+| Missões | `io()` próprio em `missoes.js` | `MISSAO_*` |
+| Fluxos (`/fluxos/`) | `DocTrackSocket` em `fluxos.js` | `FLUXO_*`: a lista "Em andamento" |
+| Hub, Tempos, Custos, Cadernos | nenhum | — |
+
+**O repasse `dt:evento`.** O painel do fluxo (`fluxos-painel.js`) e o sino
+(`notificacoes-widget.js`) aparecem em várias telas e não conhecem o socket de
+nenhuma. `socket-client.js` repassa cada evento recebido como um `CustomEvent`
+`dt:evento` na `window`. Projetos e Missões, que usam `io()` direto, repassam os
+`FLUXO_*` à mão.
+- **Painel do fluxo:** recarrega quando o evento é do item que ele mostra. Se a
+  pessoa estiver escrevendo nele, mostra "O fluxo mudou — Atualizar" em vez de
+  apagar o texto.
+- **Sino:** reconta na hora. O aviso em si continua vindo da API.
+- **Tela sem socket:** o sino segue com a consulta de 30 s.
+
+> Até 2026-10 a tela de Documentos não tinha tempo real: o `app-realtime.js` era
+> um modelo de integração nunca ligado, que lia o token de uma chave antiga
+> (`jwt`) e cuja `initRealtime()` ninguém chamava.
+> `tests/test_tempo_real_front.py` trava os pontos que quebraram assim, em
+> silêncio.
+
 ## Tipos de evento
 
 A lista canônica é a classe `EventType` em [`event_bus.py`](../../event_bus.py) —

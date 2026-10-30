@@ -198,6 +198,9 @@ async function initApp(){
 
   showToast('Bem-vindo ao DocTrack v4.0','success');
   document.getElementById('sync-label').textContent='Conectado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  // Tela montada: o tempo real (app-realtime.js) pode começar a aplicar eventos.
+  window.__docsProntos = true;
+  window.dispatchEvent(new Event('dt:docs-prontos'));
   const ls=document.getElementById('last-sync');if(ls)ls.textContent=new Date().toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit'});
 }
 

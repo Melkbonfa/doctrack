@@ -3287,6 +3287,12 @@ function conectarSocket(){
      "ENTREGAVEL_CREATED", "ENTREGAVEL_UPDATED", "ENTREGAVEL_DELETED",
      "MENSAL_CREATED", "MENSAL_UPDATED", "MENSAL_DELETED",
      "BASELINE_CREATED"].forEach(ev => s.on(ev, recarregar));
+    // Fluxo de revisão andou: o selo da linha e o modal acompanham, e o painel do
+    // fluxo e o sino (que não conhecem este socket) recebem o repasse.
+    ["FLUXO_INICIADO", "FLUXO_MOVIDO", "FLUXO_CONCLUIDO", "FLUXO_CANCELADO"].forEach(ev => s.on(ev, e => {
+      try{ window.dispatchEvent(new CustomEvent("dt:evento", {detail: e})); }catch(_){}
+      recarregar();
+    }));
   }catch(e){ /* tempo real é opcional; a tela funciona sem ele */ }
 }
 
