@@ -37,7 +37,9 @@ param(
     # ID do caderno no OneNote (o assistente passa): escolhe sem ambiguidade de nome.
     [string]$CadernoId = '',
     # Não copia os .one/.onetoc2 para o pacote.
-    [switch]$SemOriginais
+    [switch]$SemOriginais,
+    # Chamado a cada página com (n, total, nome): o assistente repassa à tela.
+    [scriptblock]$AoProgredir = $null
 )
 $ErrorActionPreference = 'Stop'
 $NSURI = 'http://schemas.microsoft.com/office/onenote/2013/onenote'
@@ -85,6 +87,7 @@ function Grupos-De($no) {
 }
 
 $todas = $nb.SelectNodes(".//one:Section[not(ancestor::one:SectionGroup[@isRecycleBin='true'])]", $ns)
+$totalPaginas = $nb.SelectNodes(".//one:Section[not(ancestor::one:SectionGroup[@isRecycleBin='true'])]/one:Page", $ns).Count
 $iSec = 0
 foreach ($sec in $todas) {
     $iSec++
@@ -146,6 +149,7 @@ foreach ($sec in $todas) {
             [void]$avisos.Add("Página '$($p.name)' não foi lida: $($_.Exception.Message)")
         }
         if ($n % 20 -eq 0) { Write-Host "  ... $n páginas" }
+        if ($AoProgredir) { & $AoProgredir $n $totalPaginas $p.name }
     }
 }
 

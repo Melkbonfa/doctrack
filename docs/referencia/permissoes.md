@@ -24,7 +24,7 @@ Contagem de rotas que cada papel alcança, por arquivo. Rotas `públicas` e `aut
 | Arquivo | `admin` | `gestor` | `tecnico` | `leitura` | total |
 |---|---|---|---|---|---|
 | `auth.py` | 11 | 7 | 6 | 6 | 11 |
-| `cadernos/routes.py` | 51 | 51 | 51 | 51 | 51 |
+| `cadernos/routes.py` | 55 | 55 | 55 | 55 | 55 |
 | `custos/routes.py` | 19 | 19 | 2 | 2 | 19 |
 | `documentos.py` | 25 | 25 | 17 | 13 | 25 |
 | `entregaveis.py` | 44 | 42 | 12 | 0 | 44 |
@@ -38,12 +38,14 @@ Contagem de rotas que cada papel alcança, por arquivo. Rotas `públicas` e `aut
 
 ## Superfície pública
 
-As **6** rotas de API alcançáveis sem token. Esta lista deve ser curta e conhecida — cada linha é superfície de ataque, e é por causa dela que existe [`ratelimit.py`](../../ratelimit.py).
+As **8** rotas de API alcançáveis sem token. Esta lista deve ser curta e conhecida — cada linha é superfície de ataque, e é por causa dela que existe [`ratelimit.py`](../../ratelimit.py).
 
 | Método | Rota | Arquivo |
 |---|---|---|
 | `POST` | `/api/auth/login` | `auth.py` |
 | `POST` | `/api/auth/primeiro-acesso` | `auth.py` |
+| `POST` | `/cadernos/api/importacoes/assistente/aviso` | `cadernos/routes.py` |
+| `POST` | `/cadernos/api/importacoes/assistente/pacote` | `cadernos/routes.py` |
 | `POST` | `/api/kill-switch/lock` | `killswitch.py` |
 | `GET` | `/api/kill-switch/status` | `killswitch.py` |
 | `POST` | `/api/kill-switch/unlock` | `killswitch.py` |

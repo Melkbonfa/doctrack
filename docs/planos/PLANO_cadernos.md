@@ -728,6 +728,54 @@ passos:
 **Testes:** `tests/test_cadernos_exportacao.py` (14) e
 `tests/test_cadernos_importacao.py` (11), mais 1 no conversor. Suíte completa: 732.
 
+### Status em 2026-10-23: importação em menos passos
+
+O passo 3 acima ("enviar o zip") sumiu, e o passo 2 ficou mais curto. Antes eram
+umas doze ações; o que mais pesava era achar arquivos: o zip baixado numa caixa
+de diálogo, o zip gerado na Área de Trabalho, arrastá-lo de volta para a tela.
+
+1. Baixar o caderno do SharePoint (igual).
+2. **Baixar o assistente** na janela e rodar. O .cmd já leva o endereço do
+   DocTrack e o segredo de um ticket.
+   - O caderno baixado aparece no topo do menu (os .zip das últimas duas semanas
+     em Downloads que têm `.onetoc2`/`.one` dentro). Enter escolhe.
+   - O assistente conta cada etapa à tela e, no fim, manda o pacote sozinho
+     (`POST .../assistente/pacote`, corpo `application/zip`, blocos de 1 MB).
+3. A janela, que consulta o ticket a cada 1,5 s, passa sozinha para a mesma
+   conferência de antes.
+
+**O ticket** (`cadernos/importacao.py`, em memória como os pacotes recebidos):
+
+- Tem um `id`, que a tela usa com login, e um segredo, que só vai no .cmd e no
+  cabeçalho `X-DocTrack-Ticket`.
+- Vale 6 h e é de uso único: depois que um pacote chega, o mesmo .cmd é
+  recusado. Até lá, rodar de novo o mesmo .cmd depois de um erro funciona.
+- Não dá acesso a nada além de contar a etapa e pôr um pacote na área de espera.
+  Por isso as duas rotas do assistente são públicas e estão na lista aprovada de
+  `tests/test_docs_sincronia.py`. O token de login não vai para o .cmd: ele
+  abriria todo o DocTrack para quem achasse o arquivo.
+- O endereço vem do Host da requisição e só entra no .cmd se parecer endereço;
+  senão, o assistente sai sem envio e fica o caminho à mão.
+
+**Plano B:** "Prefere enviar o .zip à mão?" continua na janela, e abre sozinho
+quando o assistente avisa erro (rede, antivírus, ticket vencido). O assistente
+também guarda o .zip na Área de Trabalho, como antes.
+
+**Verificado:** o .cmd montado pelo servidor rodou de ponta a ponta no L-037 contra
+o servidor isolado (waitress, como a produção). A tela mostrou página por página,
+o pacote de 96 MB chegou e a conferência abriu sozinha. Testes novos em
+`tests/test_cadernos_importacao.py` (18 no arquivo). Suíte completa: 798.
+
+**Ficou para depois** (avaliado e não feito agora):
+
+- Vários cadernos numa rodada, baixando a pasta "04. Cadernos de laboratório"
+  inteira, com fila no servidor.
+- Instalar o assistente uma vez (protocolo `doctrack-onenote://` no registro do
+  usuário), para não baixar o .cmd nem ver o aviso do Windows a cada importação.
+- Extrair no próprio servidor foi descartado: esta máquina tem OneNote, mas o
+  DocTrack roda como serviço, onde a Microsoft não dá suporte à automação do
+  Office, e isso prenderia a produção a esta máquina.
+
 ## 2.9 Testes (`tests/test_cadernos*.py`)
 
 - **Níveis e séries** seguem as invariantes.

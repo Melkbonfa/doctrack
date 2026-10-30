@@ -2,8 +2,9 @@
 cadernos/importacao.py — Grava no banco um caderno extraído do OneNote.
 
 Quem usa:
-  * a tela "Importar do OneNote" (rotas /cadernos/api/importacoes): a pessoa
-    envia o .zip que o assistente gerou na máquina dela, confere o resumo e
+  * a tela "Importar do OneNote" (rotas /cadernos/api/importacoes): o
+    assistente que roda na máquina da pessoa manda o .zip sozinho, com um
+    ticket de uso único (ou a pessoa envia o .zip à mão); ela confere o resumo e
     confirma; a gravação roda como tarefa (ver tarefas.py);
   * scripts/importar_onenote.py, a linha de comando, com as travas de alvo de
     banco (esta máquina é o servidor de produção).
@@ -20,10 +21,12 @@ O pacote (formato `doctrack-onenote-1`, gerado por scripts/onenote/extrair_oneno
 origem (`importador_onenote.chave_origem`). Página que nunca foi editada no
 DocTrack (versão 1) é atualizada; editada, é pulada e listada no relatório.
 """
+import hmac
 import io
 import json
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import time
@@ -51,6 +54,7 @@ LIMITE_DESCOMPACTADO = 8 * 1024 ** 3        # zip-bomba: nada além disso no dis
 LIMITE_ENTRADAS = 50000
 PASTA_TEMP = os.path.join(tempfile.gettempdir(), "doctrack_importacoes")
 VALIDADE_RECEBIDO_HORAS = 6
+VALIDADE_TICKET_HORAS = 6
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -390,13 +394,20 @@ def _limpar_recebidos(agora=None):
 
 
 def receber(arquivo_enviado, user_id, area):
-    """Guarda e valida o .zip enviado. Devolve (id, manifesto)."""
+    """Guarda e valida o .zip enviado. Devolve (id, manifesto).
+
+    `arquivo_enviado` é o arquivo do formulário (tem `.save`) ou o corpo cru da
+    requisição, que é como o assistente manda."""
     os.makedirs(PASTA_TEMP, exist_ok=True)
     _limpar_recebidos()
     pasta = tempfile.mkdtemp(prefix="imp_", dir=PASTA_TEMP)
     try:
         caminho_zip = os.path.join(pasta, "pacote.zip")
-        arquivo_enviado.save(caminho_zip)
+        if hasattr(arquivo_enviado, "save"):
+            arquivo_enviado.save(caminho_zip)
+        else:
+            with open(caminho_zip, "wb") as fh:
+                shutil.copyfileobj(arquivo_enviado, fh, 1024 * 1024)
         raiz = extrair_zip(caminho_zip, os.path.join(pasta, "pacote"))
         os.remove(caminho_zip)
         man = ler_manifesto(raiz)
@@ -417,6 +428,84 @@ def descartar(id_):
     r = _recebidos.pop(id_, None)
     if r:
         shutil.rmtree(r["pasta"], ignore_errors=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# O ASSISTENTE ENVIA SOZINHO: ticket de uso único
+# ══════════════════════════════════════════════════════════════════════════════
+# O .cmd baixado leva o endereço do DocTrack e o SEGREDO de um ticket. Com ele o
+# assistente conta à tela o que está fazendo e manda o pacote — sem o token de
+# login, que ficaria gravado num arquivo na máquina e abriria tudo. O segredo só
+# deixa avisar a etapa e entregar UM pacote na área de espera: gravar continua
+# exigindo a pessoa logada, na conferência. A tela acompanha pelo `id` (com
+# login), e o segredo nunca volta para o navegador.
+#
+# Estados: aguardando → trabalhando → recebendo → recebido, ou erro (o
+# assistente parou; rodar de novo o mesmo .cmd volta para "trabalhando").
+
+_tickets = {}            # id → {"segredo", "user_id", "area", "quando", "estado", ...}
+
+
+def _limpar_tickets(agora=None):
+    agora = agora or time.time()
+    for k in [k for k, v in _tickets.items() if agora - v["quando"] > VALIDADE_TICKET_HORAS * 3600]:
+        _tickets.pop(k, None)
+
+
+def novo_ticket(user_id, area):
+    _limpar_tickets()
+    id_ = str(_uuid.uuid4())
+    _tickets[id_] = {"segredo": secrets.token_urlsafe(24), "user_id": user_id, "area": area,
+                     "quando": time.time(), "estado": "aguardando", "etapa": "", "feito": 0,
+                     "total": 0, "erro": "", "recebido": None}
+    return id_
+
+
+def ticket(id_, user_id):
+    """O ticket da tela: só quem o criou enxerga."""
+    _limpar_tickets()
+    t = _tickets.get(id_)
+    return t if t and t["user_id"] == user_id else None
+
+
+def ticket_do_assistente(segredo):
+    """O ticket pelo segredo que o assistente manda. Levanta ErroDaTarefa com a
+    frase que o assistente mostra para a pessoa."""
+    _limpar_tickets()
+    if segredo:
+        for t in _tickets.values():
+            if hmac.compare_digest(t["segredo"], segredo):
+                if t["estado"] == "recebido":
+                    raise ErroDaTarefa("Este assistente já enviou um caderno. Para outro, baixe o "
+                                       "assistente de novo no DocTrack (Importar do OneNote).")
+                return t
+    raise ErroDaTarefa("Este assistente expirou ou é de outra importação. Baixe de novo no "
+                       "DocTrack (Importar do OneNote).")
+
+
+def _num(v):
+    try:
+        return max(0, int(v or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def avisar(t, etapa="", feito=0, total=0, erro=""):
+    """O assistente conta a etapa (ou que parou, com `erro`)."""
+    t.update(estado="erro" if erro else "trabalhando", etapa=str(etapa or "")[:300],
+             feito=_num(feito), total=_num(total), erro=str(erro or "")[:500])
+
+
+def receber_do_assistente(t, corpo):
+    """Recebe o .zip que o assistente mandou no corpo da requisição."""
+    t.update(estado="recebendo", etapa="Pacote recebido. Conferindo…", feito=0, total=0, erro="")
+    try:
+        id_, man = receber(corpo, t["user_id"], t["area"])
+    except Exception as e:
+        avisar(t, erro=str(e) if isinstance(e, ErroDaTarefa) else "O DocTrack não conseguiu ler o pacote.")
+        raise
+    t.update(estado="recebido", recebido=id_)
+    return id_, man
 
 
 def executar(tarefa, id_recebido, user_id, nome=None, ip=""):

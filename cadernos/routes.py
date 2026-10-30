@@ -58,8 +58,12 @@ acesso) vai para a trilha como ACESSO_NEGADO, deduplicada (ver auth.py).
   GET    /cadernos/api/tarefas/<id>                   progresso de exportação/importação
   GET    /cadernos/api/cadernos/<uuid>/exportacoes    histórico de exportações
   GET    /cadernos/api/exportacoes/<uuid>/zip         baixa o zip gerado
-  GET    /cadernos/api/onenote/assistente             baixa o assistente (.cmd) de extração
-  POST   /cadernos/api/importacoes                    recebe o .zip do assistente (resumo)
+  GET    /cadernos/api/onenote/assistente?ticket=     baixa o assistente (.cmd) de extração
+  POST   /cadernos/api/importacoes/tickets            ticket para o assistente enviar sozinho
+  GET    /cadernos/api/importacoes/tickets/<id>       o que o assistente está fazendo
+  POST   /cadernos/api/importacoes/assistente/aviso   (ticket, sem login) o assistente conta a etapa
+  POST   /cadernos/api/importacoes/assistente/pacote  (ticket, sem login) o assistente envia o .zip
+  POST   /cadernos/api/importacoes                    recebe o .zip enviado à mão (resumo)
   POST   /cadernos/api/importacoes/<id>/iniciar       confirma e grava (tarefa)
   DELETE /cadernos/api/importacoes/<id>               descarta o pacote recebido
   GET    /cadernos/api/busca?area=&q=&caderno=        busca no texto
@@ -68,6 +72,7 @@ acesso) vai para a trilha como ACESSO_NEGADO, deduplicada (ver auth.py).
 import io
 import json
 import os
+import re
 import uuid as _uuid
 from datetime import datetime, timedelta
 
@@ -1483,8 +1488,16 @@ def baixar_exportacao(uuid_):
 # IMPORTAÇÃO DO ONENOTE (pela tela)
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. a pessoa baixa o assistente (.cmd) e roda na máquina dela, onde está o
-#    OneNote: sai um .zip; 2. envia o .zip aqui e vê o resumo; 3. confirma, e a
-#    gravação roda como tarefa. Quem importa é quem pode criar caderno na área.
+#    OneNote; 2. o assistente extrai e manda o .zip para cá sozinho, contando a
+#    etapa (ticket de uso único, ver importacao.py), e a tela, que acompanha,
+#    abre o resumo; 3. a pessoa confirma, e a gravação roda como tarefa. Enviar o
+#    .zip à mão continua valendo. Quem importa é quem pode criar caderno na área.
+
+CABECALHO_TICKET = "X-DocTrack-Ticket"
+# Endereço que vai dentro do .cmd, entre aspas simples do PowerShell: só o que
+# um endereço tem (o Host vem do navegador e não pode virar código no script).
+_ENDERECO_SEGURO = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+$")
+
 
 def _pode_importar(u, area):
     return u is not None and u.role in ("admin", "gestor", "tecnico") and u.tem_area(area)
@@ -1498,25 +1511,114 @@ def _negar_importacao(u, area):
     return negar_acesso(motivo, "Seu perfil não importa cadernos nesta área")
 
 
+def _resposta_pacote(u, id_, man):
+    """O resumo para a conferência — igual para o envio à mão e o do assistente."""
+    from .importacao import caderno_existente, resumo_do_manifesto
+    existente = caderno_existente(man)
+    ex = None
+    if existente:
+        papel = _papel(u, existente)
+        ex = {"uuid": existente.uuid, "nome": existente.nome, "area": existente.area,
+              "pode_atualizar": core.pode(papel, "editor")}
+    return {"id": id_, "resumo": resumo_do_manifesto(man), "existente": ex}
+
+
 @cadernos_bp.route("/api/onenote/assistente", methods=["GET"])
 @jwt_required()
 def baixar_assistente():
-    """O .cmd que extrai um caderno do OneNote na máquina de quem o tem aberto."""
-    from . import onenote_assistente
+    """O .cmd que extrai um caderno do OneNote na máquina de quem o tem aberto.
+    Com `?ticket=`, ele mesmo manda o pacote para cá no fim."""
+    from . import importacao, onenote_assistente
     u = current_user()
     if u is None or u.role not in ("admin", "gestor", "tecnico"):
         return negar_acesso(f"perfil {u.role if u else '—'} não importa cadernos",
                             "Seu perfil não importa cadernos")
-    return send_file(io.BytesIO(onenote_assistente.montar()), as_attachment=True,
-                     download_name=onenote_assistente.NOME_ARQUIVO,
+    servidor = segredo = None
+    id_ticket = (request.args.get("ticket") or "").strip()
+    if id_ticket:
+        t = importacao.ticket(id_ticket, u.id)
+        if not t:
+            return _erro("Esta importação expirou. Baixe o assistente de novo.", 404)
+        endereco = request.host_url.rstrip("/")
+        if _ENDERECO_SEGURO.match(endereco):
+            servidor, segredo = endereco, t["segredo"]
+    return send_file(io.BytesIO(onenote_assistente.montar(servidor=servidor, ticket=segredo)),
+                     as_attachment=True, download_name=onenote_assistente.NOME_ARQUIVO,
                      mimetype="application/octet-stream", max_age=0)
+
+
+@cadernos_bp.route("/api/importacoes/tickets", methods=["POST"])
+@jwt_required()
+def criar_ticket_importacao():
+    """Ticket para o assistente mandar o pacote sozinho e contar a etapa."""
+    from . import importacao
+    u = current_user()
+    area = ((request.get_json(silent=True) or {}).get("area") or "pdr").strip().lower()
+    if not _pode_importar(u, area):
+        return _negar_importacao(u, area)
+    return jsonify({"id": importacao.novo_ticket(u.id, area)}), 201
+
+
+@cadernos_bp.route("/api/importacoes/tickets/<id_>", methods=["GET"])
+@jwt_required()
+def estado_ticket_importacao(id_):
+    """O que o assistente está fazendo. Quando o pacote chega, vem o resumo."""
+    from . import importacao
+    u = current_user()
+    t = importacao.ticket(id_, u.id) if u else None
+    if not t:
+        return _erro("Esta importação expirou. Baixe o assistente de novo.", 404)
+    r = {k: t[k] for k in ("estado", "etapa", "feito", "total", "erro")}
+    if t["estado"] == "recebido":
+        rec = importacao.recebido(t["recebido"], u.id)
+        if not rec:
+            r.update(estado="erro", erro="O pacote recebido expirou. Rode o assistente de novo.")
+        else:
+            r["pacote"] = _resposta_pacote(u, t["recebido"], importacao.ler_manifesto(rec["raiz"]))
+    return jsonify(r)
+
+
+# As duas rotas do assistente não têm login: quem chama é o .cmd, não o
+# navegador. O que autoriza é o segredo do ticket no cabeçalho, e o que ele
+# permite é pouco — contar a etapa e pôr UM pacote na área de espera, que só
+# vira caderno quando a pessoa logada confirma.
+
+@cadernos_bp.route("/api/importacoes/assistente/aviso", methods=["POST"])
+def aviso_do_assistente():
+    """O assistente conta a etapa (ou que parou) para a tela que acompanha."""
+    from . import importacao
+    try:
+        t = importacao.ticket_do_assistente(request.headers.get(CABECALHO_TICKET, ""))
+    except tarefas.ErroDaTarefa as e:
+        return _erro(str(e), 404)
+    d = request.get_json(silent=True) or {}
+    importacao.avisar(t, d.get("etapa"), d.get("feito"), d.get("total"), d.get("erro"))
+    return jsonify({"ok": True})
+
+
+@cadernos_bp.route("/api/importacoes/assistente/pacote", methods=["POST"])
+def pacote_do_assistente():
+    """O assistente manda o .zip no corpo (application/zip)."""
+    from . import importacao
+    try:
+        t = importacao.ticket_do_assistente(request.headers.get(CABECALHO_TICKET, ""))
+    except tarefas.ErroDaTarefa as e:
+        return _erro(str(e), 404)
+    request.max_content_length = importacao.LIMITE_UPLOAD_MB * 1024 * 1024
+    if not request.content_length:
+        return _erro("Envio sem tamanho (Content-Length)", 411)
+    try:
+        _id, man = importacao.receber_do_assistente(t, request.stream)
+    except tarefas.ErroDaTarefa as e:
+        return _erro(str(e), 400)
+    return jsonify({"ok": True, "caderno": (man.get("caderno") or {}).get("nome", "")}), 201
 
 
 @cadernos_bp.route("/api/importacoes", methods=["POST"])
 @jwt_required()
 def receber_importacao():
-    """Recebe o .zip do assistente, valida e devolve o resumo para confirmar."""
-    from .importacao import LIMITE_UPLOAD_MB, caderno_existente, receber, resumo_do_manifesto
+    """Recebe o .zip enviado à mão, valida e devolve o resumo para confirmar."""
+    from .importacao import LIMITE_UPLOAD_MB, receber
     # Antes de tocar em request.form: ler o formulário já aplica o limite global.
     request.max_content_length = LIMITE_UPLOAD_MB * 1024 * 1024
     u = current_user()
@@ -1530,13 +1632,7 @@ def receber_importacao():
         id_, man = receber(f, u.id, area)
     except tarefas.ErroDaTarefa as e:
         return _erro(str(e), 400)
-    existente = caderno_existente(man)
-    ex = None
-    if existente:
-        papel = _papel(u, existente)
-        ex = {"uuid": existente.uuid, "nome": existente.nome, "area": existente.area,
-              "pode_atualizar": core.pode(papel, "editor")}
-    return jsonify({"id": id_, "resumo": resumo_do_manifesto(man), "existente": ex}), 201
+    return jsonify(_resposta_pacote(u, id_, man)), 201
 
 
 @cadernos_bp.route("/api/importacoes/<id_>/iniciar", methods=["POST"])

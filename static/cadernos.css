@@ -268,6 +268,16 @@ body.theme-light .cd-tag{color:var(--cyan-brand-dim)}
 .cd-imp-zona{display:flex;align-items:center;justify-content:center;min-height:64px;margin-top:8px;padding:12px;border:1.5px dashed var(--border-mid);
   border-radius:10px;cursor:pointer;color:var(--t3);text-align:center;transition:border-color .15s,background .15s}
 .cd-imp-zona:hover,.cd-imp-zona.arrastando{border-color:var(--cyan);background:rgba(34,211,238,.06);color:var(--t1)}
+.cd-imp-acao{margin:8px 0}
+.cd-imp-status{margin-top:10px;padding:9px 12px;border-radius:9px;border:1px solid var(--border-soft);background:var(--bg-hover)}
+.cd-imp-status.erro{border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.1)}
+.cd-imp-etapa{font-size:13px;color:var(--t1);overflow-wrap:anywhere}
+.cd-imp-status:not(.erro) .cd-imp-etapa::before{content:"";display:inline-block;width:8px;height:8px;margin-right:8px;border-radius:50%;background:var(--cyan);vertical-align:1px;animation:cd-pulso 1.2s ease-in-out infinite}
+.cd-imp-status .cd-progresso{margin:8px 0 2px}
+@keyframes cd-pulso{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.cd-imp-status .cd-imp-etapa::before{animation:none}}
+.cd-imp-manual{margin-top:14px;font-size:13px;color:var(--t2)}
+.cd-imp-manual summary{cursor:pointer}
 .cd-imp-resumo{margin-bottom:10px}
 .cd-imp-nome{font-size:16px;font-weight:700;color:var(--t1)}
 .cd-imp-numeros{display:flex;flex-wrap:wrap;gap:6px 10px;margin:10px 0}
