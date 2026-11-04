@@ -51,12 +51,12 @@ var CENAS = {
     var pul = [[0,0,2.6],[2,1.6,2.4],[1,.9,3],[5,.4,2.8],[6,1.2,3.2],[4,2,2.6],[8,.6,2.2],[11,1.8,2.4]];
     return '<g class="ln dim">' + tr.map(function(d){ return '<path d="' + d + '"/>'; }).join('') + '</g>' +
       '<g class="ln">' + pads.map(function(p){ return '<circle class="pap" cx="' + p[0] + '" cy="' + p[1] + '" r="4.5"/>'; }).join('') + '</g>' +
-      '<g filter="url(#hv-glow)">' + pul.map(function(p){ return '<path class="pulse" pathLength="100" style="--d:' + p[1] + 's;--t:' + p[2] + 's" d="' + tr[p[0]] + '"/>'; }).join('') + '</g>' +
+      pul.map(function(p){ var st = ' pathLength="100" style="--d:' + p[1] + 's;--t:' + p[2] + 's" d="' + tr[p[0]] + '"/>'; return '<path class="pulse halo"' + st + '<path class="pulse"' + st; }).join('') +
       '<rect class="ln dim pap" x="84" y="105" width="22" height="10" rx="2"/><rect class="ln dim pap" x="376" y="105" width="22" height="10" rx="2"/>' +
       '<circle class="ln dim spin" cx="240" cy="120" r="82" stroke-dasharray="2 8"/>' +
       '<path class="ln" d="M183 90h12M183 110h12M183 130h12M183 150h12M285 90h12M285 110h12M285 130h12M285 150h12M210 63v12M230 63v12M250 63v12M270 63v12M210 165v12M230 165v12M250 165v12M270 165v12"/>' +
       '<rect class="ln pap" x="195" y="75" width="90" height="90" rx="10"/>' +
-      '<rect class="ln core" x="214" y="94" width="52" height="52" rx="6" filter="url(#hv-glow)"/>' +
+      '<rect class="ln core" x="214" y="94" width="52" height="52" rx="6"/>' +
       '<path class="ln dim" d="M226 120h28M240 106v28"/>' +
       '<text class="tx" x="26" y="231">PCB-01 · REV B</text>';
   },
@@ -72,7 +72,7 @@ var CENAS = {
       '<g transform="translate(244 48) rotate(8 60 75)" opacity=".6"><g class="flt" style="--fd:6.4s;--fdl:-3s">' + sheet + '</g></g>' +
       '<g transform="translate(180 42)"><g class="flt" style="--fd:4.8s;--fdl:0s">' + sheet +
         '<g clip-path="url(#hv-c-doc)"><g class="scan"><rect y="-24" width="120" height="24" fill="url(#hv-g-scan)"/><rect y="-1" width="120" height="2" class="acc"/></g></g>' +
-        '<g transform="translate(94 122)"><g class="stamp" filter="url(#hv-glow)"><circle r="15" class="ln pap" stroke-width="1.8"/><path d="M-6 0l4 4 8-8" class="ln" stroke-width="2.4"/></g></g>' +
+        '<g transform="translate(94 122)"><g class="stamp"><circle r="15" class="ln pap" stroke-width="1.8"/><path d="M-6 0l4 4 8-8" class="ln" stroke-width="2.4"/></g></g>' +
       '</g></g>' +
       [[150,0],[200,1.4],[330,.7],[360,2.1],[118,2.8]].map(function(p){ return '<circle class="pt acc" cx="' + p[0] + '" cy="212" r="1.8" style="--d:' + p[1] + 's"/>'; }).join('') +
       '<text class="tx" x="26" y="231">LISTA MESTRA</text>';
@@ -105,7 +105,7 @@ var CENAS = {
       [54,90,126].map(function(y){ return card(70, y); }).join('') +
       [54,90].map(function(y){ return card(190, y); }).join('') +
       [54,90,126].map(function(y){ return card(310, y); }).join('') +
-      '<g transform="translate(70 162)"><g class="mv" filter="url(#hv-glow)"><rect class="ln pap" width="100" height="28" rx="6" stroke-width="1.8"/>' +
+      '<g transform="translate(70 162)"><g class="mv"><rect class="ln pap" width="100" height="28" rx="6" stroke-width="1.8"/>' +
         '<rect x="10" y="8" width="52" height="4" rx="2" class="acc"/><rect x="10" y="16" width="32" height="4" rx="2" class="sft2"/>' +
         '<circle cx="86" cy="14" r="6" class="acc"/></g></g>';
   },
@@ -115,7 +115,7 @@ var CENAS = {
     return '<path class="ln dim" d="M56 200H432"/>' +
       '<path class="ln dim" d="M56 64H432" stroke-dasharray="5 5"/><text class="tx" x="432" y="56" text-anchor="end">PREÇO-ALVO</text>' +
       h.map(function(v, i){ return '<rect class="cb ' + (i === 8 ? 'acc' : 'ln dim2 sft') + '" x="' + (68 + i * 40) + '" y="' + (200 - v) + '" width="24" height="' + v + '" rx="4" style="--i:' + i + '"/>'; }).join('') +
-      '<path class="ln trend" d="' + d + '" pathLength="100" filter="url(#hv-glow)"/>' +
+      '<path class="ln trend" d="' + d + '" pathLength="100"/>' +
       '<circle class="acc dotp" cx="400" cy="72" r="4"/>' +
       '<g class="tx">' + rep(9, function(i){ return '<text x="' + (80 + i * 40) + '" y="218" text-anchor="middle">V' + (i + 1) + '</text>'; }) + '</g>';
   },
@@ -124,7 +124,7 @@ var CENAS = {
     var blocos = [[[0,46],[52,62]], [[0,58],[64,40]], [[0,50],[56,54]], [[0,44],[50,58]], [[0,40],[46,62]]];
     var hoje = Math.min(Math.max((new Date().getDay() + 6) % 7, 0), 4);
     return '<circle class="ln dim" cx="' + cx + '" cy="' + cy + '" r="94" stroke-dasharray="1 6"/>' +
-      '<circle class="ln arc" cx="' + cx + '" cy="' + cy + '" r="86" pathLength="100" transform="rotate(-90 ' + cx + ' ' + cy + ')" filter="url(#hv-glow)"/>' +
+      '<circle class="ln arc" cx="' + cx + '" cy="' + cy + '" r="86" pathLength="100" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>' +
       '<circle class="ln dim2 pap" cx="' + cx + '" cy="' + cy + '" r="78"/>' +
       rep(12, function(i){ return '<path class="ln' + (i % 3 ? ' dim' : '') + '" d="M' + cx + ' ' + (cy - 74) + 'v' + (i % 3 ? 6 : 10) + '" transform="rotate(' + (i * 30) + ' ' + cx + ' ' + cy + ')"/>'; }) +
       '<path class="ln" d="M' + cx + ' ' + cy + 'V' + (cy - 38) + '" stroke-width="3" transform="rotate(186 ' + cx + ' ' + cy + ')"/>' +
@@ -155,7 +155,7 @@ var CENAS = {
           '<text class="tx" x="' + x + '" y="' + (y + 50) + '" text-anchor="middle">' + lb[i][0] + '</text>' +
           '<text class="tx tx-d" x="' + x + '" y="' + (y + 64) + '" text-anchor="middle">' + lb[i][1] + '</text>';
       }).join('') +
-      '<g transform="translate(' + (xs[0] - 10) + ' 38)"><g class="tok" filter="url(#hv-glow)"><path class="ln pap" d="M0 0h14l6 6v18H0z" stroke-width="1.6"/><path class="ln" d="M14 0v6h6M4 12h12M4 17h8"/></g></g>';
+      '<g transform="translate(' + (xs[0] - 10) + ' 38)"><g class="tok"><path class="ln pap" d="M0 0h14l6 6v18H0z" stroke-width="1.6"/><path class="ln" d="M14 0v6h6M4 12h12M4 17h8"/></g></g>';
   },
 
   /* Áreas (hub). Equipamentos: aparelho em prancha técnica. */
@@ -169,7 +169,7 @@ var CENAS = {
       '<rect class="ln dim2 sft" x="156" y="74" width="112" height="64" rx="6"/>' +
       '<g class="ln" style="opacity:.12">' + rep(4, function(i){ return '<path d="M' + (178 + i * 22) + ' 78V134"/>'; }) + '<path d="M160 90H264M160 122H264"/></g>' +
       '<path class="ln dim" d="' + onda + '"/>' +
-      '<path class="sweep" pathLength="100" d="' + onda + '" filter="url(#hv-glow)"/>' +
+      '<path class="sweep halo" pathLength="100" d="' + onda + '"/><path class="sweep" pathLength="100" d="' + onda + '"/>' +
       '<g transform="translate(304 94)"><circle class="ln pap" r="14"/><g class="spin" style="--sd:9s"><path class="ln" d="M0 0V-9" stroke-width="2"/><circle r="9" fill="none"/></g></g>' +
       '<g transform="translate(304 134)"><circle class="ln pap" r="10"/><path class="ln dim" d="M0 0L5 -6" stroke-width="2"/></g>' +
       rep(4, function(i){ return '<rect x="' + (156 + i * 29) + '" y="152" width="22" height="10" rx="3" class="' + (i === 0 ? 'acc' : 'sft2') + '"/>'; }) +
@@ -195,14 +195,14 @@ var CENAS = {
     });
     var rot = {0:'IDEIA', 5:'PROTÓTIPO', 7:'PATENTE'};
     return '<g class="ln dim">' + linhas.map(function(d){ return '<path d="' + d + '"/>'; }).join('') + '</g>' +
-      '<g filter="url(#hv-glow)">' + linhas.map(function(d, i){ return '<path class="pulse" pathLength="100" style="--d:' + (i * .45).toFixed(2) + 's;--t:' + (2.4 + (i % 3) * .4).toFixed(1) + 's" d="' + d + '"/>'; }).join('') + '</g>' +
+      linhas.map(function(d, i){ var st = ' pathLength="100" style="--d:' + (i * .45).toFixed(2) + 's;--t:' + (2.4 + (i % 3) * .4).toFixed(1) + 's" d="' + d + '"/>'; return '<path class="pulse halo"' + st + '<path class="pulse"' + st; }).join('') +
       nos.map(function(n, i){
         return '<circle class="ln pap" cx="' + n[0] + '" cy="' + n[1] + '" r="' + (i % 3 === 0 ? 7 : 5) + '"/>' +
           (i % 3 === 0 ? '<circle class="acc" cx="' + n[0] + '" cy="' + n[1] + '" r="2.5"/>' : '') +
           (rot[i] ? '<text class="tx tx-d" x="' + n[0] + '" y="' + (n[1] + (n[1] > 120 ? 20 : -12)) + '" text-anchor="middle">' + rot[i] + '</text>' : '');
       }).join('') +
       '<g transform="translate(240 86)"><g class="spin" style="--sd:40s"><circle class="ln dim" r="58" stroke-dasharray="2 9"/></g></g>' +
-      '<circle class="core" cx="240" cy="80" r="22" filter="url(#hv-glow)"/>' +
+      '<circle class="core" cx="240" cy="80" r="22"/>' +
       '<g transform="translate(180 39) scale(5)"><path class="ln pap" vector-effect="non-scaling-stroke" d="M12 2.5a6.5 6.5 0 0 0-3.8 11.8c.5.4.8 1 .8 1.6V16h6v-.1c0-.6.3-1.2.8-1.6A6.5 6.5 0 0 0 12 2.5z"/></g>' +
       '<circle class="core" cx="240" cy="80" r="12"/>' +
       '<path class="ln" d="M232 119V102l4-6 4 6 4-6 4 6v17" stroke-width="1.4"/>' +
@@ -256,6 +256,7 @@ function criaDNA(g, deveRodar){
   function rodando(){ return !document.hidden && deveRodar(); }
   function laco(agora){
     raf = 0;
+    if(ultimo && agora - ultimo < 30){ raf = requestAnimationFrame(laco); return; }
     if(ultimo) tempo += Math.min(agora - ultimo, 50);
     ultimo = agora; quadro(tempo);
     if(rodando()) raf = requestAnimationFrame(laco); else ultimo = 0;
@@ -288,12 +289,28 @@ function montaMalha(el){
 
 /* ── Peso da vitrine ─────────────────────────────────────────────────────
    O lado sob o mouse afunda: a posição segue o mouse por uma mola (chega com
-   atraso e balança de leve) e volta ao plano ao sair. Mede o .hv-stage, que
-   não inclina, para a medida não tremer junto. Só com mouse. */
-function montaPeso(stage, vit){
-  var T = { x:0, y:0, vx:0, vy:0, tx:0, ty:0, mx:0, my:0, tmx:0, tmy:0, dentro:false, raf:0 };
+   atraso e balança de leve) e volta ao plano ao sair. Só com mouse.
+
+   Desempenho: cada quadro escreve SÓ `transform`/`translate` em elementos que
+   têm camada própria (will-change) — nada de variável CSS herdada, que
+   recalculava o estilo da página inteira, nem de sombra/gradiente repintados.
+   A medida do .hv-stage (que não inclina) fica em cache: ler o retângulo a
+   cada movimento do mouse forçava layout. */
+function montaPeso(stage, vit, cena){
+  var T = { x:0, y:0, vx:0, vy:0, tx:0, ty:0, mx:0, my:0, tmx:0, tmy:0, gx:0, gy:0, dentro:false, raf:0 };
   var INCL_X = 12, INCL_Y = 7, MOLA = 0.05, AMORTECE = 0.76;
-  var body = document.body;
+  function div(cls){ var d = document.createElement('div'); d.className = cls; d.setAttribute('aria-hidden', 'true'); return d; }
+  var sombra = div('hv-sombra'), retro = div('hv-retro'), brilho = div('hv-brilho');
+  stage.insertBefore(retro, stage.firstChild);
+  stage.insertBefore(sombra, stage.firstChild);
+  vit.appendChild(brilho);
+  var malha = $('#hv-malha'), floor = cena.querySelector('.floor'), aura = cena.querySelector('.aura');
+  var rect = null;
+  function mede(){ rect = stage.getBoundingClientRect(); }
+  window.addEventListener('resize', function(){ rect = null; });
+  window.addEventListener('scroll', function(){ rect = null; }, { passive:true });
+
+  function px(v){ return v.toFixed(2) + 'px'; }
   function agenda(){ if(!T.raf) T.raf = requestAnimationFrame(passo); }
   function passo(){
     T.raf = 0;
@@ -303,25 +320,35 @@ function montaPeso(stage, vit){
     T.mx += (T.tmx - T.mx) * 0.06; T.my += (T.tmy - T.my) * 0.06;
     var resto = Math.abs(T.tx - T.x) + Math.abs(T.ty - T.y) + Math.abs(T.vx) + Math.abs(T.vy);
     var restoFundo = Math.abs(T.tmx - T.mx) + Math.abs(T.tmy - T.my);
+    var x = T.x, y = T.y;
     if(!T.dentro && resto < 0.0005){
-      /* Assentou: tira o transform para o texto voltar a ficar nítido. */
-      T.x = T.y = T.vx = T.vy = 0; vit.style.transform = '';
+      /* Assentou: tira o transform e a camada para o texto voltar a ficar nítido. */
+      T.x = T.y = T.vx = T.vy = x = y = 0;
+      vit.style.transform = '';
+      vit.classList.remove('movendo');
     } else {
-      vit.style.transform = 'perspective(1400px) rotateX(' + (-T.y * INCL_X).toFixed(3) + 'deg) rotateY(' + (T.x * INCL_Y).toFixed(3) + 'deg)';
+      if(!vit.classList.contains('movendo')) vit.classList.add('movendo');
+      vit.style.transform = 'perspective(1400px) rotateX(' + (-y * INCL_X).toFixed(3) + 'deg) rotateY(' + (x * INCL_Y).toFixed(3) + 'deg)';
     }
-    stage.style.setProperty('--px', T.x.toFixed(4));
-    stage.style.setProperty('--py', T.y.toFixed(4));
-    body.style.setProperty('--mx', T.mx.toFixed(4));
-    body.style.setProperty('--my', T.my.toFixed(4));
+    sombra.style.transform = 'translate3d(' + px(x * -44) + ',' + px(y * -28) + ',0)';
+    retro.style.transform = 'translate3d(' + px(x * -18) + ',' + px(y * -14) + ',0)';
+    brilho.style.transform = 'translate3d(' + px(T.gx) + ',' + px(T.gy) + ',0)';
+    /* Profundidade dentro da cena: piso, desenho e luz deslizam em ritmos diferentes. */
+    if(floor) floor.style.translate = px(x * -26) + ' ' + px(y * -12);
+    if(aura) aura.style.translate = px(x * 34) + ' ' + px(y * 22);
+    var on = cena.querySelector('.scn.on');
+    if(on) on.style.translate = px(x * 12) + ' ' + px(y * 8);
+    if(malha) malha.style.transform = 'translate3d(' + px(T.mx * -14) + ',' + px(T.my * -10) + ',0)';
     if(resto >= 0.0005 || restoFundo >= 0.0005) agenda();
   }
+  stage.addEventListener('pointerenter', function(e){ if(e.pointerType === 'mouse') mede(); });
   stage.addEventListener('pointermove', function(e){
     if(e.pointerType !== 'mouse') return;
-    var r = stage.getBoundingClientRect();
-    T.tx = Math.min(.5, Math.max(-.5, (e.clientX - r.left) / r.width - .5));
-    T.ty = Math.min(.5, Math.max(-.5, (e.clientY - r.top) / r.height - .5));
-    vit.style.setProperty('--gx', Math.round(e.clientX - r.left) + 'px');
-    vit.style.setProperty('--gy', Math.round(e.clientY - r.top) + 'px');
+    if(!rect) mede();
+    var lx = e.clientX - rect.left, ly = e.clientY - rect.top;
+    T.tx = Math.min(.5, Math.max(-.5, lx / rect.width - .5));
+    T.ty = Math.min(.5, Math.max(-.5, ly / rect.height - .5));
+    T.gx = lx; T.gy = ly;
     if(!T.dentro){ T.dentro = true; vit.classList.add('pesando'); }
     agenda();
   });
@@ -332,7 +359,7 @@ function montaPeso(stage, vit){
     if(e.pointerType !== 'mouse') return;
     T.tmx = e.clientX / innerWidth - .5; T.tmy = e.clientY / innerHeight - .5;
     agenda();
-  });
+  }, { passive:true });
 }
 
 /* ── Tela ─────────────────────────────────────────────────────────────── */
@@ -389,11 +416,13 @@ function iniciar(cfg){
   function pinta(k, animar){
     var it = item(k); if(!it) return;
     var d = cfg.dados(it, resumo) || {};
-    vit.className = 'hv-vitrine ' + (it.cor || '') + (vit.classList.contains('pesando') ? ' pesando' : '');
+    vit.className = 'hv-vitrine ' + (it.cor || '') + (vit.classList.contains('pesando') ? ' pesando' : '') +
+      (vit.classList.contains('movendo') ? ' movendo' : '');
+    var tr = vit.style.transform;
     vit.setAttribute('style', it.corInline ? corInline(it.corInline) : '');
+    vit.style.transform = tr;
     stage.className = 'hv-stage ' + (it.cor || '');
-    stage.style.cssText = (it.corInline ? corInline(it.corInline) + ';' : '') +
-      '--px:' + (stage.style.getPropertyValue('--px') || 0) + ';--py:' + (stage.style.getPropertyValue('--py') || 0);
+    stage.style.cssText = it.corInline ? corInline(it.corInline) : '';
     $('#v-ico').innerHTML = svg(it.icone, 1.8);
     $('#v-name').textContent = it.nome;
     $('#v-desc').textContent = it.desc || '';
@@ -472,7 +501,7 @@ function iniciar(cfg){
   });
   $('#v-hint').textContent = fino ? 'ou clique duas vezes ' + cfg.dica : 'ou toque de novo ' + cfg.dica;
 
-  montaPeso(stage, vit);
+  montaPeso(stage, vit, cena);
 
   var ult = ls.get(cfg.chaveUltimo);
   var inicial = item(ult) ? ult : item(cfg.padrao) ? cfg.padrao : itens[0].k;
