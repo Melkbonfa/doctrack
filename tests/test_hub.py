@@ -114,3 +114,16 @@ def test_bloco_quebrado_nao_derruba_a_tela(client, auth_headers, gestor_token, m
     monkeypatch.setattr(hub, "BLOCOS", [("equip", None, explode)] + hub.BLOCOS[1:])
     m = _resumo(client, auth_headers, gestor_token)
     assert "equip" not in m and "docs" in m
+
+
+def test_hub_anima_mesmo_com_movimento_reduzido():
+    """Decisão de produto: nos PCs da empresa o Windows vem com "Efeitos de
+    animação" desligado, e o hub obedecendo a prefers-reduced-motion ficava
+    parado para quase todo mundo. Esta checagem impede a volta do corte."""
+    import os
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for arq in ("static/hub-vitrine.css", "static/hub-vitrine.js"):
+        with open(os.path.join(raiz, arq), encoding="utf-8") as f:
+            fonte = f.read()
+        assert "@media (prefers-reduced-motion" not in fonte, arq
+        assert "matchMedia('(prefers-reduced-motion" not in fonte, arq

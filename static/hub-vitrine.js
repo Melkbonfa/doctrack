@@ -20,7 +20,7 @@
 'use strict';
 
 var NS = 'http://www.w3.org/2000/svg';
-var reduzido = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* Anima mesmo com prefers-reduced-motion (ver "Movimento" em hub-vitrine.css). */
 var fino = window.matchMedia && matchMedia('(hover:hover) and (pointer:fine)').matches;
 
 function $(s){ return document.querySelector(s); }
@@ -253,7 +253,7 @@ function criaDNA(g, deveRodar){
     });
   }
   var raf = 0, tempo = 0, ultimo = 0;
-  function rodando(){ return !reduzido && !document.hidden && deveRodar(); }
+  function rodando(){ return !document.hidden && deveRodar(); }
   function laco(agora){
     raf = 0;
     if(ultimo) tempo += Math.min(agora - ultimo, 50);
@@ -315,7 +315,6 @@ function montaPeso(stage, vit){
     body.style.setProperty('--my', T.my.toFixed(4));
     if(resto >= 0.0005 || restoFundo >= 0.0005) agenda();
   }
-  if(reduzido) return;
   stage.addEventListener('pointermove', function(e){
     if(e.pointerType !== 'mouse') return;
     var r = stage.getBoundingClientRect();
