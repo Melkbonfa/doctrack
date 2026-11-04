@@ -29,6 +29,7 @@ Contagem de rotas que cada papel alcança, por arquivo. Rotas `públicas` e `aut
 | `documentos.py` | 25 | 25 | 17 | 13 | 25 |
 | `entregaveis.py` | 44 | 42 | 12 | 0 | 44 |
 | `fluxos/routes.py` | 17 | 17 | 14 | 2 | 17 |
+| `hub.py` | 1 | 1 | 1 | 1 | 1 |
 | `killswitch.py` | 4 | 4 | 4 | 4 | 4 |
 | `missoes.py` | 33 | 33 | 31 | 0 | 33 |
 | `notificacoes/routes.py` | 4 | 4 | 4 | 0 | 4 |

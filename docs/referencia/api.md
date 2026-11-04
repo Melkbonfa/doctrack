@@ -6,7 +6,7 @@
 
 # Referência da API
 
-309 rotas registradas: **287** de API (`/api/...`) e **22** de página.
+310 rotas registradas: **288** de API (`/api/...`) e **22** de página.
 
 A coluna **Acesso** é lida dos decorators no fonte:
 
@@ -220,6 +220,12 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `GET` | `/fluxos/api/pessoas` | admin, gestor, tecnico |  |
 | `GET` | `/fluxos/api/por-ref` | admin, gestor, tecnico |  |
 | `GET` | `/fluxos/api/por-refs` | admin, gestor, tecnico |  |
+
+## `hub.py`
+
+| Método | Rota | Acesso | O que faz |
+|---|---|---|---|
+| `GET` | `/api/hub/resumo` | autenticado |  |
 
 ## `killswitch.py`
 

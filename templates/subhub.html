@@ -6,96 +6,69 @@
 <title>DocTrack — {{ area.nome }}</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 <link rel="stylesheet" href="/static/notificacoes-widget.css?v={{ asset_v }}">
-<style>
-  body{
-    background:var(--bg-void);color:var(--t1);font-family:var(--font-body);
-    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
-  }
-  .hub{width:100%;max-width:640px;text-align:center}
-  .brand{color:var(--accent);font-size:12px;font-weight:700;letter-spacing:3px;margin-bottom:14px}
-  .hello{font-size:21px;color:var(--t1);font-weight:600;margin-bottom:6px}
-  .sub{color:var(--t3);font-size:14px;margin-bottom:36px}
-  .cards{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:12px}
-  .hubcard{
-    position:relative;overflow:hidden;cursor:pointer;min-width:0;
-    background:var(--bg-card);border:1px solid var(--border-dim);
-    border-radius:var(--r3);padding:18px 12px 14px;
-    display:flex;flex-direction:column;align-items:center;gap:8px;
-    transition:transform .28s cubic-bezier(.2,.8,.2,1),border-color .28s,box-shadow .28s;
-    -webkit-tap-highlight-color:transparent;
-  }
-  .hubcard::before{
-    content:'';position:absolute;left:50%;top:-30%;width:240px;height:240px;
-    transform:translateX(-50%) scale(.6);
-    background:radial-gradient(circle,var(--glow) 0%,transparent 68%);
-    opacity:0;transition:opacity .35s,transform .35s;pointer-events:none;
-  }
-  .hubcard:hover,.hubcard:focus-visible{
-    transform:translateY(-7px);border-color:var(--accent);
-    box-shadow:0 20px 44px -14px var(--glow),0 0 0 1px var(--accent) inset;outline:none;
-  }
-  .hubcard:hover::before,.hubcard:focus-visible::before{opacity:1;transform:translateX(-50%) scale(1)}
-  .hubcard:active{transform:translateY(-2px) scale(.985)}
-  .hubcard .ico{position:relative;z-index:1;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--accent)}
-  .hubcard .ico::after{content:'';position:absolute;inset:-8px;border-radius:50%;z-index:-1;background:radial-gradient(circle,var(--accent-bg) 0%,transparent 70%);opacity:.85;transition:opacity .3s,transform .3s}
-  .hubcard .ico svg{width:26px;height:26px;transition:transform .28s cubic-bezier(.2,.8,.2,1)}
-  .hubcard:hover .ico svg{transform:scale(1.1) translateY(-3px)}
-  .hubcard:hover .ico::after{opacity:1;transform:scale(1.18)}
-  .hubcard h2{position:relative;z-index:1;font-size:14px;font-weight:700;margin:0;color:var(--t1);letter-spacing:-.3px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .hubcard .arrow{position:relative;z-index:1;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-soft);color:var(--t3);opacity:0;transform:translateY(6px);transition:opacity .28s,transform .28s,color .28s,border-color .28s,background .28s}
-  .hubcard:hover .arrow{opacity:1;transform:translateY(0)}
-  .hubcard .arrow:hover{color:#fff;background:var(--accent);border-color:var(--accent)}
-  .hubcard .arrow svg{transition:transform .28s}
-  .hubcard .arrow:hover svg{transform:translateX(3px)}
-  .foot{margin-top:40px;font-size:12.5px;color:var(--t3)}
-  .foot a{color:var(--accent);text-decoration:none;margin-left:10px;cursor:pointer}
-  .foot a:hover{text-decoration:underline}
-  @media (prefers-reduced-motion:reduce){
-    .hubcard,.hubcard .ico,.hubcard .arrow,.hubcard .arrow svg,.hubcard::before{transition:none}
-  }
-  /* Aviso do que espera o usuário dentro do módulo (ex.: cartões atribuídos a
-     ele em Missões) — sem isso o hub não dizia nada sobre carga pendente. */
-  .mod-badge{display:none;font-size:11px;line-height:1;padding:3px 8px;border-radius:9px;
-    border:1px solid var(--border-soft);color:var(--t3);background:var(--bg-card);margin-top:6px}
-  .mod-badge.on{display:inline-block}
-  .mod-badge.alerta{color:#f87171;border-color:rgba(239,68,68,.4);font-weight:700}
-  /* Fileira única só cabe em telas largas; abaixo disso volta a empilhar. */
-  @media (max-width:700px){ .cards{grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))} }
-  @media (max-width:520px){ .cards{grid-auto-flow:row;grid-template-columns:1fr} }
-</style>
+<link rel="stylesheet" href="/static/hub-vitrine.css?v={{ asset_v }}">
 {# Página de <head> próprio: o bloco de PWA entra na mão. #}
 {% include "_pwa_head.html" %}
 </head>
-<body style="--accent:{{ area.accent }};--glow:{{ area.accent }}38;--accent-bg:{{ area.accent }}1a">
-  <div class="hub">
-    <div class="brand">{{ area.sub }}</div>
-    <div class="hello">{{ area.nome }}</div>
-    <div class="sub">Escolha um módulo</div>
-    <div class="cards" id="cards">
-      {% for m in area.modulos %}
-      <div class="hubcard mod-card" data-url="{{ m.url }}" data-role="{{ m.role or '' }}" data-module="{{ m.module or '' }}"
-           role="button" tabindex="0" aria-label="Abrir {{ m.label }}">
-        <div class="ico" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">{{ m.icon|safe }}</svg>
-        </div>
-        <h2>{{ m.label }}</h2>
-        <div class="mod-badge" data-badge="{{ m.module or '' }}"></div>
-        <div class="arrow" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<body class="hubv" style="--hub-dot:{{ area.accent }}">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs><filter id="hv-glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+</svg>
+<div class="hv-bg" aria-hidden="true"><div class="hv-malha-luz"></div><div class="hv-malha" id="hv-malha"></div></div>
+
+<main class="hv-page">
+  <header class="hv-head">
+    <div class="hv-brand">DOCTRACK</div>
+    <h1>{{ area.nome }}<span class="dot" aria-hidden="true"></span></h1>
+    <p class="hv-sub" id="hv-sub">Escolha um módulo</p>
+    <div class="hv-status" id="hv-status"><span class="led" aria-hidden="true"></span><span id="hv-status-txt">Carregando…</span></div>
+  </header>
+
+  <nav class="hv-rail" aria-label="Módulos de {{ area.nome }}"><ul class="hv-rail-in" id="hv-rail"></ul></nav>
+
+  <div class="hv-stage" id="hv-stage">
+    <section class="hv-vitrine" id="hv-vitrine" aria-labelledby="v-name">
+      <div class="hv-scene" id="hv-scene" aria-hidden="true">
+        <div class="floor"></div><div class="aura"></div>
+        <i class="hud tl"></i><i class="hud tr"></i><i class="hud bl"></i><i class="hud br"></i>
+      </div>
+      <div class="hv-info" id="hv-info">
+        <h2><span class="h-ico" id="v-ico" aria-hidden="true"></span><span id="v-name"></span></h2>
+        <p class="hv-desc" id="v-desc"></p>
+        <div class="hv-stats" id="v-stats"></div>
+        <p class="hv-pend" id="v-pend"></p>
+        <div class="hv-cta-row">
+          <a class="hv-cta" id="v-cta" href="#"><span id="v-cta-txt">Abrir</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <span class="hv-hint" id="v-hint"></span>
         </div>
       </div>
-      {% endfor %}
-    </div>
-    <div class="foot"><a id="back" href="/hub">← Áreas</a><a id="theme-toggle" data-label="Tema" onclick="toggleTheme()" title="Alternar tema">🌙 Tema</a><a id="logout">Sair</a></div>
+    </section>
   </div>
+
+  <section class="hv-vazio" id="hv-vazio" hidden>
+    <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2.5"/></svg></div>
+    <h2>Nenhum módulo liberado para o seu perfil</h2>
+    <p>Fale com um administrador se precisar de acesso.</p>
+  </section>
+</main>
+
+<footer class="hv-foot foot">
+  <a id="back" href="/hub">← Áreas</a>
+  <span aria-hidden="true">·</span>
+  <a id="theme-toggle" data-label="Tema" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙 Tema</a>
+  <span aria-hidden="true">·</span>
+  <a id="logout">Sair</a>
+</footer>
+
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 <script src="/static/notificacoes-widget.js?v={{ asset_v }}"></script>
+<script src="/static/hub-vitrine.js?v={{ asset_v }}"></script>
 <script>
 // Tema em static/common.js (rótulo "Tema" via data-label do botão).
-
 (function(){
-  var slug = "{{ area.slug }}";
+  var AREA = {{ area|tojson }};
+  var slug = AREA.slug;
   var token = localStorage.getItem('doctrack_token') || '';
   if(!token){ window.location.href = '/'; return; }
 
@@ -109,43 +82,56 @@
   // Sem acesso à área: volta ao hub.
   if(!(isAdmin || minhas.indexOf(slug) !== -1)){ window.location.href = '/hub'; return; }
 
-  // Entrar num módulo carrega a área no contexto (telas cientes de área) e o
-  // token de módulo que a tela de destino espera (ex.: Documentos exige 'docs').
-  function entrar(url, mod){
-    sessionStorage.setItem('dt_area', slug);
-    if(mod) sessionStorage.setItem('dt_module', mod);
-    window.location.href = url;
-  }
+  var h = new Date().getHours();
+  var primeiro = (user.nome || '').split(' ')[0];
+  document.getElementById('hv-sub').textContent =
+    (h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite') + (primeiro ? ', ' + primeiro : '') + ' · escolha um módulo';
 
-  document.querySelectorAll('.mod-card').forEach(function(card){
-    var role = card.getAttribute('data-role');
-    if(role === 'gestor' && !isGestor){ card.parentNode.removeChild(card); return; }
-    if(role === 'tecnico' && !isTecnico){ card.parentNode.removeChild(card); return; }
-    var url = card.getAttribute('data-url');
-    var mod = card.getAttribute('data-module');
-    card.addEventListener('click', function(){ entrar(url, mod); });
-    card.addEventListener('keydown', function(e){
-      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); entrar(url, mod); }
-    });
+  // Mesmo corte de perfil de antes: role=None todos; "tecnico" técnico pra cima; "gestor" gestão.
+  var itens = (AREA.modulos || []).filter(function(m){
+    if(m.role === 'gestor') return isGestor;
+    if(m.role === 'tecnico') return isTecnico;
+    return true;
+  }).map(function(m){
+    var k = m.module || m.label;
+    return { k:k, cor:'m-' + k, nome:m.label, url:m.url, icone:m.icon, cena:k,
+             desc:DTHub.DESC_MODULO[k] || '', mod:m.module || '' };
   });
 
-  // Missões: quantos cartões esperam por este usuário. Best-effort — falha em
-  // silêncio e nunca atrasa a navegação.
-  var cardMissoes = document.querySelector('.mod-card[data-module="missoes"]');
-  if(cardMissoes && isTecnico){
-    fetch('/api/missoes/meus-cartoes', {headers:{'Authorization':'Bearer '+token}})
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(j){
-        if(!j || !j.total) return;
-        var b = cardMissoes.querySelector('.mod-badge');
-        if(!b) return;
-        b.textContent = j.total + (j.total === 1 ? ' cartão seu' : ' cartões seus') +
-                        (j.atrasados ? ' · ' + j.atrasados + ' atrasado(s)' : '');
-        b.classList.add('on');
-        if(j.atrasados) b.classList.add('alerta');
-      })
-      .catch(function(){});
-  }
+  // Entrar num módulo carrega a área no contexto (telas cientes de área) e o
+  // token de módulo que a tela de destino espera (ex.: Documentos exige 'docs').
+  var tela = DTHub.iniciar({
+    tipo:'mod', itens:itens, chaveUltimo:'dt_hub_ultimo:' + slug, padrao:'docs',
+    dica:'no módulo',
+    rotuloCta:function(it){ return 'Abrir ' + it.nome; },
+    entrar:function(it, url){
+      sessionStorage.setItem('dt_area', slug);
+      if(it.mod) sessionStorage.setItem('dt_module', it.mod);
+      window.location.href = url;
+    },
+    dados:function(it, r){
+      var d = DTHub.dadosModulo(it.k, slug, r);
+      if(!r && !d.pend) d.vazio = 'Carregando…';
+      return d;
+    }
+  });
+
+  // Números da vitrine. Best-effort: falha deixa a tela sem números, nunca
+  // atrasa a navegação.
+  var st = document.getElementById('hv-status'), stt = document.getElementById('hv-status-txt');
+  fetch('/api/hub/resumo', {headers:{'Authorization':'Bearer ' + token}})
+    .then(function(res){ if(!res.ok) throw new Error(res.status); return res.json(); })
+    .then(function(j){
+      tela.atualizar(j);
+      var a = new Date();
+      st.className = 'hv-status ok';
+      stt.textContent = 'Online · atualizado às ' + ('0' + a.getHours()).slice(-2) + ':' + ('0' + a.getMinutes()).slice(-2);
+    })
+    .catch(function(){
+      tela.atualizar({modulos:{}});
+      st.className = 'hv-status falha';
+      stt.textContent = 'Números indisponíveis agora';
+    });
 
   document.getElementById('logout').addEventListener('click', function(){
     localStorage.removeItem('doctrack_token');
