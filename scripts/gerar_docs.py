@@ -146,7 +146,7 @@ def _nome_decorator(no):
 ARQUIVOS_DE_ROTA = [
     "servidor.py", "auth.py", "documentos.py", "entregaveis.py", "missoes.py",
     "killswitch.py", "custos/routes.py", "tempos/routes.py", "pdr/routes.py",
-    "cadernos/routes.py", "fluxos/routes.py", "notificacoes/routes.py",
+    "cadernos/routes.py", "fluxos/routes.py", "notificacoes/routes.py", "hub.py",
 ]
 
 PAPEIS = ["admin", "gestor", "tecnico", "leitura"]

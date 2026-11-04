@@ -170,6 +170,10 @@ app.register_blueprint(notificacoes_bp)
 from fluxos import fluxos_bp, init_realtime as fluxos_init_realtime
 app.register_blueprint(fluxos_bp)
 
+# Números das vitrines do hub e dos sub-hubs (uma chamada só, recortada por perfil).
+from hub import hub_bp
+app.register_blueprint(hub_bp)
+
 # Kill switch — trava de emergência do sistema inteiro. Registrado por ÚLTIMO de
 # propósito: o guardião abaixo precisa reconhecer os endpoints deste blueprint
 # para deixá-los passar com o sistema travado.
