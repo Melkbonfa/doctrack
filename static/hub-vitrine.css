@@ -294,11 +294,11 @@ body.sem-itens .hv-rail,body.sem-itens .hv-stage{display:none}
 .hv-foot a:focus-visible{outline:none;box-shadow:var(--focus-ring)}
 .hv-foot [hidden]{display:none}
 
-/* ── Movimento ───────────────────────────────────────────────────────── */
-@media (prefers-reduced-motion:reduce){
-  .hubv *,.hubv *::before,.hubv *::after{animation:none !important;transition:none !important}
-  .hubv .scan,.hubv .pt,.hubv .bolha{display:none}
-}
+/* ── Movimento ───────────────────────────────────────────────────────────
+   As animações NÃO obedecem a prefers-reduced-motion, por decisão de produto:
+   nos PCs da empresa o Windows costuma vir com "Efeitos de animação"
+   desligado, e as telas de entrada ficavam paradas para quase todo mundo.
+   Só a aba em segundo plano pausa tudo. */
 body.hv-pausado .hv-scene *,body.hv-pausado .hv-bg *{animation-play-state:paused !important}
 
 /* ── Responsivo ──────────────────────────────────────────────────────── */
