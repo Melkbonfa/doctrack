@@ -146,6 +146,8 @@ body.hubv::before{display:none}
 .hv-vitrine{--grid:rgba(var(--m-rgb),.06);--grid-floor:rgba(var(--m-rgb),.17);
   position:relative;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px;padding:18px;border-radius:22px;
   background:var(--panel-bg);border:1px solid rgba(var(--m-rgb),.28);overflow:hidden;transform-origin:50% 50%;transition:border-color .35s}
+/* A vitrine inteira entra no item (clique em qualquer parte). */
+.hv-vitrine{cursor:pointer}
 /* Camada própria só enquanto inclina; parada, o texto volta a ser nítido. */
 .hv-vitrine.movendo{will-change:transform}
 .theme-light .hv-vitrine{--grid:rgba(var(--m-rgb),.08);--grid-floor:rgba(var(--m-rgb),.20)}
