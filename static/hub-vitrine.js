@@ -8,14 +8,14 @@
        chaveUltimo: 'dt_hub_ultimo:pde',// lembra o último escolhido
        padrao: 'docs',                  // escolhido na primeira visita (se visível)
        rotuloCta: function(item){...},
-       dica: 'no módulo',
        entrar: function(item, url, chip){...},
        dados: function(item, resumo){ return {stats, pend, badge}; }
      });
      tela.atualizar(resumo);            // quando /api/hub/resumo responder
 
-   Passar o mouse só acende o cartão (CSS). O clique troca a vitrine; clicar
-   de novo no escolhido — ou duplo clique, Enter, ou o botão — entra. */
+   Passar o mouse só acende o cartão (CSS). Um clique no cartão troca a
+   vitrine; clicar em qualquer parte da vitrine (ou no botão, ou Enter) entra.
+   A vitrine tem a mesma altura para todos os itens (ver fixaAltura). */
 (function(){
 'use strict';
 
@@ -464,12 +464,32 @@ function iniciar(cfg){
     cfg.entrar(it, url || it.url, chip || null);
   }
 
-  /* Eventos: hover/foco só acendem (CSS); clique seleciona; de novo, entra. */
+  /* Mesma altura para todos: pinta cada item fora da tela de verdade (tudo
+     síncrono, nada é desenhado no meio), guarda a maior altura do texto e a
+     usa como mínimo. Refaz quando os números chegam e quando a janela muda. */
+  function fixaAltura(){
+    info.style.minHeight = '';
+    var maior = 0;
+    itens.forEach(function(it){ pinta(it.k, false); maior = Math.max(maior, info.offsetHeight); });
+    pinta(sel, false);
+    info.style.minHeight = (maior + 1) + 'px';   // +1: offsetHeight arredonda (e ignora a inclinação, de propósito)
+  }
+  var esperaAltura = 0;
+  window.addEventListener('resize', function(){ clearTimeout(esperaAltura); esperaAltura = setTimeout(fixaAltura, 150); });
+
+  /* Eventos: hover/foco só acendem (CSS); clique no cartão só seleciona. */
   rail.addEventListener('click', function(e){
     var a = e.target.closest('.hv-card'); if(!a) return;
     if(e.ctrlKey || e.metaKey || e.shiftKey) return;   // nova aba: deixa o link agir
     e.preventDefault();
-    if(sel === a.dataset.k) entra(a.dataset.k); else seleciona(a.dataset.k);
+    /* detail 0 = Enter no teclado sobre o cartão já escolhido: entra. */
+    if(sel === a.dataset.k){ if(e.detail === 0) entra(sel); } else seleciona(a.dataset.k);
+  });
+  /* A vitrine inteira é o botão de entrar (o botão e os atalhos têm o seu). */
+  vit.addEventListener('click', function(e){
+    if(e.target.closest('a,button')) return;
+    if(window.getSelection && String(getSelection()).length) return;   // estava selecionando texto
+    entra(sel);
   });
   rail.addEventListener('keydown', function(e){
     var cards = Array.prototype.slice.call(rail.querySelectorAll('.hv-card'));
@@ -499,7 +519,7 @@ function iniciar(cfg){
     var it = item(sel), chip = it && it.chips[+c.dataset.i];
     if(chip) entra(sel, chip.url, chip);
   });
-  $('#v-hint').textContent = fino ? 'ou clique duas vezes ' + cfg.dica : 'ou toque de novo ' + cfg.dica;
+  $('#v-hint').textContent = fino ? 'ou clique em qualquer parte do painel' : 'ou toque no painel';
 
   montaPeso(stage, vit, cena);
 
@@ -507,9 +527,11 @@ function iniciar(cfg){
   var inicial = item(ult) ? ult : item(cfg.padrao) ? cfg.padrao : itens[0].k;
   desenhaRail();
   seleciona(inicial, true);
+  fixaAltura();
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(fixaAltura);
 
   return {
-    atualizar: function(r){ resumo = r; desenhaRail(); pinta(sel, false); }
+    atualizar: function(r){ resumo = r; desenhaRail(); fixaAltura(); }
   };
 }
 
