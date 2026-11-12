@@ -20,9 +20,10 @@
 </script>
 {# O PDR é blueprint do mesmo Flask e serve /static do mestre (ver o comentário
    sobre vendor acima), então o parcial do app mestre resolve aqui também. #}
+{% include "_vitrine_head.html" %}
 {% include "_pwa_head.html" %}
 </head>
-<body>
+<body class="vt a-pdr">
 
 <!-- ═══════════ APP ═══════════ -->
 <div id="app">
