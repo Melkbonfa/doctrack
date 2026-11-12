@@ -1,0 +1,9 @@
+{#
+  _menu_controle.html — o menu de controle único (voltar, atualizar, tema,
+  configurações, sair), igual em todas as telas.
+
+  Incluído por _vitrine_head.html (telas de trabalho) e, na mão, pelo hub e
+  pelos sub-hubs, depois da folha da página. Exige `asset_v` no contexto.
+#}
+<link rel="stylesheet" href="/static/menu-controle.css?v={{ asset_v }}">
+<script src="/static/menu-controle.js?v={{ asset_v }}" defer></script>

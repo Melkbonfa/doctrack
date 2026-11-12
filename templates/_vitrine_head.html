@@ -1,0 +1,18 @@
+{#
+  _vitrine_head.html — o visual do hub nas telas de trabalho.
+
+  Incluído por base.html E, na mão, pelos templates que têm <head> próprio
+  (entregaveis, pdr/dashboard) — o mesmo arranjo de _pwa_head.html. O hub e os
+  sub-hubs NÃO incluem: eles têm a folha deles (hub-vitrine.css).
+
+  Ordem: DEPOIS do CSS do módulo (a camada precisa vencê-lo) e ANTES de
+  _pwa_head.html (que traz mobile.css, e o passe de celular vence todo mundo).
+
+  Só tem efeito com a classe `vt` no <body>; a cor vem da classe ao lado dela
+  (m-docs, m-equip… a-pdr), a mesma do cartão do módulo no hub.
+
+  Exige `asset_v` no contexto.
+#}
+<link rel="stylesheet" href="/static/vitrine-tema.css?v={{ asset_v }}">
+<script src="/static/vitrine-tema.js?v={{ asset_v }}" defer></script>
+{% include "_menu_controle.html" %}

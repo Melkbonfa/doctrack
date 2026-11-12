@@ -16,11 +16,16 @@
 <!-- Sino de notificações: fora de head_extra pelo mesmo motivo do cronômetro. -->
 <link rel="stylesheet" href="/static/notificacoes-widget.css?v={{ asset_v }}">
 {%- block head_extra %}{% endblock %}
+{# Visual do hub nas telas de trabalho: depois do CSS do módulo, antes do passe
+   de celular. #}
+{% include "_vitrine_head.html" %}
 {# DEPOIS de head_extra, não antes: o parcial traz mobile.css, e o passe de
    celular precisa poder vencer o CSS do módulo que este bloco carrega. #}
 {% include "_pwa_head.html" %}
 </head>
-<body>
+{# `vt` liga o visual do hub (static/vitrine-tema.css); o bloco diz a cor do
+   módulo — a mesma do cartão dele no hub. Sem cor, fica o ciano da marca. #}
+<body class="vt {% block vt_cor %}{% endblock %}">
 {%- block prebody %}{% endblock %}
 <div id="app">
   <a class="skip-link" href="#main-content">Pular para o conteúdo</a>

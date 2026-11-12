@@ -1,0 +1,78 @@
+/* menu-controle.css — o menu de controle único de todas as telas.
+
+   Par de static/menu-controle.js. Fechado, é só o botão da pessoa logada no
+   canto superior direito; ao passar o mouse (ou tocar), os controles deslizam
+   para fora dele numa barra: voltar · atualizar · tema · configurações
+   (admin) · sair. Mesmos itens, mesma ordem, no hub, no sub-hub e nos módulos.
+
+   O movimento da gaveta é feito no JS, quadro a quadro: o style.css zera toda
+   transition quando o Windows está com as animações desligadas.
+
+   Os controles antigos de cada tela só somem com `body.vtm-on`, que o JS põe
+   ao montar o menu: se o script falhar, a tela continua com os de antes. Eles
+   ficam no DOM porque os scripts dos módulos escrevem neles (nome, avatar). */
+
+.vtm{
+  --k:var(--m-rgb,34,211,238);
+  --vtm-bg:rgba(17,20,44,.86); --vtm-ink:#eef1ff; --vtm-dim:#9aa6d6;
+  --vtm-mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --vtm-sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  position:fixed; top:11px; right:16px; z-index:44;
+  display:flex; align-items:center; height:40px; padding:3px; border-radius:20px;
+  color:var(--vtm-ink); font-family:var(--vtm-sans);
+  background:var(--vtm-bg); border:1px solid rgba(var(--k),.30);
+  -webkit-backdrop-filter:blur(14px) saturate(1.2); backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:0 12px 32px -16px rgba(0,0,0,.65);
+}
+body.theme-light .vtm{ --vtm-bg:rgba(255,255,255,.92); --vtm-ink:#1b2140; --vtm-dim:#5a6591; box-shadow:0 10px 28px -16px rgba(30,40,90,.35); }
+.vtm[hidden]{display:none}
+.vtm svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.vtm-it{
+  all:unset; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  cursor:pointer; color:var(--vtm-dim); white-space:nowrap;
+  font:600 10.5px/1 var(--vtm-mono); letter-spacing:.12em; text-transform:uppercase;
+}
+.vtm-it:hover{ color:var(--vtm-ink); background:rgba(var(--k),.15); box-shadow:inset 0 0 0 1px rgba(var(--k),.35); }
+.vtm-it:focus-visible{ box-shadow:0 0 0 2px rgba(var(--k),.75); color:var(--vtm-ink); }
+.vtm-it.sair:hover{ color:#fb7185; background:rgba(244,63,94,.14); box-shadow:inset 0 0 0 1px rgba(244,63,94,.4); }
+body.theme-light .vtm-it.sair:hover{ color:#be123c; }
+.vtm-it.so-ico span{ display:none; }
+
+/* Gaveta: a largura e a entrada de cada item são escritas pelo JS. */
+.vtm-gaveta{ display:flex; justify-content:flex-end; width:0; overflow:hidden; }
+.vtm-gaveta-in{ flex:none; display:flex; align-items:center; gap:2px; width:max-content; visibility:hidden; }
+.vtm-gaveta-in > *{ will-change:transform, opacity; }
+.vtm-gaveta .vtm-it{ height:32px; min-width:32px; padding:0 9px; border-radius:16px; }
+.vtm-gaveta .vtm-it:first-child{ margin-left:3px; }
+.vtm-sep{ flex:none; width:1px; height:16px; margin:0 4px; background:rgba(var(--k),.24); }
+
+.vtm-chip{ height:34px; padding:0 9px 0 4px; gap:9px; border-radius:17px; }
+.vtm-chip .seta{ width:13px; height:13px; transform:rotate(90deg); }
+.vtm-av{
+  width:26px; height:26px; border-radius:50%; display:grid; place-items:center; flex:none;
+  font:700 10px/1 var(--vtm-mono); letter-spacing:.04em; color:#07101c;
+  background:linear-gradient(135deg, rgb(var(--k)), rgba(var(--k),.55));
+}
+body.theme-light .vtm-av{ color:#fff; }
+.vtm-quem{ display:flex; align-items:center; gap:8px; min-width:0; }
+.vtm-quem b{ display:block; font:600 12.5px/1.15 var(--vtm-sans); letter-spacing:0; text-transform:none; color:var(--vtm-ink); max-width:150px; overflow:hidden; text-overflow:ellipsis; }
+.vtm-quem small{ display:block; margin-top:3px; font:600 9px/1 var(--vtm-mono); letter-spacing:.14em; text-transform:uppercase; color:var(--vtm-dim); }
+
+/* ── Controles antigos somem; a tela abre espaço para o botão ──────────── */
+body.vtm-on .sidebar-footer .sidebar-refresh,
+body.vtm-on .sidebar-user,
+body.vtm-on #theme-toggle,
+body.vtm-on #top-avatar,
+body.vtm-on .btn-modulos,
+body.vtm-on .hv-foot{ display:none !important; }
+body.vtm-on .sidebar-footer .sync-row{ margin-bottom:0; }
+body.vtm-on .topbar{ padding-right:calc(var(--vtm-w,160px) + 30px); }
+body.vtm-on .app-shell > .main{ padding-top:66px !important; }
+
+@media (max-width:700px){
+  .vtm{ right:10px; }
+  .vtm-chip .vtm-quem > span + span, .vtm-volta span{ display:none; }
+  body.vtm-on.hubv .hv-page{ padding-top:58px; }
+}
+@media print{ .vtm{ display:none !important; } }
