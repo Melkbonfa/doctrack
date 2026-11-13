@@ -103,6 +103,9 @@ def test_rotas_publicas_sao_as_esperadas():
     esperadas = {
         "/api/auth/login",
         "/api/auth/primeiro-acesso",
+        # troca da propria senha: saida de quem esta com a senha vencida e nao
+        # consegue token; exige a senha atual, sob o limite do login
+        "/api/auth/trocar-senha",
         "/api/kill-switch/lock",
         "/api/kill-switch/unlock",
         "/api/kill-switch/status",

@@ -11,8 +11,8 @@ em [`../referencia/`](../referencia/), que é gerada do código.
 
 Sistema web interno da Loccus para a gestão do P&D: documentos técnicos de
 equipamentos, o cadastro dos próprios equipamentos, consumíveis, projetos e
-seus entregáveis, um kanban de missões, formação de custo e apontamento de
-horas. Usuários são funcionários da Loccus, dentro da rede, e o número deles é
+seus entregáveis, um kanban de missões, fluxos de revisão, formação de custo,
+apontamento de horas e os cadernos de laboratório do PDR. Usuários são funcionários da Loccus, dentro da rede, e o número deles é
 da ordem de dezenas — não de milhares. Praticamente toda decisão de arquitetura
 deste sistema decorre desse porte.
 
@@ -45,9 +45,11 @@ dependem deploy, backup e acesso remoto.
 **Um processo, um banco, um servidor.** Não há fila, cache externo, worker ou
 segunda instância. `waitress` serve o app com um pool de threads, e é essa
 premissa que autoriza várias simplificações espalhadas pelo código — o estado
-em memória de `ratelimit.py`, a thread do agendador, o cache do kill switch.
-Se um dia houver duas instâncias, esses três pontos quebram juntos; estão
-marcados nos ADRs [0005](decisoes/ADR-0005-ratelimit-em-memoria.md) e
+em memória de `ratelimit.py`, a thread do agendador, o cache do kill switch e
+as tarefas demoradas dos Cadernos (`cadernos/tarefas.py`). Se um dia houver duas
+instâncias, esses pontos quebram juntos; os três primeiros estão marcados nos
+ADRs [0005](decisoes/ADR-0005-ratelimit-em-memoria.md),
+[0006](decisoes/ADR-0006-kill-switch-fora-do-banco.md) e
 [0008](decisoes/ADR-0008-agendador-embutido.md).
 
 ```mermaid
@@ -65,6 +67,8 @@ flowchart TB
             FLX["fluxos/"]
             NOT["notificacoes/"]
             PDR["pdr/"]
+            CAD["cadernos/"]
+            HUB["hub.py"]
             KS["killswitch.py"]
         end
         EB["event_bus.py"]
@@ -72,7 +76,7 @@ flowchart TB
         SCH["scheduler.py<br/>thread diária"]
     end
 
-    MOD["models.py<br/>+ custos/tempos/pdr models"]
+    MOD["models.py<br/>+ models.py de cada pacote"]
     DB[("banco")]
     FS[("share da engenharia")]
 
@@ -141,7 +145,11 @@ Ver [ADR-0004](decisoes/ADR-0004-pagina-casca-api-gatilhada.md).
 | `static/common.js` | utilidades compartilhadas por todas as telas |
 | `static/socket-client.js` + `app-realtime.js` | conexão e aplicação dos eventos |
 | `static/<modulo>.js` | uma tela por arquivo (`app.js` é o de Documentos) |
+| `static/hub-vitrine.js` | hub e sub-hubs — ver [funcional/hub.md](../funcional/hub.md) |
+| `static/vitrine-tema.js` + `vitrine-tema.css` | o visual do hub nas telas de trabalho (classe `vt` no `<body>`) |
+| `static/menu-controle.js` | menu único do canto superior direito, em todas as telas |
 | `static/tempos-widget.js` | cronômetro global, presente em todos os módulos |
+| `static/notificacoes-widget.js` + `fluxos-painel.js` | o sino e o painel do fluxo, que aparecem em várias telas |
 | `static/pwa.js` + `sw.js` + `manifest.webmanifest` | instalação no celular |
 | `static/nav-mobile.js` + `mobile.css` | gaveta de navegação em telas estreitas |
 
@@ -204,8 +212,14 @@ docstring de [`custos/models.py`](../../custos/models.py).
 
 A matriz completa papel × rota e a lista das rotas abertas sem token estão em
 [`../referencia/permissoes.md`](../referencia/permissoes.md). A superfície
-pública tem seis rotas e há um teste que quebra se aparecer uma sétima
-(`tests/test_docs_sincronia.py`).
+pública é uma lista curta e aprovada — login, primeiro acesso, o kill switch,
+`/api/version` e as duas rotas do assistente de importação dos Cadernos, que
+exigem um ticket de uso único. Um teste quebra se aparecer uma rota pública
+fora dessa lista (`tests/test_docs_sincronia.py`).
+
+O que desta camada atende ao guia de validação da ANVISA, e o que falta —
+assinatura eletrônica, proteção da trilha no banco —, está em
+[`../operacao/ADERENCIA_BPX.md`](../operacao/ADERENCIA_BPX.md).
 
 ---
 
@@ -216,6 +230,7 @@ pública tem seis rotas e há um teste que quebra se aparecer uma sétima
 | Onde | servidor Windows, `C:\apps\doctrack` | máquina do desenvolvedor |
 | Banco | PostgreSQL via `DATABASE_URL` | SQLite `doctrack.db` (sem `DATABASE_URL`) |
 | Servidor | waitress sob NSSM | `python servidor.py` |
+| Tempo real | só polling (o waitress não suporta WebSocket) | WebSocket |
 | Arquivos | share da engenharia | o mesmo share, ou nada |
 
 > O app aplica schema no startup. Homologação **nunca** pode ter `DATABASE_URL`
@@ -250,8 +265,9 @@ Onde procurar, quando a pergunta é:
 
 Registrados aqui porque são estruturais, não bugs a corrigir numa tarde:
 
-1. **Instância única.** Rate limit, agendador e cache do kill switch guardam
-   estado em memória de processo. Uma segunda instância quebra os três.
+1. **Instância única.** Rate limit, agendador, cache do kill switch e as
+   tarefas de importação/exportação dos Cadernos guardam estado em memória de
+   processo. Uma segunda instância quebra todos.
 2. **Os dumps do banco ficam no mesmo disco do banco.** Uma falha de disco leva
    os dois. Ver [`../operacao/RUNBOOK.md`](../operacao/RUNBOOK.md).
 3. **Restaurar o banco não traz os documentos de volta** — eles vivem no share
@@ -259,6 +275,9 @@ Registrados aqui porque são estruturais, não bugs a corrigir numa tarde:
 4. **Dois mecanismos de migração convivem** (`_sync_schema()` idempotente no
    startup e os scripts numerados de `migrations/`), e manter os dois em dia é
    trabalho manual ([ADR-0002](decisoes/ADR-0002-schema-no-startup.md)).
-5. **`servidor.py` e `models.py` são grandes** (3.2k e 2.5k linhas). Os módulos
-   novos nascem em pacote próprio (`custos/`, `tempos/`); os antigos não foram
-   quebrados.
+5. **`servidor.py` e `models.py` são grandes** (cerca de 3,5 mil e 2,7 mil
+   linhas). Os módulos novos nascem em pacote próprio (`custos/`, `tempos/`,
+   `fluxos/`, `notificacoes/`, `cadernos/`); os antigos não foram quebrados.
+6. **Sob o waitress o tempo real é só polling**, e cada aba aberta segura uma
+   thread do servidor. O serviço é instalado com 32 threads; o sintoma e o
+   ajuste estão no [RUNBOOK](../operacao/RUNBOOK.md#threads-do-waitress).

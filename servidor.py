@@ -5,13 +5,16 @@ import os, sys, json, argparse, io, csv, re, zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, g, has_request_context, jsonify, render_template, request, send_file
+from sqlalchemy import event as sa_event
 from flask_cors import CORS
 from flask_jwt_extended import (
-    JWTManager, jwt_required, get_jwt_identity, get_jwt, decode_token
+    JWTManager, jwt_required, get_jwt_identity, get_jwt, decode_token,
+    verify_jwt_in_request
 )
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import HTTPException, InternalServerError
 from dotenv import load_dotenv
 
 # ── CAMINHOS (compatível com PyInstaller / executável "congelado") ─────────────
@@ -237,11 +240,63 @@ fluxos_init_realtime(socketio, publish_event, AuditLog, EventType)
 killswitch.init_realtime(socketio)
 
 # ── TRAVA DE EMERGÊNCIA ───────────────────────────────────────────────────────
-# Primeiro before_request registrado no app, e o único global: com o sistema
-# travado nada mais roda — nem rota autenticada, nem página, nem estático.
+# Primeiro before_request registrado no app: com o sistema travado nada mais
+# roda — nem rota autenticada, nem página, nem estático.
 @app.before_request
 def _checar_kill_switch():
     return killswitch.guardiao()
+
+
+# ── CONTRATO DE ERRO DA API ───────────────────────────────────────────────────
+# O front faz res.json() em toda resposta de /api/. Três caminhos devolviam
+# outra coisa, e a tela mostrava "Unexpected token <" no lugar do motivo:
+#
+#   * corpo JSON que não é objeto ("texto", [1,2]): toda rota faz
+#     `data = request.get_json(silent=True) or {}` e depois `data.get(...)`.
+#     Uma string passa pelo `or {}` e estoura AttributeError — 500 em HTML em
+#     dezenas de rotas, inclusive nas públicas. Barrado aqui, uma vez, com 400;
+#   * abort()/get_or_404() e rota inexistente: a página HTML do werkzeug;
+#   * exceção não tratada: idem, e a sessão do banco ficava suja até o fim da
+#     requisição.
+def _rota_de_api():
+    return "/api/" in request.path
+
+
+@app.before_request
+def _exigir_corpo_objeto():
+    if (request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and _rota_de_api() and request.is_json):
+        corpo = request.get_json(silent=True)
+        if corpo is not None and not isinstance(corpo, dict):
+            return jsonify({"erro": "O corpo da requisição deve ser um objeto JSON"}), 400
+    return None
+
+
+_ERROS_HTTP = {400: "Requisição inválida", 404: "Não encontrado",
+               405: "Método não permitido"}
+
+
+@app.errorhandler(HTTPException)
+def _erro_http(e):
+    # Fora da API (páginas, estáticos) e quando quem abortou já montou a
+    # resposta, fica como estava.
+    if not _rota_de_api() or e.response is not None:
+        return e
+    return jsonify({"erro": _ERROS_HTTP.get(e.code, e.name)}), e.code
+
+
+@app.errorhandler(Exception)
+def _erro_inesperado(e):
+    if app.debug:
+        raise e                      # em desenvolvimento, o depurador do werkzeug
+    db.session.rollback()
+    # Com o handler, o servidor WSGI não vê mais a exceção: este log é o único
+    # rastro dela no err.log do serviço.
+    app.logger.exception("Erro não tratado em %s %s", request.method, request.path)
+    if _rota_de_api():
+        return jsonify({"erro": "Erro interno do servidor. Tente de novo; "
+                                "se persistir, avise o administrador."}), 500
+    return InternalServerError()
 
 # ── JWT HOOKS ─────────────────────────────────────────────────────────────────
 @jwt.additional_claims_loader
@@ -267,6 +322,68 @@ def check_revoked(jwt_header, jwt_payload):
     if not jti:
         return False
     return db.session.query(RevokedToken.id).filter_by(jti=jti).first() is not None
+
+# ── TRILHA DE AUDITORIA: REDE DE SEGURANÇA ────────────────────────────────────
+# Gravar na trilha é responsabilidade de cada rota (ADR-0003), e nada obrigava:
+# rota de escrita que esquecia de chamar log_action/publish_event alterava dado
+# sem deixar rastro. Aqui, toda escrita de API que deu certo e não gravou linha
+# nenhuma durante a requisição ganha uma linha genérica — quem, quando, de onde
+# e qual rota. Não substitui o registro detalhado (campo, valor antigo e novo),
+# que continua sendo da rota; garante que nenhuma alteração fique invisível.
+
+# Minutos sem uso até o front encerrar a sessão (static/auth.js). 0 desliga.
+INATIVIDADE_MIN = int(os.environ.get("DOCTRACK_INATIVIDADE_MIN", "30") or 0)
+
+# Escritas que não alteram registro, ou que têm histórico próprio e frequência
+# alta demais para uma linha por chamada. Pela regra do Flask.
+_TRILHA_FORA = {
+    "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
+    "/api/auth/primeiro-acesso", "/api/auth/trocar-senha",
+    "/api/documentos/abrir-pasta",                       # abre o Explorer
+    "/api/notificacoes/<int:nid>/lida", "/api/notificacoes/lidas",
+    "/cadernos/api/paginas/<uuid_>/edicao",              # trava de edição
+    "/cadernos/api/paginas/<uuid_>",                     # autosave: vira versão da página
+    "/cadernos/api/cadernos/<uuid_>/exportacao/previa",  # só calcula a prévia
+}
+
+
+@sa_event.listens_for(AuditLog, "after_insert")
+def _marcar_requisicao_auditada(_mapper, _conn, _alvo):
+    if has_request_context():
+        g.trilha_gravada = True
+
+
+@app.before_request
+def _trilha_zerar_marca():
+    # `g` é do contexto de aplicação, e um contexto já aberto (testes, scripts)
+    # é reaproveitado entre requisições: sem zerar, a marca de uma vazaria para
+    # a seguinte.
+    g.trilha_gravada = False
+
+
+@app.after_request
+def _trilha_rede_de_seguranca(response):
+    try:
+        if (request.method not in ("POST", "PUT", "PATCH", "DELETE")
+                or not (200 <= response.status_code < 300)
+                or "/api/" not in request.path
+                or g.get("trilha_gravada")
+                or request.url_rule is None
+                or request.url_rule.rule in _TRILHA_FORA
+                or request.url_rule.rule.startswith("/api/kill-switch")):
+            return response
+        verify_jwt_in_request(optional=True)
+        email = get_jwt_identity()
+        if not email:
+            return response        # rota por ticket (assistente de importação)
+        log_action(email, "ESCRITA", entidade=f"{request.method} {request.path}"[:200],
+                   campo="rota", novo=request.url_rule.rule,
+                   ip=get_client_ip())
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WARN] Auditoria: escrita não gravada em {request.method} {request.path} — {e}")
+    return response
+
 
 @app.after_request
 def add_security_headers(response):
@@ -352,26 +469,54 @@ def compute_kpis(docs):
 
 # ── INIT DB + SEED ────────────────────────────────────────────────────────────
 def init_db(reset=False):
+    """Cria o schema e, em banco sem usuário nenhum, a primeira conta.
+
+    A primeira conta é um admin SEM senha: nasce pendente de primeiro acesso, e
+    o código de ativação sai uma única vez no log da subida. Antes, o banco
+    vazio ganhava `admin@pde.com` e cinco contas de demonstração com senhas
+    escritas aqui, num repositório público — senha conhecida de todos é conta
+    coletiva, e o que ela faz não é atribuível a ninguém.
+
+    As contas de demonstração continuam existindo para desenvolvimento e
+    homologação, só a pedido: DOCTRACK_CONTAS_DEMO=1.
+    """
     with app.app_context():
         if reset:
             db.drop_all()
         db.create_all()
-        if not User.query.filter_by(email="admin@pde.com").first():
-            admin = User(nome="Admin Sistemas", email="admin@pde.com", role="admin")
-            admin.set_senha("admin123")
-            db.session.add(admin)
-        demo_users = [
-            ("Carlos Mota","carlos.m@pde.com","gestor","demo123"),
-            ("Beatriz Souza","beatriz.s@pde.com","gestor","demo123"),
-            ("Ana Lima","ana.l@pde.com","tecnico","demo123"),
-            ("Diego Ferreira","diego.f@pde.com","tecnico","demo123"),
-            ("Auditora Ext.","auditora@iso.com","leitura","demo123"),
-        ]
-        for nome, email, role, senha in demo_users:
-            if not User.query.filter_by(email=email).first():
-                u = User(nome=nome, email=email, role=role)
-                u.set_senha(senha)
-                db.session.add(u)
+        demo = os.environ.get("DOCTRACK_CONTAS_DEMO", "").strip().lower() in ("1", "true", "sim")
+        if User.query.count() == 0:
+            email = (os.environ.get("DOCTRACK_ADMIN_EMAIL", "admin@pde.com").strip().lower()
+                     or "admin@pde.com")
+            admin = User(nome="Administrador", email=email, role="admin")
+            if demo:
+                admin.set_senha("admin123")
+                db.session.add(admin)
+            else:
+                codigo = admin.gerar_codigo_ativacao()
+                db.session.add(admin)
+                print("\n" + "=" * 68)
+                print(f"[PRIMEIRA CONTA] administrador criado: {email}")
+                print(f"[PRIMEIRA CONTA] código de ativação:   {codigo}")
+                print(f"[PRIMEIRA CONTA] válido por {User.ATIVACAO_VALIDADE_DIAS} dias. Na tela de login, use "
+                      "'Primeiro acesso' para definir a senha.")
+                print("[PRIMEIRA CONTA] este código não será mostrado de novo.")
+                print("=" * 68 + "\n")
+        if demo:
+            print("[WARN] DOCTRACK_CONTAS_DEMO ligado: contas de demonstração com "
+                  "senha fixa. Nunca em produção.")
+            demo_users = [
+                ("Carlos Mota","carlos.m@pde.com","gestor","demo123"),
+                ("Beatriz Souza","beatriz.s@pde.com","gestor","demo123"),
+                ("Ana Lima","ana.l@pde.com","tecnico","demo123"),
+                ("Diego Ferreira","diego.f@pde.com","tecnico","demo123"),
+                ("Auditora Ext.","auditora@iso.com","leitura","demo123"),
+            ]
+            for nome, email, role, senha in demo_users:
+                if not User.query.filter_by(email=email).first():
+                    u = User(nome=nome, email=email, role=role)
+                    u.set_senha(senha)
+                    db.session.add(u)
         db.session.commit()
         if reset or Documento.query.count() == 0:
             if os.path.exists(EXCEL_PATH):
@@ -1983,7 +2128,9 @@ def api_metrics():
 
 @app.route("/api/version")
 def api_version():
-    return jsonify({"version": APP_VERSION}), 200
+    # `inatividade_min` vai aqui porque esta é a rota que toda tela consegue ler
+    # sem token: é o static/auth.js que derruba a sessão parada.
+    return jsonify({"version": APP_VERSION, "inatividade_min": INATIVIDADE_MIN}), 200
 
 @app.route("/api/enums")
 @jwt_required()
@@ -2301,6 +2448,7 @@ def _sync_schema():
             ("ativacao_expira",       "TIMESTAMP"),
             ("pode_pdr",              f"BOOLEAN DEFAULT {_bool_false} NOT NULL"),
             ("areas",                 "VARCHAR(200) DEFAULT '' NOT NULL"),
+            ("senha_definida_em",     "TIMESTAMP"),
         ],
         "projetos": [
             ("data_inicio_prev", "VARCHAR(10) DEFAULT ''"),
@@ -2415,6 +2563,15 @@ def _sync_schema():
                 adicionadas.add(f"{tabela}.{nome}")
                 print(f"[INFO] Schema: coluna {tabela}.{nome} adicionada")
     db.session.commit()
+
+    # Validade de senha: a conta que já existia começa a contar de agora. Sem
+    # isto a data ficaria nula (senha que nunca vence) ou, pior, valeria a data
+    # de criação da conta e todo mundo amanheceria barrado no login.
+    if "users.senha_definida_em" in adicionadas:
+        db.session.execute(
+            text("UPDATE users SET senha_definida_em = :agora "
+                 "WHERE senha_definida_em IS NULL"), {"agora": datetime.now()})
+        db.session.commit()
 
     # Índices em tabelas que já existiam: create_all() cria a tabela nova com os
     # índices do modelo, mas não adiciona índice a tabela existente — e o ALTER
@@ -3359,6 +3516,23 @@ def _purgar_lixeira_cadernos():
     return purgar_lixeira()
 
 
+def _purgar_tokens_revogados():
+    """Descarta da blocklist os JTIs de tokens que já venceram.
+
+    Cada logout grava uma linha em revoked_tokens e nada as tirava de lá: a
+    tabela só crescia, e ela é consultada em toda requisição autenticada. Um
+    token revogado há mais tempo que a maior validade emitida (a do refresh)
+    já seria recusado por estar vencido — a linha não protege mais nada.
+    """
+    validade = max(app.config["JWT_ACCESS_TOKEN_EXPIRES"],
+                   app.config["JWT_REFRESH_TOKEN_EXPIRES"])
+    corte = datetime.now() - validade - timedelta(days=1)      # folga de um dia
+    n = (RevokedToken.query.filter(RevokedToken.revoked_at < corte)
+         .delete(synchronize_session=False))
+    db.session.commit()
+    return n
+
+
 def _purgar_notificacoes_lidas():
     """Apaga as notificações lidas há mais de 90 dias (as não lidas ficam)."""
     from notificacoes.core import purgar_lidas
@@ -3390,6 +3564,7 @@ def rodar_tarefas_diarias():
                      # CADERNOS_LIXEIRA_DIAS). Blob só sai se ficou órfão.
                      ("cadernos", _purgar_lixeira_cadernos),
                      ("notificacoes", _purgar_notificacoes_lidas),
+                     ("tokens", _purgar_tokens_revogados),
                      ("auditoria", _purgar_auditoria)):
         try:
             resultado[nome] = fn()

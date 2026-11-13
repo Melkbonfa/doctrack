@@ -6,6 +6,11 @@
    usuário não seja chutado ao login a cada hora. Só volta ao login quando o
    refresh também vence (>7 dias) ou é revogado — e aí de forma limpa, com aviso.
 
+   Sessão parada é encerrada: sem mouse, teclado ou toque por `inatividade_min`
+   minutos (vem de /api/version; 0 desliga), o helper revoga os tokens no
+   servidor e volta ao login. A última atividade fica no localStorage, então
+   vale para todas as abas juntas — e para a aba reaberta no dia seguinte.
+
    Deve ser carregado ANTES dos scripts de cada módulo. Exposto em window.DT_AUTH.
    ═══════════════════════════════════════════════════════════════════════════ */
 (function(){
@@ -14,12 +19,16 @@
   var REFRESH_KEY = "doctrack_refresh";
   var USER_KEY    = "doctrack_user";
   var EXPIRED_FLAG = "dt_session_expired";
+  var IDLE_FLAG    = "dt_session_idle";
+  var ATIVIDADE_KEY = "doctrack_atividade";   // epoch ms da última ação da pessoa
+  var LIMITE_KEY    = "doctrack_inatividade_min";
   var _inflight = null;   // refresh em andamento (evita corrida com vários 401 juntos)
 
   function getAccess(){  return localStorage.getItem(ACCESS_KEY)  || ""; }
   function getRefresh(){ return localStorage.getItem(REFRESH_KEY) || ""; }
 
   function setTokens(access, refresh){
+    marcarAtividade(true);
     if(access)  localStorage.setItem(ACCESS_KEY,  access);
     if(refresh) localStorage.setItem(REFRESH_KEY, refresh);
   }
@@ -96,7 +105,78 @@
     return false;
   }
 
+  // ── Encerrar a sessão no servidor ──────────────────────────────────────────
+  // Revoga o access E o refresh token, e grava a saída na trilha de auditoria.
+  // Não navega: quem chama decide para onde ir. Retorna Promise (nunca rejeita).
+  function encerrar(motivo){
+    var at = getAccess();
+    if(!at) return Promise.resolve();
+    return fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + at, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: getRefresh(), motivo: motivo || "" })
+    }).catch(function(){});
+  }
+
+  // ── Inatividade ────────────────────────────────────────────────────────────
+  var _ultimaGravacao = 0, _semSessao = true, _saindo = false;
+
+  function limiteMs(){
+    var min = parseInt(localStorage.getItem(LIMITE_KEY) || "30", 10);
+    return (isNaN(min) || min <= 0) ? 0 : min * 60000;
+  }
+  // Grava no máximo a cada 5 s: mousemove dispara centenas de vezes por segundo.
+  function marcarAtividade(forcar){
+    var agora = Date.now();
+    if(!forcar && agora - _ultimaGravacao < 5000) return;
+    _ultimaGravacao = agora;
+    try{ localStorage.setItem(ATIVIDADE_KEY, String(agora)); }catch(e){}
+  }
+  function conferirInatividade(){
+    if(_saindo) return;
+    if(!getAccess() && !getRefresh()){ _semSessao = true; return; }
+    // Acabou de entrar nesta aba: a marca antiga é da sessão anterior.
+    if(_semSessao){ _semSessao = false; marcarAtividade(true); return; }
+    var limite = limiteMs();
+    if(!limite) return;
+    var ultima = parseInt(localStorage.getItem(ATIVIDADE_KEY) || "0", 10);
+    if(!ultima){ marcarAtividade(true); return; }
+    if(Date.now() - ultima < limite) return;
+    _saindo = true;
+    encerrar("inatividade").then(function(){
+      clear();
+      try{ sessionStorage.setItem(IDLE_FLAG, "1"); }catch(e){}
+      if(location.pathname !== "/") window.location.href = "/";
+      else window.location.reload();
+    });
+  }
+  function consumeIdleFlag(){
+    try{
+      var v = sessionStorage.getItem(IDLE_FLAG);
+      if(v){ sessionStorage.removeItem(IDLE_FLAG); return true; }
+    }catch(e){}
+    return false;
+  }
+
+  ["mousedown", "keydown", "touchstart", "wheel", "mousemove"].forEach(function(ev){
+    window.addEventListener(ev, function(){ marcarAtividade(false); }, { passive: true, capture: true });
+  });
+  // Aba que já abre com sessão: confere na hora (é o caso da aba esquecida e
+  // reaberta), sem passar pelo ramo de "acabou de entrar".
+  if(getAccess() || getRefresh()){ _semSessao = false; conferirInatividade(); }
+  setInterval(conferirInatividade, 20000);
+  document.addEventListener("visibilitychange", function(){
+    if(!document.hidden) conferirInatividade();
+  });
+  // O limite é configuração do servidor; guardado para valer já no próximo boot.
+  fetch("/api/version").then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    if(d && typeof d.inatividade_min === "number"){
+      try{ localStorage.setItem(LIMITE_KEY, String(d.inatividade_min)); }catch(e){}
+    }
+  }).catch(function(){});
+
   window.DT_AUTH = {
+    encerrar: encerrar, consumeIdleFlag: consumeIdleFlag, marcarAtividade: marcarAtividade,
     getAccess: getAccess, getRefresh: getRefresh,
     setTokens: setTokens, setAccess: setAccess, clear: clear,
     expOf: expOf, isExpired: isExpired,

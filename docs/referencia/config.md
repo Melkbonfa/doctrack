@@ -6,7 +6,7 @@
 
 # Variáveis de ambiente
 
-**39** variáveis lidas pelo código. **14** aparecem no `.env.example`.
+**44** variáveis lidas pelo código. **20** aparecem no `.env.example`.
 
 O `.env.example` é o arquivo para copiar e editar, e explica *por que* cada variável importante existe. Esta tabela é o inventário completo: existe para que nenhuma variável fique só no código.
 
@@ -16,6 +16,7 @@ O `.env.example` é o arquivo para copiar e editar, e explica *por que* cada var
 | `CADERNOS_LIXEIRA_DIAS` | `"60"` | `cadernos/routes.py` | **não** |
 | `CORS_ORIGINS` | `"*"` | `servidor.py` | sim |
 | `DATABASE_URL` | `""` | `scripts/migrar_sqlite_para_postgres.py`, `scripts/seed_demo.py`, `scripts/semear_demo.py` (+2) | sim |
+| `DOCTRACK_ADMIN_EMAIL` | `"admin@pde.com"` | `servidor.py` | sim |
 | `DOCTRACK_AGENDADOR` | `"1"` | `scheduler.py` | **não** |
 | `DOCTRACK_AGENDADOR_INTERVALO` | `"900"` | `scheduler.py` | **não** |
 | `DOCTRACK_ARQUIVOS` | **obrigatória** | `arquivos_store.py` | sim |
@@ -23,10 +24,12 @@ O `.env.example` é o arquivo para copiar e editar, e explica *por que* cada var
 | `DOCTRACK_CAMBIO` | `"1"` | `custos/cambio.py` | **não** |
 | `DOCTRACK_CAMBIO_JANELA` | `"15"` | `custos/cambio.py` | **não** |
 | `DOCTRACK_CAMBIO_TIMEOUT` | `"8"` | `custos/cambio.py` | **não** |
+| `DOCTRACK_CONTAS_DEMO` | `""` | `servidor.py` | sim |
 | `DOCTRACK_DIAG_TIMEOUT` | `"20"` | `diagnostico.py` | **não** |
 | `DOCTRACK_EQUIP_MASTER` | `r"P:\Engenharia\Projetos\1. Produtos\Equipamentos Cadastrados.xlsx",` | `equipamentos_importer.py` | **não** |
 | `DOCTRACK_FILE_ROOTS` | `_RAIZ_PADRAO` | `caminhos.py` | sim |
 | `DOCTRACK_IMPORT_MAX_MB` | `"1024"` | `cadernos/importacao.py` | **não** |
+| `DOCTRACK_INATIVIDADE_MIN` | `"30"` | `servidor.py` | sim |
 | `DOCTRACK_JANELA_ATIVACAO` | `"900"` | `ratelimit.py` | **não** |
 | `DOCTRACK_JANELA_IP` | `"300"` | `ratelimit.py` | **não** |
 | `DOCTRACK_JANELA_KILLSWITCH` | `"900"` | `ratelimit.py` | sim |
@@ -40,7 +43,9 @@ O `.env.example` é o arquivo para copiar e editar, e explica *por que* cada var
 | `DOCTRACK_PATH_ALIASES` | `""` | `caminhos.py` | sim |
 | `DOCTRACK_RATELIMIT` | `"1"` | `ratelimit.py` | **não** |
 | `DOCTRACK_SEED_DEMO` | `""` | `scripts/seed_demo.py` | **não** |
-| `DOCTRACK_SENHA_MIN` | `"8"` | `auth.py` | **não** |
+| `DOCTRACK_SENHA_COMPOSICAO` | `"1"` | `auth.py` | sim |
+| `DOCTRACK_SENHA_MIN` | `"8"` | `auth.py` | sim |
+| `DOCTRACK_SENHA_VALIDADE_DIAS` | `"180"` | `auth.py` | sim |
 | `DOCTRACK_TEMPO_LIMITE_H` | `""` | `migrations/013_modulo_tempos.py` | **não** |
 | `DOCTRACK_UPLOAD_BIN_MAX_MB` | `"500"` | `arquivos_store.py` | sim |
 | `DOCTRACK_UPLOAD_MAX_MB` | `"80"` | `arquivos_store.py` | sim |
@@ -76,7 +81,6 @@ Cada uma destas muda comportamento em produção sem estar no arquivo que o oper
 - `DOCTRACK_LIMITE_LOGIN` — padrão `"5"`, em `ratelimit.py`
 - `DOCTRACK_RATELIMIT` — padrão `"1"`, em `ratelimit.py`
 - `DOCTRACK_SEED_DEMO` — padrão `""`, em `scripts/seed_demo.py`
-- `DOCTRACK_SENHA_MIN` — padrão `"8"`, em `auth.py`
 - `DOCTRACK_TEMPO_LIMITE_H` — padrão `""`, em `migrations/013_modulo_tempos.py`
 - `DOCTRACK_URL` — padrão `"http://localhost:5000"`, em `scripts/kill_switch.py`
 - `PDR_EXCEL_PATH` — padrão `os.path.join(DATA_DIR, "Lista_Mestra_PDR_tratada.xlsx"`, em `pdr/importer.py`

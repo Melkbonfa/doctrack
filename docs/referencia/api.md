@@ -6,7 +6,7 @@
 
 # Referência da API
 
-310 rotas registradas: **288** de API (`/api/...`) e **22** de página.
+311 rotas registradas: **289** de API (`/api/...`) e **22** de página.
 
 A coluna **Acesso** é lida dos decorators no fonte:
 
@@ -25,10 +25,11 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | Método | Rota | Acesso | O que faz |
 |---|---|---|---|
 | `POST` | `/api/auth/login` | público |  |
-| `POST` | `/api/auth/logout` | autenticado | B2: revoga o JTI do token atual (blocklist). |
+| `POST` | `/api/auth/logout` | autenticado | Encerra a sessão: revoga o access token da chamada e, se o front mandar, |
 | `GET` | `/api/auth/me` | autenticado |  |
 | `POST` | `/api/auth/primeiro-acesso` | público | Rota pública: o usuário troca o código de ativação pela própria senha. |
 | `POST` | `/api/auth/refresh` | autenticado |  |
+| `POST` | `/api/auth/trocar-senha` | público | Rota pública: e-mail + senha atual + senha nova. |
 | `GET` | `/api/users` | admin, gestor |  |
 | `POST` | `/api/users` | admin |  |
 | `DELETE` | `/api/users/<int:user_id>` | admin | DELETE soft (ativo=False) por padrão. |

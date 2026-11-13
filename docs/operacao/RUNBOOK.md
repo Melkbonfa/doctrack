@@ -21,6 +21,8 @@ Para **instalar** numa máquina nova, o documento é outro:
 | Documentos técnicos | `\\loccus-srv03\Projetos$\Engenharia` — **fora** do sistema |
 | Logs | `C:\apps\doctrack\logs\out.log` e `err.log` |
 | Backups | `C:\apps\doctrack\backups`, diário às 02:00 |
+| Tempo real | Socket.IO só por polling (o waitress não faz WebSocket) |
+| Fotos diárias | thread interna do serviço (`scheduler.py`); `DOCTRACK_AGENDADOR=0` desliga |
 | Acesso externo | túnel Cloudflare (opcional) — [ACESSO_REMOTO.md](../ACESSO_REMOTO.md) |
 
 ---
@@ -29,29 +31,29 @@ Para **instalar** numa máquina nova, o documento é outro:
 
 Ver se está de pé:
 
-```bash
+```powershell
 Get-Service DocTrack
 ```
 
 Reiniciar:
 
-```bash
+```powershell
 nssm restart DocTrack
 ```
 
 Parar e iniciar:
 
-```bash
+```powershell
 nssm stop DocTrack
 ```
 
-```bash
+```powershell
 nssm start DocTrack
 ```
 
 Ver o log de erro, ao vivo:
 
-```bash
+```powershell
 Get-Content C:\apps\doctrack\logs\err.log -Tail 50 -Wait
 ```
 
@@ -62,15 +64,15 @@ subida e, com o serviço no ar, ao passar de 10 MB (o antigo ganha a data no
 nome). Num serviço instalado antes disso, ligue a rotação uma vez — vale a
 partir do próximo início do serviço:
 
-```bash
+```powershell
 nssm set DocTrack AppRotateFiles 1
 ```
 
-```bash
+```powershell
 nssm set DocTrack AppRotateOnline 1
 ```
 
-```bash
+```powershell
 nssm set DocTrack AppRotateBytes 10485760
 ```
 
@@ -95,47 +97,71 @@ O `scripts/deploy_windows.ps1` instala com `--threads=32`. Num serviço instalad
 antes disso, ajuste uma vez e reinicie (dimensione pelo número de abas abertas
 ao mesmo tempo, com folga):
 
-```bash
+```powershell
 nssm set DocTrack AppParameters "--listen=0.0.0.0:5000 --threads=32 wsgi:app"
 ```
 
-```bash
+```powershell
 nssm restart DocTrack
 ```
 
 Confirmar que o app responde (não precisa de login, e funciona até travado):
 
-```bash
-curl http://localhost:5000/api/version
+```powershell
+curl.exe -s http://localhost:5000/api/version
 ```
+
+(`curl.exe`, com a extensão: no Windows PowerShell, `curl` sozinho é um apelido
+de `Invoke-WebRequest`, que não aceita as mesmas opções.)
 
 ---
 
 ## Publicar uma versão nova
 
-```bash
-cd C:\apps\doctrack; git pull; .\venv\Scripts\pip install -r requirements.txt; nssm restart DocTrack
+A ordem é **backup → pull → restart**. Num PowerShell como Administrador, o
+bloco abaixo faz os três e **para no primeiro erro** — se o backup falhar, o
+código não é trocado:
+
+```powershell
+$ErrorActionPreference = "Stop"
+Set-Location C:\apps\doctrack
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\gerar_backup.ps1
+if ($LASTEXITCODE -ne 0) { throw "Backup falhou: nada foi publicado." }
+git pull --ff-only
+if ($LASTEXITCODE -ne 0) { throw "git pull falhou: o servico segue na versao anterior." }
+.\venv\Scripts\pip install -r requirements.txt
+if ($LASTEXITCODE -ne 0) { throw "pip falhou: o servico NAO foi reiniciado." }
+nssm restart DocTrack
+curl.exe -s http://localhost:5000/api/version
 ```
+
+O backup vem primeiro porque mudança de schema é aditiva e idempotente por
+convenção, e convenção não é garantia. O script de backup precisa do
+`-ExecutionPolicy Bypass`: a política padrão do Windows recusa `.ps1` local.
 
 Não há passo de migração: o schema é aplicado na subida
 ([ADR-0002](../arquitetura/decisoes/ADR-0002-schema-no-startup.md)). O que
 **precisa** ser conferido depois é o log da subida — os backfills e o
 `_sync_schema()` falham em voz alta ali, e o app pode subir mesmo assim.
 
-```bash
+```powershell
 Select-String -Path C:\apps\doctrack\logs\err.log -Pattern "ERROR|Traceback" | Select-Object -Last 20
 ```
 
-**Antes de publicar**, tenha um backup do dia (veja abaixo). Mudança de schema é
-aditiva e idempotente por convenção, mas convenção não é garantia.
+A última linha do bloco de publicação mostra a versão que ficou no ar. Enquanto
+`VERSION` não muda entre uma publicação e outra, confirme pelo commit:
+
+```powershell
+git -C C:\apps\doctrack log -1 --oneline
+```
 
 ### Voltar atrás
 
-```bash
+```powershell
 cd C:\apps\doctrack; git log --oneline -5
 ```
 
-```bash
+```powershell
 cd C:\apps\doctrack; git checkout <sha-anterior>; nssm restart DocTrack
 ```
 
@@ -150,17 +176,33 @@ cd C:\apps\doctrack; git checkout <sha-anterior>; nssm restart DocTrack
 
 Rodar manualmente:
 
-```bash
-cd C:\apps\doctrack; .\scripts\gerar_backup.ps1
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File C:\apps\doctrack\scripts\gerar_backup.ps1
 ```
 
 O script gera o `pg_dump` completo, **espelha a pasta de arquivos enviados** e
 apaga dumps com mais de 30 dias (o espelho dos arquivos é cumulativo). Roda
 sozinho às 02:00 pela tarefa agendada `DocTrack - Backup Diario`.
 
+Essa tarefa **não é criada pelo `deploy_windows.ps1`** — é registrada à mão, uma
+vez por servidor (PowerShell como Administrador):
+
+```powershell
+$acao = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-ExecutionPolicy Bypass -File "C:\apps\doctrack\scripts\gerar_backup.ps1"'
+Register-ScheduledTask -TaskName "DocTrack - Backup Diario" -Action $acao -Trigger (New-ScheduledTaskTrigger -Daily -At 02:00) -User "SYSTEM" -RunLevel Highest
+```
+
+Conferir que ela existe e quando rodou pela última vez:
+
+```powershell
+Get-ScheduledTaskInfo -TaskName "DocTrack - Backup Diario" | Select-Object LastRunTime, LastTaskResult, NextRunTime
+```
+
+`LastTaskResult` diferente de `0` é backup que falhou.
+
 Conferir que os backups estão de fato acontecendo:
 
-```bash
+```powershell
 Get-ChildItem C:\apps\doctrack\backups | Sort-Object LastWriteTime -Descending | Select-Object -First 5 Name, Length, LastWriteTime
 ```
 
@@ -182,23 +224,32 @@ Três lacunas reais, em ordem de gravidade:
    cuida dos dois; uma restauração manual que traga só o `.sql` deixa anexos
    apontando para blobs que não existem.
 
-O guia de validação ANVISA exige "Backup, Restauração e Recuperação de Dados" —
-os itens 1 e 2 são as lacunas a fechar antes de uma auditoria.
+O guia de validação da ANVISA pede backup guardado **em local separado e
+seguro**, verificado periodicamente e com simulação de restauração (§3.1 e
+§16.6) — os itens 1 e 2 são lacunas a fechar antes de uma auditoria. O
+confronto completo está em [ADERENCIA_BPX.md](ADERENCIA_BPX.md).
+
+**Dado perdido é desvio** (§16.6): se uma restauração não trouxer tudo de
+volta, registre o que faltou e desde quando, pelo procedimento de desvios da
+empresa — não basta consertar.
 
 ### Restaurar
 
-```bash
+```powershell
 nssm stop DocTrack
 ```
 
-```bash
-& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -U doctrack_app -h localhost -d doctrack -f "C:\apps\doctrack\backups\<arquivo>.sql"
+```powershell
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U doctrack_app -h localhost -d doctrack -f "C:\apps\doctrack\backups\<arquivo>.sql"
 ```
+
+O caminho é o do PostgreSQL 18, a versão instalada em produção. Se a pasta não
+existir, confira qual é com `Get-ChildItem "C:\Program Files\PostgreSQL"`.
 
 Restaure **também** a pasta de arquivos enviados do mesmo dia, do espelho em
 `backups\`, antes de subir o serviço. Depois:
 
-```bash
+```powershell
 nssm start DocTrack
 ```
 
@@ -214,7 +265,8 @@ Para o incidente em que desligar sai mais barato que investigar com o sistema no
 ar. Travado, **tudo** responde `423` — inclusive para admin, inclusive para quem
 já estava logado.
 
-**Travar**, de qualquer lugar, sem precisar do repositório nem estar logado:
+**Travar**, de qualquer lugar, sem precisar do repositório nem estar logado
+(no Windows PowerShell, troque `curl` por `curl.exe`):
 
 ```bash
 curl -X POST https://SEU-SERVIDOR/api/kill-switch/lock -H "X-Kill-Token: SEU_TOKEN" -H "Content-Type: application/json" -d "{\"motivo\":\"credencial vazada\"}"
@@ -222,7 +274,7 @@ curl -X POST https://SEU-SERVIDOR/api/kill-switch/lock -H "X-Kill-Token: SEU_TOK
 
 **Destravar**: acesse `/travado` no navegador e informe a senha-mestra, ou:
 
-```bash
+```powershell
 cd C:\apps\doctrack; .\venv\Scripts\python scripts\kill_switch.py unlock --url https://SEU-SERVIDOR
 ```
 
@@ -249,21 +301,26 @@ de novo. As duas ações ficam no log de auditoria sob o usuário `kill-switch`.
 | Login trancado para todos ao mesmo tempo | rate limit fundido num IP só | ligar `TRUST_PROXY=1` (obrigatório atrás de túnel/proxy) e reiniciar |
 | Gráfico de evolução com um ponto só | agendador desligado ou serviço parado há dias | conferir `DOCTRACK_AGENDADOR`; rodar `scripts/snapshot_diario.py` |
 | Câmbio desatualizado em Custos | falha na chamada ao Banco Central | conferir saída de internet do servidor e `DOCTRACK_CAMBIO` |
-| Tela não atualiza sozinha | WebSocket bloqueado, ou mutação sem `publish_event` | ver console do navegador; ver [EVENTOS.md](../arquitetura/EVENTOS.md) |
+| Tela não atualiza sozinha | tela sem socket (Hub, Tempos, Custos, Cadernos), polling bloqueado, ou mutação sem `publish_event` | ver console do navegador; ver [EVENTOS.md](../arquitetura/EVENTOS.md#quais-telas-têm-socket) |
+| Importação do OneNote ou exportação de caderno some no meio | o serviço reiniciou: as tarefas dos Cadernos vivem em memória | refazer — nada fica gravado pela metade ([cadernos.md](../funcional/cadernos.md#pontos-de-atenção)) |
+| Hub abre com um cartão sem números | um bloco de `/api/hub/resumo` falhou | procurar `hub: falha ao montar o bloco` no `err.log` |
 | Nada abre de fora da rede | túnel caído | ver o serviço `cloudflared`; [ACESSO_REMOTO.md](../ACESSO_REMOTO.md) |
 
 ### Diagnóstico de cadastro × arquivos
 
 Confronta o que está cadastrado com o que existe de fato no share e na
-plataforma:
+plataforma: pastas que sumiram, pastas vazias e arquivos que o cadastro promete
+e não existem.
 
-```bash
-cd C:\apps\doctrack; .\venv\Scripts\python -c "import diagnostico, wsgi; print(diagnostico.rodar())"
-```
+Roda pela interface: na tela de **Documentos**, o botão **🔍 Diagnóstico**
+(aparece para admin e gestor). Por trás é `GET /api/documentos/diagnostico`.
 
-Também existe pela interface, em Configurações. O timeout é
-`DOCTRACK_DIAG_TIMEOUT` (padrão 20 s) — num share lento, aumente antes de
-concluir que algo sumiu.
+Não há comando de terminal para isso, de propósito: o diagnóstico precisa do
+app montado, e importar `wsgi` numa segunda janela prepararia o banco e subiria
+um segundo agendador ao lado do serviço.
+
+O timeout é `DOCTRACK_DIAG_TIMEOUT` (padrão 20 s) — num share lento, aumente
+antes de concluir que algo sumiu.
 
 ---
 
@@ -276,8 +333,17 @@ concluir que algo sumiu.
 | Todo mês | uma restauração de teste em banco descartável — backup nunca testado não é backup |
 | Todo mês | validade dos registros ANVISA vencendo (aparece no ICE dos equipamentos) |
 | Todo mês | pasta `logs\`: apagar os logs girados antigos |
+| Todo mês | espaço livre no disco do banco e de `backups\` |
+| Todo trimestre | lista de usuários ativos conferida contra quem ainda precisa do acesso. **Uma vez, em instalação antiga:** desativar `admin@pde.com` e as contas de demonstração (`carlos.m`, `beatriz.s`, `ana.l`, `diego.f` `@pde.com` e `auditora@iso.com`) se ainda estiverem ativas — elas nasceram com senha fixa |
+| Todo trimestre | trilha de auditoria: olhar `LOGIN_FALHA`, os bloqueios e `ACESSO_NEGADO` do período; e as linhas `ESCRITA`, que mostram quais rotas ainda não têm registro detalhado |
 | A cada deploy | log da subida limpo; `/api/version` responde a versão nova |
 | A cada mudança de `.env` | conferir contra [`../referencia/config.md`](../referencia/config.md) |
+
+São os itens que a revisão periódica do guia de validação pede (§16.8: acessos,
+backup, estado do servidor, estado da trilha). **Anote a data e quem fez** — o
+sistema não guarda esse registro, e verificação sem registro não serve de
+evidência. A periodicidade acima é a sugestão técnica; a oficial é a do POP de
+revisão periódica.
 
 ---
 

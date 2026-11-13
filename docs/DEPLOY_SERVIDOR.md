@@ -1,5 +1,18 @@
 # DocTrack — Implantação no servidor (sem admin)
 
+> **Alternativa, não o caminho vigente.** Produção roda waitress + NSSM +
+> PostgreSQL, instalada pelo [GUIA_DEPLOY_WINDOWS.md](GUIA_DEPLOY_WINDOWS.md).
+> Este documento serve só para o cenário de um servidor sem administrador e sem
+> Python, e empacota SQLite — não fala com o PostgreSQL de produção. O quadro
+> completo dos guias está em [README.md](README.md).
+>
+> **Valide o pacote antes de contar com ele.** O `DocTrack.spec` não é revisto
+> desde jul/2026: ele empacota só `templates/` e `static/` da raiz, e os módulos
+> que vieram depois em pacote próprio (`pdr/`, `custos/`, `tempos/`, `fluxos/`,
+> `cadernos/`) têm os templates dentro da própria pasta. Ele também exclui o
+> `PIL`, que a exportação dos Cadernos usa. Gere o pacote e abra cada módulo
+> antes de levar ao servidor; o que faltar entra em `datas` no `.spec`.
+
 O DocTrack é distribuído como **executável de pasta única** (PyInstaller). Não precisa
 instalar Python, Node, GTK, nem ter privilégios de administrador no servidor.
 
@@ -75,7 +88,10 @@ Sem essa regra, o app funciona normalmente em `localhost` no próprio servidor.
 - Para atualizar a versão no servidor: gere um novo pacote, e no servidor substitua o
   `DocTrack.exe` e a pasta `_internal\` — **preserve** o `doctrack.db`, o `.env` e a
   pasta `arquivos\` existentes.
-- **Backup:** `scripts\gerar_backup.ps1` salva o banco **e** a pasta de arquivos na
-  mesma execução. As duas metades precisam vir do mesmo momento: banco sem os
-  arquivos aponta para blobs que não existem, e arquivos sem o banco são um monte
-  de nomes em hash sem significado.
+- **Backup:** neste formato o banco é o arquivo `doctrack.db` (SQLite) ao lado
+  do `.exe`. O `scripts\gerar_backup.ps1` **não serve aqui** — ele faz `pg_dump`
+  e exige o PostgreSQL da instalação padrão. Com o `DocTrack.exe` parado, copie
+  `doctrack.db` **e** a pasta `arquivos\` para fora da máquina, na mesma hora.
+  As duas metades precisam vir do mesmo momento: banco sem os arquivos aponta
+  para blobs que não existem, e arquivos sem o banco são um monte de nomes em
+  hash sem significado.

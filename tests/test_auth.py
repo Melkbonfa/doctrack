@@ -152,18 +152,18 @@ def test_login_bloqueado_conta_pendente(client, admin_token, auth_headers):
 def test_primeiro_acesso_com_codigo_correto(client, admin_token, auth_headers):
     codigo, _uid, _ = _criar_convite(client, admin_token, auth_headers, email="ok@test.com")
     res = client.post("/api/auth/primeiro-acesso",
-                      json={"email": "ok@test.com", "codigo": codigo, "senha": "novaSenha1"})
+                      json={"email": "ok@test.com", "codigo": codigo, "senha": "novaSenha-1"})
     assert res.status_code == 200, res.get_json()
     assert "access_token" in res.get_json()
     # Agora o login normal funciona
-    login = client.post("/api/auth/login", json={"email": "ok@test.com", "senha": "novaSenha1"})
+    login = client.post("/api/auth/login", json={"email": "ok@test.com", "senha": "novaSenha-1"})
     assert login.status_code == 200
 
 
 def test_primeiro_acesso_codigo_errado(client, admin_token, auth_headers):
     _criar_convite(client, admin_token, auth_headers, email="bad@test.com")
     res = client.post("/api/auth/primeiro-acesso",
-                      json={"email": "bad@test.com", "codigo": "ZZZZZZZZ", "senha": "novaSenha1"})
+                      json={"email": "bad@test.com", "codigo": "ZZZZZZZZ", "senha": "novaSenha-1"})
     assert res.status_code == 400
 
 
@@ -187,9 +187,9 @@ def test_reset_senha_admin(client, admin_token, auth_headers):
     # Usuário redefine via primeiro acesso
     assert client.post("/api/auth/primeiro-acesso",
                        json={"email": "tecnico@test.com", "codigo": codigo,
-                             "senha": "outraSenha1"}).status_code == 200
+                             "senha": "outraSenha-1"}).status_code == 200
     assert client.post("/api/auth/login",
-                       json={"email": "tecnico@test.com", "senha": "outraSenha1"}).status_code == 200
+                       json={"email": "tecnico@test.com", "senha": "outraSenha-1"}).status_code == 200
 
 
 def test_reset_senha_requer_admin(client, tecnico_token, auth_headers):
@@ -209,14 +209,14 @@ def test_delete_permanente_remove_usuario(client, admin_token, auth_headers):
     assert login.status_code == 401
 
 
-def test_delete_permanente_com_auditoria_vinculada(client, admin_token, auth_headers):
-    """Usuário com log de auditoria próprio (FIRST_ACCESS) deve excluir sem violar FK."""
+def test_delete_permanente_recusa_conta_com_linha_na_trilha(client, admin_token, auth_headers):
+    """Quem já agiu no sistema (aqui, o FIRST_ACCESS) só pode ser desativado."""
     codigo, uid, _ = _criar_convite(client, admin_token, auth_headers, email="aud@test.com")
-    # Gera um AuditLog com usuario_id = aud@test.com
     client.post("/api/auth/primeiro-acesso",
-                json={"email": "aud@test.com", "codigo": codigo, "senha": "senhaForte1"})
+                json={"email": "aud@test.com", "codigo": codigo, "senha": "senhaForte-1"})
     res = client.delete(f"/api/users/{uid}?permanente=true", headers=auth_headers(admin_token))
-    assert res.status_code == 200
+    assert res.status_code == 409
+    assert "Desative" in res.get_json()["erro"]
 
 
 def test_delete_permanente_self_bloqueado(client, admin_token, auth_headers):
@@ -361,7 +361,7 @@ def test_ativacao_codigo_errado_grava_sem_o_codigo(client, admin_token, auth_hea
     _criar_convite(client, admin_token, auth_headers, email="alvo@test.com")
     chute = "QK7ZP2XW"
     res = _post(client, "/api/auth/primeiro-acesso",
-                email="alvo@test.com", codigo=chute, senha="senhaLonga1")
+                email="alvo@test.com", codigo=chute, senha="senhaLonga-1")
     assert res.status_code == 400
     assert res.get_json() == {"erro": "Código de ativação incorreto."}
 
@@ -370,7 +370,7 @@ def test_ativacao_codigo_errado_grava_sem_o_codigo(client, admin_token, auth_hea
     assert linha.ip == IP_ATACANTE
     assert linha.valor_novo == "código incorreto"
     _nenhuma_coluna_contem(chute)
-    _nenhuma_coluna_contem("senhaLonga1")
+    _nenhuma_coluna_contem("senhaLonga-1")
 
 
 def test_ativacao_sem_pendencia_grava_e_conta_no_limite(client):
@@ -378,11 +378,11 @@ def test_ativacao_sem_pendencia_grava_e_conta_no_limite(client):
     primeiro acesso não custava nada e não deixava rastro."""
     for _ in range(ratelimit.LIMITE_ATIVACAO):
         res = _post(client, "/api/auth/primeiro-acesso",
-                    email="ninguem@test.com", codigo="AAAAAAAA", senha="senhaLonga1")
+                    email="ninguem@test.com", codigo="AAAAAAAA", senha="senhaLonga-1")
         assert res.status_code == 400
         assert "Não há primeiro acesso pendente" in res.get_json()["erro"]
     assert _post(client, "/api/auth/primeiro-acesso", email="ninguem@test.com",
-                 codigo="AAAAAAAA", senha="senhaLonga1").status_code == 429
+                 codigo="AAAAAAAA", senha="senhaLonga-1").status_code == 429
 
     falhas = _linhas("ATIVACAO_FALHA")
     assert len(falhas) == ratelimit.LIMITE_ATIVACAO
@@ -403,7 +403,7 @@ def test_ativacao_codigo_expirado_grava(client, admin_token, auth_headers):
     db.session.commit()
 
     res = _post(client, "/api/auth/primeiro-acesso",
-                email="velho@test.com", codigo=codigo, senha="senhaLonga1")
+                email="velho@test.com", codigo=codigo, senha="senhaLonga-1")
     assert res.status_code == 400
     assert "expirado" in res.get_json()["erro"]
     [linha] = _linhas("ATIVACAO_FALHA")

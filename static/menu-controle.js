@@ -21,6 +21,7 @@ var IC = {
   sol:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   config:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   sair:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
+  senha:'<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
   seta:'<path d="M6 9l6 6 6-6"/>'
 };
 function svg(n, cls){ return '<svg viewBox="0 0 24 24" aria-hidden="true"' + (cls ? ' class="' + cls + '"' : '') + '>' + IC[n] + '</svg>'; }
@@ -59,6 +60,20 @@ var ACOES = {
     if(typeof window.toggleTheme === 'function') window.toggleTheme();
     else body.classList.toggle('theme-light');
   },
+  /* Trocar a senha pede a senha atual de novo, na tela de login: a sessão é
+     encerrada antes, e o e-mail segue no sessionStorage só para preencher. */
+  senha:function(){
+    var ir = function(){
+      try {
+        sessionStorage.setItem('dt_trocar_senha', usuario().email || '');
+        localStorage.removeItem('doctrack_token');
+        localStorage.removeItem('doctrack_refresh');
+        localStorage.removeItem('doctrack_user');
+      } catch(e){}
+      location.href = '/';
+    };
+    if(window.DT_AUTH) window.DT_AUTH.encerrar().then(ir); else ir();
+  },
   sair:function(){
     var l = document.getElementById('logout');          // hub e sub-hub têm a saída deles
     if(l) l.click(); else if(typeof window.doLogout === 'function') window.doLogout();
@@ -86,6 +101,7 @@ function monta(){
   if(c.volta) h += link(c.volta, 'volta', c.rotulo, 'vtm-volta', c.titulo) + '<i class="vtm-sep"></i>';
   h += item('atualiza', 'atualiza', 'Atualizar', 'so-ico') + item('tema', claro() ? 'sol' : 'lua', 'Tema', 'tema so-ico');
   if(podeConfig(u)) h += link('/config', 'config', 'Configurações', 'so-ico');
+  h += item('senha', 'senha', 'Trocar senha', 'so-ico');
   h += '<i class="vtm-sep"></i>' + item('sair', 'sair', 'Sair', 'sair') + '<i class="vtm-sep"></i></div></div>' +
     '<button type="button" class="vtm-it vtm-chip" data-ac="abre" aria-expanded="false" title="Menu">' +
       '<span class="vtm-quem"><span class="vtm-av">' + esc(iniciais(u.nome)) + '</span><span><b>' + esc(u.nome || 'Sem nome') + '</b><small>' + esc(u.role || '') + '</small></span></span>' +

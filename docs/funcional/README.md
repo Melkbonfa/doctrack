@@ -10,6 +10,7 @@ estes dizem o que **ficou**.
 
 | Módulo | Área | Quem alcança | Documento |
 |---|---|---|---|
+| Hub e sub-hubs | todas | todos | [hub.md](hub.md) |
 | Documentos | PDE | qualquer membro da área | [documentos.md](documentos.md) |
 | Equipamentos | PDE | qualquer membro da área | [equipamentos.md](equipamentos.md) |
 | Consumíveis | PDE | qualquer membro da área | [consumiveis.md](consumiveis.md) |
@@ -19,6 +20,7 @@ estes dizem o que **ficou**.
 | Custos | PDE | admin e gestor | [custos.md](custos.md) |
 | Tempos | PDE | técnico para cima | [tempos.md](tempos.md) |
 | PDR | PDR | membros da área PDR | [pdr.md](pdr.md) |
+| Cadernos | PDR | papel por caderno (dono, editor, leitor) | [cadernos.md](cadernos.md) |
 | Acesso e usuários | — | todos | [acesso-usuarios.md](acesso-usuarios.md) |
 
 ## Como ler junto com o resto

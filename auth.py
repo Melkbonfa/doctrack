@@ -3,6 +3,7 @@ auth.py — Autenticação JWT e CRUD de usuários com RBAC
 Rotas:
   POST /api/auth/login
   POST /api/auth/refresh
+  POST /api/auth/trocar-senha
   GET  /api/auth/me
   GET  /api/users
   POST /api/users
@@ -13,7 +14,7 @@ Rotas:
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
-    create_access_token, create_refresh_token,
+    create_access_token, create_refresh_token, decode_token,
     jwt_required, get_jwt_identity, get_jwt
 )
 from datetime import datetime, timedelta
@@ -32,6 +33,37 @@ auth_bp = Blueprint("auth", __name__)
 # Só afeta senhas NOVAS; as existentes continuam valendo até a próxima troca.
 SENHA_MIN = int(os.environ.get("DOCTRACK_SENHA_MIN", "8"))
 ERRO_SENHA_CURTA = f"Senha deve ter pelo menos {SENHA_MIN} caracteres"
+
+# Composição e validade da senha — o guia de validação da ANVISA recomenda senha
+# com letras, números e caracteres especiais, renovada periodicamente, e que a
+# senha vencida impeça o acesso até ser trocada (§21.2). As duas regras só
+# alcançam senha NOVA ou login futuro: ninguém é derrubado por elas.
+#   DOCTRACK_SENHA_COMPOSICAO=0     desliga a regra de composição
+#   DOCTRACK_SENHA_VALIDADE_DIAS=0  senha não vence
+SENHA_COMPOSICAO = (os.environ.get("DOCTRACK_SENHA_COMPOSICAO", "1").strip().lower()
+                    not in ("0", "false", "nao", ""))
+SENHA_VALIDADE_DIAS = int(os.environ.get("DOCTRACK_SENHA_VALIDADE_DIAS", "180") or 0)
+ERRO_SENHA_COMPOSICAO = ("A senha deve ter pelo menos uma letra, um número e um "
+                         "caractere especial (ex.: ! @ # - _)")
+
+
+def erro_de_senha(senha):
+    """Por que `senha` não serve como senha nova; None se serve."""
+    if len(senha) < SENHA_MIN:
+        return ERRO_SENHA_CURTA
+    if SENHA_COMPOSICAO and not (
+            any(c.isalpha() for c in senha) and any(c.isdigit() for c in senha)
+            and any(not c.isalnum() and not c.isspace() for c in senha)):
+        return ERRO_SENHA_COMPOSICAO
+    return None
+
+
+def senha_vencida(user):
+    """A senha passou da validade. Conta sem data não vence — a subida do
+    servidor preenche a data das contas anteriores à regra."""
+    if SENHA_VALIDADE_DIAS <= 0 or not user.senha_definida_em:
+        return False
+    return datetime.now() > user.senha_definida_em + timedelta(days=SENHA_VALIDADE_DIAS)
 
 # A senha só nasce no primeiro acesso, digitada pelo próprio usuário. Se o admin
 # pudesse defini-la (no cadastro ou na edição), passaria a conhecê-la, e o que
@@ -65,6 +97,14 @@ def log_action(user_email, acao, entidade="", campo="", antigo="", novo="",
 
 def _exige(roles):
     return "exige " + ", ".join(roles)
+
+
+def _txt(data, campo):
+    """Campo de texto do corpo, sem espaço nas pontas. `null`, número ou lista
+    viram "" em vez de AttributeError — login e primeiro acesso são rotas
+    públicas, e um `{"email": null}` não pode ser 500."""
+    valor = data.get(campo)
+    return valor.strip() if isinstance(valor, str) else ""
 
 
 def require_role(*roles):
@@ -317,10 +357,10 @@ def auditar_bloqueio(acao, email, chaves, limite, janela,
 @auth_bp.route("/api/auth/login", methods=["POST"])
 def login():
     data  = request.get_json(silent=True) or {}
-    email = data.get("email", "").strip().lower()
-    senha = data.get("senha", "")
+    email = _txt(data, "email").lower()
+    senha = data.get("senha")
 
-    if not email or not senha:
+    if not email or not senha or not isinstance(senha, str):
         return jsonify({"erro": "Email e senha são obrigatórios"}), 400
 
     # Limite de tentativas antes de tocar o banco: o bcrypt é a parte caríssima
@@ -355,6 +395,16 @@ def login():
 
     ratelimit.limpar_chave(chaves[0])
 
+    # Senha certa, mas vencida: não entra. A troca é em /api/auth/trocar-senha,
+    # que confere a senha atual de novo.
+    if senha_vencida(user):
+        _auditar_tentativa(email, "LOGIN_SENHA_VENCIDA",
+                           f"senha com mais de {SENHA_VALIDADE_DIAS} dias")
+        return jsonify({
+            "erro": "Sua senha venceu. Defina uma nova para entrar.",
+            "senha_vencida": True,
+        }), 403
+
     # Atualiza último login
     user.ultimo_login = datetime.now()
     db.session.commit()
@@ -376,14 +426,35 @@ def login():
 @auth_bp.route("/api/auth/logout", methods=["POST"])
 @jwt_required()
 def logout():
-    """B2: revoga o JTI do token atual (blocklist)."""
-    jti = get_jwt().get("jti")
-    if jti:
+    """Encerra a sessão: revoga o access token da chamada e, se o front mandar,
+    o refresh token junto — sem isso a sessão "encerrada" podia ser reaberta
+    com o refresh por até 7 dias. A saída vai para a trilha, com o motivo
+    quando não foi a pessoa que saiu (`inatividade`)."""
+    identidade = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    jtis = {get_jwt().get("jti")}
+    rt = data.get("refresh_token")
+    if isinstance(rt, str) and rt:
         try:
-            db.session.add(RevokedToken(jti=jti))
-            db.session.commit()
+            claims = decode_token(rt)
+            if claims.get("sub") == identidade and claims.get("type") == "refresh":
+                jtis.add(claims.get("jti"))
         except Exception:
-            db.session.rollback()
+            pass          # refresh vencido, revogado ou inválido: nada a revogar
+    try:
+        for jti in filter(None, jtis):
+            if not RevokedToken.query.filter_by(jti=jti).first():
+                db.session.add(RevokedToken(jti=jti))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+    motivo = "inatividade" if _txt(data, "motivo") == "inatividade" else ""
+    try:
+        log_action(identidade, "LOGOUT", campo="motivo" if motivo else "",
+                   novo=motivo, ip=get_client_ip())
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WARN] Auditoria: LOGOUT não gravado — {e}")
     return jsonify({"mensagem": "Logout realizado"}), 200
 
 
@@ -410,6 +481,63 @@ def me():
     return jsonify(user.to_dict()), 200
 
 
+# ── TROCAR A PRÓPRIA SENHA ────────────────────────────────────────────────────
+
+@auth_bp.route("/api/auth/trocar-senha", methods=["POST"])
+def trocar_senha():
+    """Rota pública: e-mail + senha atual + senha nova.
+
+    Pública porque é também a saída de quem está com a senha vencida e, por
+    isso, não consegue um token. Quem prova a identidade é a senha atual, sob o
+    mesmo limite de tentativas do login — os dois contam no mesmo contador,
+    senão esta rota seria um segundo lugar para testar senha.
+    """
+    data  = request.get_json(silent=True) or {}
+    email = _txt(data, "email").lower()
+    atual = data.get("senha_atual")
+    nova  = data.get("senha_nova")
+
+    if (not email or not atual or not nova
+            or not isinstance(atual, str) or not isinstance(nova, str)):
+        return jsonify({"erro": "E-mail, senha atual e senha nova são obrigatórios"}), 400
+    erro = erro_de_senha(nova)
+    if erro:
+        return jsonify({"erro": erro}), 400
+    if nova == atual:
+        return jsonify({"erro": "A senha nova deve ser diferente da atual"}), 400
+
+    chaves = ratelimit.chaves_login(email)
+    travado = ratelimit.checar(chaves, ratelimit.LIMITE_LOGIN, ratelimit.JANELA_LOGIN)
+    if travado is not None:
+        auditar_bloqueio("LOGIN_BLOQUEADO", email, chaves,
+                         ratelimit.LIMITE_LOGIN, ratelimit.JANELA_LOGIN)
+        return travado
+
+    user = User.query.filter_by(email=email, ativo=True).first()
+    if not user or not user.check_senha(atual):
+        for chave in chaves:
+            ratelimit.registrar_falha(chave)
+        _auditar_tentativa(email, "LOGIN_FALHA",
+                           "senha incorreta na troca de senha" if user
+                           else "e-mail sem conta ativa")
+        return jsonify({"erro": "Email ou senha incorretos"}), 401
+
+    ratelimit.limpar_chave(chaves[0])
+    user.set_senha(nova)
+    user.ultimo_login = datetime.now()
+    db.session.commit()
+
+    log_action(user.email, "PASSWORD_CHANGE", entidade=user.email, ip=get_client_ip())
+
+    additional = {"role": user.role, "nome": user.nome}
+    return jsonify({
+        "mensagem": "Senha alterada com sucesso",
+        "access_token":  create_access_token(identity=user.email, additional_claims=additional),
+        "refresh_token": create_refresh_token(identity=user.email, additional_claims=additional),
+        "usuario": user.to_dict(),
+    }), 200
+
+
 # ── PRIMEIRO ACESSO (definir a própria senha) ──────────────────────────────────
 
 @auth_bp.route("/api/auth/primeiro-acesso", methods=["POST"])
@@ -419,14 +547,15 @@ def primeiro_acesso():
     Usada tanto no convite (admin cria a conta) quanto após um reset de senha.
     """
     data   = request.get_json(silent=True) or {}
-    email  = data.get("email",  "").strip().lower()
-    codigo = data.get("codigo", "").strip()
-    senha  = data.get("senha",  "")
+    email  = _txt(data, "email").lower()
+    codigo = _txt(data, "codigo")
+    senha  = data.get("senha")
 
-    if not email or not codigo or not senha:
+    if not email or not codigo or not senha or not isinstance(senha, str):
         return jsonify({"erro": "E-mail, código e nova senha são obrigatórios"}), 400
-    if len(senha) < SENHA_MIN:
-        return jsonify({"erro": ERRO_SENHA_CURTA}), 400
+    erro = erro_de_senha(senha)
+    if erro:
+        return jsonify({"erro": erro}), 400
 
     # Um código de ativação é 8 caracteres que valem uma conta inteira — é o
     # alvo mais atraente do sistema e o que mais precisava de limite.
@@ -504,9 +633,9 @@ def create_user():
     caller_email = get_jwt_identity()
     data  = request.get_json(silent=True) or {}
 
-    nome  = data.get("nome",  "").strip()
-    email = data.get("email", "").strip().lower()
-    role  = data.get("role",  "tecnico").strip()
+    nome  = _txt(data, "nome")
+    email = _txt(data, "email").lower()
+    role  = _txt(data, "role") or "tecnico"
 
     # Validações
     if "senha" in data:
@@ -583,16 +712,25 @@ def update_user(user_id):
     if "senha" in data:
         return jsonify({"erro": ERRO_SENHA_PELO_ADMIN}), 400
 
+    # Mesma guarda do DELETE: o admin não se desativa nem se rebaixa. Sem ela o
+    # PATCH era o caminho para ficar sem administrador nenhum — o único perfil
+    # que cria conta, reseta senha e devolve o próprio acesso.
+    if user.email == caller_email:
+        if "ativo" in data and not bool(data["ativo"]):
+            return jsonify({"erro": "Você não pode desativar a própria conta"}), 400
+        if "role" in data and _txt(data, "role") != user.role:
+            return jsonify({"erro": "Você não pode mudar o próprio perfil"}), 400
+
     changes = []
 
     if "nome" in data:
-        novo_nome = data["nome"].strip()
+        novo_nome = _txt(data, "nome")
         if novo_nome and novo_nome != user.nome:
             changes.append(("nome", user.nome, novo_nome))
             user.nome = novo_nome
 
     if "email" in data:
-        novo_email = data["email"].strip().lower()
+        novo_email = _txt(data, "email").lower()
         if novo_email and novo_email != user.email:
             existente = User.query.filter_by(email=novo_email).first()
             if existente and existente.id != user_id:
@@ -601,7 +739,7 @@ def update_user(user_id):
             user.email = novo_email
 
     if "role" in data:
-        novo_role = data["role"].strip()
+        novo_role = _txt(data, "role")
         if novo_role not in ("admin", "gestor", "tecnico", "leitura"):
             return jsonify({"erro": "Role inválido"}), 400
         if novo_role != user.role:
@@ -655,9 +793,8 @@ def update_user(user_id):
 def delete_user(user_id):
     """DELETE soft (ativo=False) por padrão.
 
-    Com ?permanente=true remove o usuário de vez: desfaz as responsabilidades
-    dele e desvincula (sem apagar) o histórico de auditoria, preservando a
-    rastreabilidade pelo e-mail já gravado em cada log.
+    Com ?permanente=true remove o cadastro de vez — só de conta que nunca
+    deixou linha na trilha de auditoria; as outras respondem 409.
     """
     caller_email = get_jwt_identity()
     permanente = str(request.args.get("permanente", "")).lower() in ("1", "true", "yes")
@@ -677,10 +814,18 @@ def delete_user(user_id):
         log_action(caller_email, "DELETE", entidade=user.email, ip=get_client_ip())
         return jsonify({"mensagem": f"Usuário {user.email} desativado com sucesso"}), 200
 
-    # Exclusão permanente — limpar dependências para não violar FKs
+    # Exclusão permanente só de conta que nunca agiu no sistema (cadastro feito
+    # por engano). Quem já tem linha na trilha fica: apagar o cadastro liberaria
+    # o e-mail para outra pessoa, e as duas se confundiriam na auditoria — o
+    # guia de validação pede exclusão lógica e ID nunca reutilizado (§16.3).
+    usado = AuditLog.query.filter(
+        (AuditLog.usuario_id == user.id) | (AuditLog.usuario_email == user.email)
+    ).first()
+    if usado:
+        return jsonify({"erro": "Esta conta já tem registros na trilha de auditoria "
+                                "e não pode ser excluída em definitivo. Desative-a."}), 409
+
     email, uid = user.email, user.id
-    AuditLog.query.filter_by(usuario_id=user.id).update(
-        {"usuario_id": None}, synchronize_session=False)
 
     db.session.delete(user)
     db.session.commit()

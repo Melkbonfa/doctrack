@@ -224,7 +224,10 @@ def delete_produto(pid):
 def list_apresentacoes():
     q = Apresentacao.query.filter_by(ativo=True)
     if request.args.get("produto_id"):
-        q = q.filter_by(produto_id=int(request.args["produto_id"]))
+        try:
+            q = q.filter_by(produto_id=int(request.args["produto_id"]))
+        except ValueError:
+            return jsonify({"erro": "produto_id inválido"}), 400
     apres = q.join(Produto).order_by(Produto.nome, Apresentacao.apresentacao).all()
 
     linha = request.args.get("linha")
@@ -296,7 +299,11 @@ def update_apresentacao(aid):
 
     # Optimistic locking
     cli_v = data.get("version")
-    if cli_v is not None and int(cli_v) != a.version:
+    try:
+        cli_v = int(cli_v) if cli_v is not None else None
+    except (TypeError, ValueError):
+        return jsonify({"erro": "version inválida"}), 400
+    if cli_v is not None and cli_v != a.version:
         return jsonify({"erro": "Apresentação alterada por outro usuário.",
                         "current_version": a.version,
                         "apresentacao": a.to_dict()}), 409

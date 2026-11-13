@@ -69,12 +69,12 @@ def test_primeiro_acesso_limita_tentativas_de_codigo(client, admin_token, auth_h
     for _ in range(ratelimit.LIMITE_ATIVACAO):
         res = client.post("/api/auth/primeiro-acesso",
                           json={"email": "alvo@test.com", "codigo": "ZZZZZZZZ",
-                                "senha": "senhaLonga1"})
+                                "senha": "senhaLonga-1"})
         assert res.status_code == 400
 
     res = client.post("/api/auth/primeiro-acesso",
                       json={"email": "alvo@test.com", "codigo": "ZZZZZZZZ",
-                            "senha": "senhaLonga1"})
+                            "senha": "senhaLonga-1"})
     assert res.status_code == 429
 
 
@@ -122,7 +122,7 @@ def test_tarefas_diarias_gravam_a_foto_do_dia(app):
         resultado = rodar_tarefas_diarias()
         assert set(resultado) == {"equipamentos", "missoes", "projetos",
                                   "cambio", "tempos", "cadernos", "notificacoes",
-                                  "auditoria"}
+                                  "tokens", "auditoria"}
         hoje = date.today().isoformat()
         assert EquipamentoSnapshot.query.filter_by(data=hoje).count() >= 1
 

@@ -113,14 +113,49 @@ devolve a conta ao estado de primeiro acesso e gera código novo.
     tamanho da consulta à blocklist que já existia.
   - **Resetar a senha não derruba a sessão aberta** — invalida a senha, não os
     tokens já emitidos.
-- **Logout revoga o JTI** (`revoked_tokens`), então o token não vale mais até
-  expirar sozinho.
+- **Sair revoga o access e o refresh token** (`revoked_tokens`) e grava
+  `LOGOUT` na trilha. Antes só o access era revogado, e a sessão "encerrada"
+  podia ser reaberta com o refresh por até 7 dias.
+- **Sessão parada é encerrada.** Sem mouse, teclado ou toque por
+  `DOCTRACK_INATIVIDADE_MIN` minutos (padrão 30; 0 desliga), `static/auth.js`
+  chama a saída com o motivo `inatividade` e volta ao login. A última
+  atividade fica no `localStorage`: vale para todas as abas juntas, e a aba
+  reaberta no dia seguinte cai no login. O limite chega ao front por
+  `/api/version`. **Quem mede é o navegador** — o servidor não recusa sozinho
+  o token de uma sessão parada.
 - **Destravar o kill switch invalida de uma vez todo token emitido antes** da
   trava, sem precisar listar JTI por JTI
   ([ADR-0006](../arquitetura/decisoes/ADR-0006-kill-switch-fora-do-banco.md)).
 - **bcrypt em 12 rounds** em produção (4 nos testes, onde o custo do hash não
   protege nada).
-- **Senha mínima**: `DOCTRACK_SENHA_MIN`, padrão 8.
+- **Senha nova**: tamanho mínimo (`DOCTRACK_SENHA_MIN`, padrão 8) e pelo menos
+  uma letra, um número e um caractere especial (`DOCTRACK_SENHA_COMPOSICAO`).
+  Vale no primeiro acesso e na troca; a senha que já existe continua valendo.
+- **A senha vence** em `DOCTRACK_SENHA_VALIDADE_DIAS` (padrão 180; 0 desliga),
+  contados de `users.senha_definida_em`. Vencida, o login responde 403 com
+  `senha_vencida` e grava `LOGIN_SENHA_VENCIDA`; a tela leva à troca.
+
+## Trocar a própria senha
+
+`POST /api/auth/trocar-senha` — e-mail, senha atual e senha nova. É **pública**:
+é também a saída de quem está com a senha vencida e não consegue um token.
+Quem prova a identidade é a senha atual, sob o **mesmo contador** de tentativas
+do login — a rota não é um segundo lugar para testar senha — e a resposta de
+erro é a mesma para e-mail sem conta e senha errada.
+
+A senha nova tem de passar na regra e ser diferente da atual. A troca grava
+`PASSWORD_CHANGE` e já devolve a sessão. Na interface: **Trocar minha senha**
+na tela de login e **Trocar senha** no menu de controle (que encerra a sessão
+antes, para pedir a senha atual de novo). Como no reset, **a troca não derruba
+as outras sessões abertas** da conta.
+
+## A primeira conta
+
+Banco sem usuário nenhum ganha, na subida, **um** administrador sem senha
+(`DOCTRACK_ADMIN_EMAIL`, padrão `admin@pde.com`), pendente de primeiro acesso.
+O código de ativação é impresso uma única vez no log da subida. As contas de
+demonstração com senha fixa só são criadas com `DOCTRACK_CONTAS_DEMO=1` —
+desenvolvimento e homologação, nunca produção.
 
 ## Limite de tentativas
 
@@ -147,10 +182,27 @@ Há um relatório de auditoria na interface
 (`templates/audit_log_report.html`). As ações do kill switch aparecem sob o
 usuário `kill-switch`.
 
+**O acesso autorizado também é gravado:** cada entrada vira uma linha `LOGIN`
+e cada saída uma linha `LOGOUT` (com `motivo` = `inatividade` quando foi o
+sistema que encerrou), com e-mail, data, hora e IP. A renovação silenciosa do
+token dentro da mesma sessão não é gravada.
+
+**Nenhuma escrita fica sem rastro.** Toda chamada de escrita da API que dá
+certo e não gravou linha nenhuma ganha uma linha `ESCRITA`: usuário, data,
+hora, IP, método + caminho em `entidade` e a regra da rota em `valor_novo`
+(`servidor._trilha_rede_de_seguranca`). É rede de segurança, não substituto: a
+linha genérica não diz qual campo mudou nem de que valor para qual. Ficam fora
+as rotas de sessão, marcar notificação como lida, a trava de edição e o
+autosave dos Cadernos (o histórico ali é o das versões da página).
+
+**Pela aplicação, ninguém altera nem apaga a trilha** — não existe rota para
+isso, nem para o admin. A única remoção possível é a poda por idade
+(`DOCTRACK_AUDIT_RETENCAO_DIAS`), desligada por padrão.
+
 ### Tentativas de acesso recusadas
 
-A validação de sistema computadorizado exige registrar as tentativas de acesso
-de quem não está autorizado. O contador do limite de tentativas vê todas, mas
+O guia de validação da ANVISA pede, de todo sistema validável, a capacidade de
+registrar as tentativas de acesso de quem não está autorizado (§3.1). O contador do limite de tentativas vê todas, mas
 mora em memória e zera no reinício; por isso cada recusa também vira linha em
 `audit_logs`:
 
@@ -229,7 +281,23 @@ dono de Tempos.
 | Ver o cadastro de outro | admin e gestor |
 | Criar, editar, excluir, resetar senha | **admin** |
 
-Excluir usuário é **soft delete** (`ativo=False`) por padrão.
+Excluir usuário é **soft delete** (`ativo=False`) por padrão — a exclusão
+lógica que o guia de validação pede (§16.3): a conta para de entrar, a trilha
+fica, e o e-mail continua ocupado.
+
+A exclusão **permanente** (`DELETE /api/users/<id>?permanente=true`) só passa
+para conta que **nunca deixou linha na trilha** — um cadastro feito por engano.
+Para as outras responde 409: apagar o cadastro liberaria o e-mail, e uma conta
+nova com o mesmo endereço se confundiria com a antiga na auditoria.
+
+## O que o guia de validação pede e o sistema não faz
+
+O confronto completo está em [ADERENCIA_BPX.md](../operacao/ADERENCIA_BPX.md).
+
+- **Não há assinatura eletrônica.** Nenhuma ação pede a senha de novo; tudo
+  vale pela sessão aberta. Aprovar uma etapa de fluxo é um registro de quem
+  clicou, não uma assinatura.
+- **A inatividade é medida no navegador**, não no servidor (ver Sessão).
 
 ## Pontos de atenção
 
@@ -244,4 +312,6 @@ Excluir usuário é **soft delete** (`ativo=False`) por padrão.
   histórico do que já foi exportado continua visível a quem lê o caderno.
 - **Uma rota `/api/*` sem decorator é dado aberto.** Não há gate de página para
   servir de rede de segurança; `tests/test_docs_sincronia.py` trava a lista de
-  rotas públicas em seis.
+  rotas públicas (ela está em [`permissoes.md`](../referencia/permissoes.md)), e
+  uma rota aberta nova fora dela quebra a suíte.
+- **O detalhe do papel por caderno** está em [cadernos.md](cadernos.md#quem-pode-o-quê).

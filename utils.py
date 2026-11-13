@@ -33,6 +33,16 @@ def norm_sku(sku):
     return f"{m.group(1)}.{m.group(2)}" if m else None
 
 
+def inteiro(valor, padrao=0):
+    """`int(valor)`, ou `padrao` quando não dá. Para id e versão vindos do corpo
+    da requisição: `int("abc")` direto na rota vira 500, e o que a rota quer
+    dizer nesse caso é "não achei" (404) ou "versão não confere" (409)."""
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return padrao
+
+
 def ip_do_cliente():
     """IP de quem fez a requisição. Fonte única para audit log e rate limit.
 
