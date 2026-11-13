@@ -40,6 +40,12 @@ destino saem de `_resolve_rooms()`, a partir do prefixo do tipo e do payload.
 tela dos outros não atualiza, a auditoria não registra, e o replay pula a
 mudança. Não há erro — só ausência.
 
+> **Atualização (2026-11):** a auditoria deixou de depender só da disciplina.
+> Toda escrita de API que dá certo sem gravar linha nenhuma ganha uma linha
+> genérica `ESCRITA` (`servidor._trilha_rede_de_seguranca`), com quem, quando,
+> de onde e qual rota. O tempo real e o replay continuam dependendo de
+> `publish_event()`, e a linha genérica não traz campo nem valores.
+
 **A ordem importa:** `publish_event()` vem *depois* do commit. Emitir antes
 manda para as outras telas uma mudança que ainda pode falhar.
 

@@ -129,11 +129,16 @@ class User(db.Model):
     ativacao_codigo_hash  = db.Column(db.String(256), nullable=True)
     ativacao_expira       = db.Column(db.DateTime, nullable=True)
 
+    # Quando a senha atual foi definida — base da validade da senha
+    # (auth.senha_vencida). Nulo em conta que nunca teve senha.
+    senha_definida_em     = db.Column(db.DateTime, nullable=True)
+
     # Validade padrão do código de ativação
     ATIVACAO_VALIDADE_DIAS = 7
 
     def set_senha(self, senha):
         self.senha_hash = bcrypt.generate_password_hash(senha).decode("utf-8")
+        self.senha_definida_em = datetime.now()
         # Definir uma senha conclui qualquer pendência de primeiro acesso/reset
         self.precisa_definir_senha = False
         self.ativacao_codigo_hash  = None

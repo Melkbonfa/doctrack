@@ -62,6 +62,7 @@ from models import (db, Missao, MissaoColuna, MissaoCartao, MissaoCartaoHistoric
                     RECORRENCIAS_CARTAO,
                     Equipamento, Projeto, Documento, User, STATUS_MAP)
 from auth import require_role, log_action, get_client_ip
+from utils import inteiro
 
 # SQLite não aplica String(n) — os limites precisam ser validados aqui.
 _RE_COR_HEX = re.compile(r"^#[0-9a-fA-F]{3,8}$")
@@ -797,7 +798,7 @@ def editar_cartao(cid):
     data = request.get_json(silent=True) or {}
     # Lock otimista: se o cliente mandou a versão que leu e ela não bate mais,
     # outro usuário editou no meio — 409 e o cliente recarrega o cartão.
-    if "versao" in data and int(data.get("versao") or 0) != (cartao.versao or 0):
+    if "versao" in data and inteiro(data.get("versao")) != (cartao.versao or 0):
         return jsonify({"erro": "conflito de edição — recarregue o cartão",
                         "cartao": cartao.to_dict(com_descricao=True)}), 409
     email = get_jwt_identity()
@@ -965,12 +966,12 @@ def reordenar():
     cartao_id = data.get("cartao_id")
     if cartao_id:
         cartao = MissaoCartao.query.get_or_404(int(cartao_id))
-        destino = MissaoColuna.query.get_or_404(int(data.get("coluna_destino_id") or 0))
+        destino = MissaoColuna.query.get_or_404(inteiro(data.get("coluna_destino_id")))
         if destino.missao_id != cartao.missao_id:
             return jsonify({"erro": "coluna de outra missão"}), 400
         # Lock otimista do move: dois usuários arrastando o mesmo cartão não
         # podem se sobrescrever em silêncio (pesquisa: @odata.etag → 412/409).
-        if "versao" in data and int(data.get("versao") or 0) != (cartao.versao or 0):
+        if "versao" in data and inteiro(data.get("versao")) != (cartao.versao or 0):
             return jsonify({"erro": "conflito — o cartão foi movido por outro usuário",
                             "cartao": cartao.to_dict()}), 409
         origem_id = cartao.coluna_id
@@ -1010,7 +1011,11 @@ def reordenar():
 
     coluna_id = data.get("coluna_id")
     if coluna_id:
-        col = MissaoColuna.query.get_or_404(int(coluna_id))
+        try:
+            coluna_id = int(coluna_id)
+        except (TypeError, ValueError):
+            return jsonify({"erro": "coluna_id inválido"}), 400
+        col = MissaoColuna.query.get_or_404(coluna_id)
         _reindexar(col.id, data.get("ids") or [])
         db.session.commit()
         _emit("MISSAO_COLUNA_REORDENADA",
@@ -1187,7 +1192,7 @@ def cartao_rapido():
     erro = _erro_tamanho(titulo, MAX_TITULO, "titulo")
     if erro:
         return jsonify({"erro": erro}), 400
-    m = Missao.query.get_or_404(int(data.get("missao_id") or 0))
+    m = Missao.query.get_or_404(inteiro(data.get("missao_id")))
     if m.arquivado:
         return jsonify({"erro": "missão arquivada"}), 400
     destino = (MissaoColuna.query.filter_by(missao_id=m.id, categoria="todo")
@@ -1595,7 +1600,7 @@ def criar_modelo():
     erro = _erro_tamanho(nome, MAX_NOME_MISSAO, "nome")
     if erro:
         return jsonify({"erro": erro}), 400
-    m = Missao.query.get_or_404(int(data.get("missao_id") or 0))
+    m = Missao.query.get_or_404(inteiro(data.get("missao_id")))
     com_cartoes = bool(data.get("com_cartoes", True))
     estrutura = []
     for col in m.colunas:

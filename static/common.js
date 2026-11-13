@@ -56,12 +56,12 @@ function clearToken(){
 // Alias histórico: entregaveis.js, equipamentos.js e missoes.js chamam token().
 function token(){ return getToken(); }
 
-// Logout local. config.js sobrescreve com uma versão que também chama
-// /api/auth/logout para revogar o JTI no servidor — é a de lá que vale naquela
-// página, e é o comportamento desejado.
+// Logout: encerra a sessão no servidor (static/auth.js) e volta ao login.
+// app.js e config.js têm a própria versão, com o mesmo efeito.
 function doLogout(){
-  clearToken();
-  window.location.href = '/';
+  const sair = () => { clearToken(); window.location.href = '/'; };
+  // Revoga os tokens no servidor e grava a saída na trilha antes de limpar.
+  if (window.DT_AUTH) window.DT_AUTH.encerrar().then(sair); else sair();
 }
 
 // ═══ DOWNLOAD AUTENTICADO ═══

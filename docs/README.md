@@ -46,22 +46,27 @@ isso não volte a acontecer com a parte que dá para automatizar.
 
 ### Operação
 
-- [operacao/RUNBOOK.md](operacao/RUNBOOK.md) — subir, derrubar, publicar,
-  restaurar, destravar, e a tabela de sintomas
+- [operacao/RUNBOOK.md](operacao/RUNBOOK.md) — subir, derrubar, publicar
+  (backup → pull → restart), restaurar, destravar, e a tabela de sintomas
+- [operacao/ADERENCIA_BPX.md](operacao/ADERENCIA_BPX.md) — o que o guia de
+  validação da ANVISA pede, o que o sistema atende e as lacunas
 - [GUIA_DEPLOY_WINDOWS.md](GUIA_DEPLOY_WINDOWS.md) — instalar numa máquina nova
 - [ACESSO_REMOTO.md](ACESSO_REMOTO.md) — túnel Cloudflare e PWA
 
 ### Funcional
 
 Um documento por módulo — ver o índice em [funcional/](funcional/):
+[Hub](funcional/hub.md) ·
 [Documentos](funcional/documentos.md) ·
 [Equipamentos](funcional/equipamentos.md) ·
 [Consumíveis](funcional/consumiveis.md) ·
 [Projetos](funcional/projetos-entregaveis.md) ·
 [Missões](funcional/missoes.md) ·
+[Fluxos de revisão](funcional/fluxos.md) ·
 [Custos](funcional/custos.md) ·
 [Tempos](funcional/tempos.md) ·
 [PDR](funcional/pdr.md) ·
+[Cadernos](funcional/cadernos.md) ·
 [Acesso e usuários](funcional/acesso-usuarios.md)
 
 ---
@@ -73,7 +78,7 @@ Um documento por módulo — ver o índice em [funcional/](funcional/):
 | **Servidor WSGI** | `waitress`, via `wsgi:app` (nunca `servidor:app` — veja o docstring de [`wsgi.py`](../wsgi.py)) |
 | **Serviço Windows** | NSSM, instalado por [`scripts/deploy_windows.ps1`](../scripts/deploy_windows.ps1) |
 | **Banco** | PostgreSQL em `localhost:5432/doctrack`, via `DATABASE_URL` no `.env` |
-| **Backup** | `pg_dump` diário às 02:00 (tarefa `DocTrack - Backup Diario`) por [`scripts/gerar_backup.ps1`](../scripts/gerar_backup.ps1) |
+| **Backup** | `pg_dump` + espelho dos arquivos enviados, diário às 02:00 (tarefa `DocTrack - Backup Diario`) por [`scripts/gerar_backup.ps1`](../scripts/gerar_backup.ps1) |
 | **PDF de relatório** | Gerado **no navegador** com jsPDF. Não instale GTK3/WeasyPrint — ver [ADR-0007](arquitetura/decisoes/ADR-0007-pdf-no-navegador.md) |
 
 Essa combinação não é escolha deste índice: está afirmada no próprio código —
@@ -89,7 +94,7 @@ e o comentário em `templates/config.html` registra que as descrições fixas an
 | Arquivo | Estratégia | Situação |
 |---|---|---|
 | [DEPLOYMENT.md](DEPLOYMENT.md) | PM2 (Node) + Python | **Histórico.** Foi a primeira implantação. Não há `ecosystem.config.js` no repositório. O Passo 5 (backup PostgreSQL) continua correto e é a referência de restauração. |
-| [DEPLOY_SERVIDOR.md](DEPLOY_SERVIDOR.md) | Executável PyInstaller | **Alternativa para servidor sem admin e sem Python.** Empacota SQLite junto — não fala com o PostgreSQL de produção. Use só nesse cenário. |
+| [DEPLOY_SERVIDOR.md](DEPLOY_SERVIDOR.md) | Executável PyInstaller | **Alternativa para servidor sem admin e sem Python.** Empacota SQLite junto — não fala com o PostgreSQL de produção. O `.spec` não acompanha os módulos novos desde jul/2026: valide o pacote antes de usar. |
 | [INTEGRACAO_TI_AZURE_SHAREPOINT.md](INTEGRACAO_TI_AZURE_SHAREPOINT.md) | Azure + SSO + SharePoint | **Proposta, não implantada.** Material para conversa com o TI. |
 
 Se você mudar a estratégia vigente, **atualize a tabela acima** e rebaixe a
@@ -109,8 +114,10 @@ aqui porque são risco operacional, não detalhe de implantação:
    servidor. Restaurar o `pg_dump` traz o sistema de volta, não os documentos —
    ver [ADR-0001](arquitetura/decisoes/ADR-0001-caminho-no-banco.md).
 
-O [guia de validação ANVISA](referencias/) exige "Backup, Restauração e Recuperação
-de Dados" — os dois itens acima são as lacunas a fechar antes de uma auditoria.
+O [guia de validação da ANVISA](referencias/) pede backup em intervalos
+regulares, guardado **em local separado e seguro** (§3.1 e §16.6) — os dois
+itens acima são lacunas a fechar antes de uma auditoria. A lista completa está
+em [operacao/ADERENCIA_BPX.md](operacao/ADERENCIA_BPX.md).
 
 ---
 
@@ -123,16 +130,23 @@ de Dados" — os dois itens acima são as lacunas a fechar antes de uma auditori
   **ficou**, veja [`funcional/`](funcional/).
 - `superpowers/plans/` e `superpowers/specs/` — planos e specs datados no nome.
 - `mockups/` — protótipos de tela.
-- `referencias/` — normas ANVISA/ISPE que o sistema precisa atender.
+- `referencias/` — o Guia de Validação de Sistemas Computadorizados
+  (ANVISA/ISPE Brasil, 2010). É guia, não regulamento; o que o sistema atende
+  dele está em [operacao/ADERENCIA_BPX.md](operacao/ADERENCIA_BPX.md).
 
 ---
 
 ## O que esta documentação **não** cobre
 
-**Documentação de validação (CSV/ANVISA).** URS, especificação funcional, IQ/OQ/PQ,
-matriz de rastreabilidade e controle de mudança formal não existem. A
-matéria-prima está aqui — a suíte de testes serve de base para o OQ, `audit_logs`
-é trilha de auditoria, o CHANGELOG é controle de mudança — mas amarrar
-requisito → teste → evidência é um trabalho à parte, e maior que este.
+**Documentação de validação.** Plano de Validação, Especificação de Requisitos
+do Usuário (ERU), especificações funcional, técnica e de desenho, Análise de
+Riscos, protocolos de qualificação (QI, QO e QD), matriz de rastreabilidade e os
+POPs não fazem parte deste repositório: são documentos controlados, mantidos
+fora dele. Os rascunhos de trabalho ficam em `docs/oficiais/`, pasta ignorada
+pelo git. A matéria-prima está aqui — a suíte de testes serve de base para a
+QO, `audit_logs` é a trilha de auditoria, o CHANGELOG é o registro das
+mudanças — mas amarrar requisito → teste → evidência é um trabalho à parte, e
+maior que este. O confronto entre o guia da ANVISA e o que o sistema faz está
+em [operacao/ADERENCIA_BPX.md](operacao/ADERENCIA_BPX.md).
 
 **Manual do usuário final.** Toda esta documentação é técnica.

@@ -6,7 +6,7 @@
 
 # Dicionário de dados
 
-**60** tabelas, **691** colunas, agrupadas em **11** domínios.
+**60** tabelas, **692** colunas, agrupadas em **11** domínios.
 
 Os textos da coluna *Nota* são os comentários do próprio `models.py` — é onde o conhecimento de domínio deste sistema está escrito.
 
@@ -85,6 +85,7 @@ erDiagram
         BOOLEAN precisa_definir_senha
         VARCHAR ativacao_codigo_hash
         DATETIME ativacao_expira
+        DATETIME senha_definida_em
     }
     users ||--o{ audit_logs : "usuario_id"
 ```
@@ -150,7 +151,7 @@ Modelo `SistemaLock`. 7 colunas.
 
 ### `users`
 
-Modelo `User`. 13 colunas.
+Modelo `User`. 14 colunas.
 
 | Coluna | Tipo | Nulo | Chave | Padrão | Nota |
 |---|---|---|---|---|---|
@@ -167,6 +168,7 @@ Modelo `User`. 13 colunas.
 | `precisa_definir_senha` | BOOLEAN | não | — | `False` | Primeiro acesso / reset de senha (modelo de convite) Conta pendente: precisa_definir_senha=True, senha_hash inutilizável e um código de ativação (hash) que o usuário troca pela própria senha. |
 | `ativacao_codigo_hash` | VARCHAR(256) | sim | — | — |  |
 | `ativacao_expira` | DATETIME | sim | — | — |  |
+| `senha_definida_em` | DATETIME | sim | — | — | Quando a senha atual foi definida — base da validade da senha (auth.senha_vencida). Nulo em conta que nunca teve senha. |
 
 ---
 

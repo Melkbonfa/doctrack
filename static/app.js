@@ -76,7 +76,13 @@ async function doLogin(){
       showToast('Conta sem senha. Defina sua senha com o código de ativação.','info');
       showPrimeiroAcesso(email);return;
     }
+    if(res.status===403&&data.senha_vencida){
+      btn.textContent='Entrar no DocTrack';
+      showToast(data.erro,'info');
+      showTrocarSenha(email);return;
+    }
     if(!res.ok){btn.textContent='Entrar no DocTrack';showToast(data.erro||data.error||'Falha no login','error');return}
+    if(window.DT_AUTH)window.DT_AUTH.marcarAtividade(true);
     setToken(data.access_token);if(data.refresh_token)localStorage.setItem('doctrack_refresh',data.refresh_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
     const u=data.usuario;currentUser={name:u.nome,email:u.email,role:u.role,initials:u.nome.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};
     window.location.href='/hub';
@@ -96,6 +102,7 @@ function showPrimeiroAcesso(email){
 }
 function showLogin(){
   document.getElementById('primeiro-acesso-screen').style.display='none';
+  document.getElementById('trocar-senha-screen').style.display='none';
   document.getElementById('login-screen').style.display='flex';
   const e=document.getElementById('login-email');if(e)e.focus();
 }
@@ -105,7 +112,8 @@ async function doPrimeiroAcesso(){
   const codigo=document.getElementById('pa-codigo').value.trim();
   const senha=document.getElementById('pa-senha').value;
   const senha2=document.getElementById('pa-senha2').value;
-  if(senha.length<SENHA_MIN){showToast('A senha deve ter pelo menos '+SENHA_MIN+' caracteres','error');return}
+  const fraca=senhaFraca(senha);
+  if(fraca){showToast(fraca,'error');return}
   if(senha!==senha2){showToast('As senhas não conferem','error');return}
   const original=btn.textContent;
   btn.innerHTML='<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span>';
@@ -115,6 +123,44 @@ async function doPrimeiroAcesso(){
     if(!res.ok){btn.textContent=original;showToast(data.erro||'Não foi possível definir a senha','error');return}
     setToken(data.access_token);if(data.refresh_token)localStorage.setItem('doctrack_refresh',data.refresh_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
     showToast('Senha definida! Entrando...','success');
+    window.location.href='/hub';
+  }catch(e){
+    btn.textContent=original;
+    showToast('Servidor indisponível. Tente novamente.','error');
+  }
+}
+// ── Trocar a própria senha (voluntária ou senha vencida) ─────────────────────
+function showTrocarSenha(email){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('trocar-senha-screen').style.display='flex';
+  if(email){const e=document.getElementById('ts-email');if(e)e.value=email;}
+  const f=document.getElementById(email?'ts-atual':'ts-email');if(f)f.focus();
+}
+// Mesma regra do servidor (auth.erro_de_senha); o servidor é quem decide.
+function senhaFraca(s){
+  if(s.length<SENHA_MIN)return 'A senha deve ter pelo menos '+SENHA_MIN+' caracteres';
+  if(!/[A-Za-zÀ-ÿ]/.test(s)||!/[0-9]/.test(s)||!/[^A-Za-zÀ-ÿ0-9\s]/.test(s))
+    return 'A senha deve ter pelo menos uma letra, um número e um caractere especial';
+  return '';
+}
+async function doTrocarSenha(){
+  const btn=document.getElementById('ts-btn-text');
+  const email=document.getElementById('ts-email').value.trim();
+  const atual=document.getElementById('ts-atual').value;
+  const nova=document.getElementById('ts-nova').value;
+  const nova2=document.getElementById('ts-nova2').value;
+  const fraca=senhaFraca(nova);
+  if(fraca){showToast(fraca,'error');return}
+  if(nova!==nova2){showToast('As senhas não conferem','error');return}
+  const original=btn.textContent;
+  btn.innerHTML='<span class="spinner" style="border-color:rgba(255,255,255,.3);border-top-color:#fff"></span>';
+  try{
+    const res=await fetch(API+'/auth/trocar-senha',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,senha_atual:atual,senha_nova:nova})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok){btn.textContent=original;showToast(data.erro||'Não foi possível trocar a senha','error');return}
+    if(window.DT_AUTH)window.DT_AUTH.marcarAtividade(true);
+    setToken(data.access_token);if(data.refresh_token)localStorage.setItem('doctrack_refresh',data.refresh_token);localStorage.setItem('doctrack_user',JSON.stringify(data.usuario));
+    showToast('Senha alterada! Entrando...','success');
     window.location.href='/hub';
   }catch(e){
     btn.textContent=original;
@@ -132,7 +178,7 @@ function toggleLoginPass(){
   inp.focus();
 }
 async function doLogout(){
-  try{await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
+  try{if(window.DT_AUTH)await window.DT_AUTH.encerrar();else await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
   clearToken();
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
@@ -2556,9 +2602,14 @@ initTheme();
 (async function bootstrapHub(){
   // Sem token nem refresh: mostra a tela de login (com aviso se a sessão expirou).
   if(!getToken()&&!(window.DT_AUTH&&window.DT_AUTH.getRefresh())){
-    if(window.DT_AUTH&&window.DT_AUTH.consumeExpiredFlag()){
+    if(window.DT_AUTH&&window.DT_AUTH.consumeIdleFlag()){
+      showToast('Sessão encerrada por inatividade. Faça login novamente.','info');
+    }else if(window.DT_AUTH&&window.DT_AUTH.consumeExpiredFlag()){
       showToast('Sua sessão expirou. Faça login novamente.','info');
     }
+    // veio do "Trocar senha" do menu de controle
+    let quem=null;try{quem=sessionStorage.getItem('dt_trocar_senha');sessionStorage.removeItem('dt_trocar_senha')}catch(e){}
+    if(quem!==null)showTrocarSenha(quem);
     return;
   }
   // deep-link /?doc=<id> (chip do board de missões) entra direto no módulo

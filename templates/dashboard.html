@@ -58,6 +58,60 @@
       <button type="button" class="btn btn-ghost btn-sm" onclick="showPrimeiroAcesso()" style="font-size:13px">
         Primeiro acesso ou esqueci a senha
       </button>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="showTrocarSenha(document.getElementById('login-email').value.trim())" style="font-size:13px">
+        Trocar minha senha
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TROCAR A PRÓPRIA SENHA (voluntária ou senha vencida) -->
+<div id="trocar-senha-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="#67e8f9"/><rect x="13" y="3" width="8" height="8" rx="2" fill="#06b6d4" opacity=".7"/><rect x="3" y="13" width="8" height="8" rx="2" fill="#0891b2" opacity=".5"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#22d3ee" opacity=".4"/></svg>
+      </div>
+      <div class="login-logo-meta"><div class="login-logo-text">DocTrack</div><div class="login-logo-sub">P&D EQUIPAMENTOS</div></div>
+    </div>
+    <div class="login-title">Trocar senha</div>
+    <div class="login-subtitle">Pelo menos 8 caracteres, com letra, número e caractere especial</div>
+
+    <form id="ts-form" autocomplete="off" onsubmit="event.preventDefault();doTrocarSenha()">
+      <div class="form-group">
+        <label class="form-label" for="ts-email">E-mail</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="m3 7 9 6 9-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <input class="form-input" id="ts-email" type="email" placeholder="seu@email.com" autocomplete="email" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ts-atual">Senha atual</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="ts-atual" type="password" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ts-nova">Nova senha</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="ts-nova" type="password" placeholder="Letra, número e caractere especial" autocomplete="new-password" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="ts-nova2">Confirmar nova senha</label>
+        <div class="login-field">
+          <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input class="form-input" id="ts-nova2" type="password" placeholder="Repita a senha" autocomplete="new-password" required>
+        </div>
+      </div>
+      <button type="submit" class="btn-login"><span id="ts-btn-text">Trocar senha e entrar</span></button>
+    </form>
+    <div style="text-align:center;margin-top:16px">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="showLogin()" style="font-size:13px">
+        ← Voltar para o login
+      </button>
     </div>
   </div>
 </div>
@@ -93,7 +147,7 @@
         <label class="form-label" for="pa-senha">Nova senha</label>
         <div class="login-field">
           <svg class="login-field-ico" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <input class="form-input" id="pa-senha" type="password" placeholder="Mínimo 8 caracteres" autocomplete="new-password" required>
+          <input class="form-input" id="pa-senha" type="password" placeholder="Letra, número e caractere especial" autocomplete="new-password" required>
         </div>
       </div>
       <div class="form-group">

@@ -25,7 +25,8 @@ Um mecanismo de autenticação só, em uma camada só.
 **A referência de rotas engana quem lê rápido.** Dezenas de rotas aparecem sem
 exigência de papel. Por isso `docs/referencia/api.md` as etiqueta como
 `página (casca)` em vez de `público`, e `permissoes.md` conta a superfície
-pública separando as duas — são seis rotas de API abertas, não dezenas.
+pública separando as duas — as rotas de API abertas são menos de dez, não
+dezenas (a lista exata está em `permissoes.md`).
 
 **Um anônimo na rede consegue enumerar as telas que existem.** Ele vê a casca:
 os nomes dos módulos, a estrutura da interface. Nenhum dado, nenhum nome de
@@ -34,7 +35,7 @@ usuário, nenhum documento. Risco aceito conscientemente para uma rede interna.
 **Todo endpoint de dado novo precisa do seu decorator.** Não há gate de página
 para servir de rede de segurança: uma rota `/api/*` sem decorator é dado aberto.
 É o que o teste `test_rotas_publicas_sao_as_esperadas` protege — a lista de
-rotas abertas é fixa e uma sétima quebra a suíte.
+rotas abertas é fixa e uma rota nova fora dela quebra a suíte.
 
 **O front precisa tratar 401/403 em toda chamada.** É `static/auth.js` que
 centraliza isso.

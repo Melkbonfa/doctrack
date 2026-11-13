@@ -62,11 +62,21 @@ def test_desativacao_fora_da_api_tambem_corta(client):
     assert client.get("/api/documentos", headers=H(sessao["access_token"])).status_code == 401
 
 
-def test_excluir_de_vez_corta(client, admin_token):
-    sessao = _login(client, "leitura@test.com")
-    assert client.delete(f"/api/users/{_uid('leitura@test.com')}?permanente=true",
+def test_conta_que_ja_usou_o_sistema_nao_e_excluida_de_vez(client, admin_token):
+    """Quem já tem linha na trilha (aqui, o LOGIN) só pode ser desativado:
+    apagar o cadastro liberaria o e-mail para outra pessoa."""
+    _login(client, "leitura@test.com")
+    uid = _uid("leitura@test.com")
+    res = client.delete(f"/api/users/{uid}?permanente=true", headers=H(admin_token))
+    assert res.status_code == 409
+    assert User.query.get(uid) is not None
+
+
+def test_conta_nunca_usada_pode_ser_excluida_de_vez(client, admin_token):
+    uid = _uid("leitura@test.com")
+    assert client.delete(f"/api/users/{uid}?permanente=true",
                          headers=H(admin_token)).status_code == 200
-    assert client.get("/api/documentos", headers=H(sessao["access_token"])).status_code == 401
+    assert User.query.get(uid) is None
 
 
 def test_trocar_o_email_invalida_os_tokens_do_email_antigo(client, admin_token):

@@ -152,7 +152,7 @@ dos colegas e quem fez login quando.
 | Projetos | `io()` próprio em `entregaveis.js` | projetos, entregáveis, PMO e `FLUXO_*` (selo da linha e modal) |
 | Missões | `io()` próprio em `missoes.js` | `MISSAO_*` |
 | Fluxos (`/fluxos/`) | `DocTrackSocket` em `fluxos.js` | `FLUXO_*`: a lista "Em andamento" |
-| Hub, Tempos, Custos, Cadernos | nenhum | — |
+| Hub, Tempos, Custos, Cadernos | nenhum | — (em Cadernos, quem evita duas pessoas na mesma página é a trava de edição; a importação é acompanhada por consulta periódica) |
 
 **O repasse `dt:evento`.** O painel do fluxo (`fluxos-painel.js`) e o sino
 (`notificacoes-widget.js`) aparecem em várias telas e não conhecem o socket de
@@ -216,5 +216,8 @@ apagar trilha de auditoria é uma decisão regulatória, não de manutenção.
 1. Adicione a constante em `EventType` (`event_bus.py`).
 2. Se ele precisa de room própria, trate o prefixo em `_resolve_rooms()`.
 3. Chame `publish_event()` na rota que faz a mutação, **depois** do commit.
-4. Trate o tipo no front, em `static/app-realtime.js`.
-5. Rode `python scripts/gerar_docs.py` se mexeu em rota ou modelo.
+4. Trate o tipo no front, no arquivo da tela que precisa reagir — a tabela
+   "Quais telas têm socket", acima, diz qual é (`app-realtime.js` é só a de
+   Documentos). Um componente que aparece em várias telas escuta o `dt:evento`.
+5. Acrescente o prefixo na tabela de famílias deste documento, se for novo.
+6. Rode `python scripts/gerar_docs.py` se mexeu em rota ou modelo.

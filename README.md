@@ -1,22 +1,30 @@
-# DocTrack — Dashboard de Gestão de Documentos e Projetos de TI
+# DocTrack — gestão do P&D da Loccus
 
-Sistema web interno da Loccus para gestão de documentos técnicos, equipamentos,
-consumíveis, entregáveis de projetos e PDR. Backend em Flask (Python) com frontend em
-templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
+Sistema web interno da Loccus para a gestão do P&D: documentos técnicos,
+equipamentos, consumíveis, projetos e entregáveis, missões, fluxos de revisão,
+custos, horas, o PDR e os cadernos de laboratório. Backend em Flask (Python) com
+frontend em templates Jinja + JavaScript, tempo real via Socket.IO e banco SQLite
 (desenvolvimento) ou PostgreSQL (produção).
 
 ## Módulos
 
 | Módulo | Descrição |
 |---|---|
-| **Documentos** | Blueprint próprio: documentos técnicos por equipamento (12 tipos), com pipelines de etapas, workflow de status, versões e auditoria |
-| **Equipamentos** | Entidade central: taxonomia (categoria/família/linha), dados regulatórios/fabricante e acessórios |
+| **Hub** | Tela de entrada (`/hub`) e sub-hubs por área (`/hub/<área>`), com os números de cada módulo recortados pelo perfil de quem entra |
+| **Documentos** | Documentos técnicos por equipamento (12 tipos), com pipelines de etapas, workflow de status, versões e auditoria |
+| **Equipamentos** | Entidade central: taxonomia (categoria/família/linha), dados regulatórios/fabricante, acessórios e anexos |
 | **Consumíveis** | Catálogo global com compatibilidade N:N por equipamento, tipos de consumível configuráveis e descritivo técnico com import/export por Word (.docx) |
-| **Entregáveis** | Acompanhamento de entregáveis de projetos por categoria, com visão mensal (PMO) |
-| **PDR** | Dashboard PDR integrado como blueprint interno (`/pdr`), acesso por flag de usuário |
-| **Custos** | Blueprint próprio (`/custos`): formação de custo de produto e projeto — NRE e COGS separados, câmbio com três papéis (referência PTAX, planejamento travada, realizada da DI), versionamento de baseline e comparativo de portfólio. Só admin/gestor |
-| **Tempos** | Blueprint próprio (`/tempos`): apontamento de horas por pessoa, amarrado a projeto, entregável, cartão de missão, equipamento ou tarefa livre. Cronômetro global presente em todos os módulos (iniciar/pausar/retomar/parar), lançamento manual retroativo, folha e relatórios. Técnico para cima |
-| **Auth/RBAC** | Autenticação JWT, papéis e permissões por área, convite com código no primeiro acesso |
+| **Projetos e Entregáveis** | Projetos das três áreas (PDE, PDR, INOV) com entregáveis por categoria, modelos por tipo de projeto, visão mensal (PMO) e ligação projeto ↔ equipamento ↔ documento |
+| **Missões** | Kanban de missões e cartões, com sincronização com os documentos vinculados. Técnico para cima |
+| **Fluxos de revisão** | `/fluxos`: o item (documento ou entregável) passa de mão em mão por etapas de execução e revisão, com rodadas, anexos e avisos no sino. Técnico para cima |
+| **Custos** | `/custos`: formação de custo de produto e projeto — NRE e COGS separados, câmbio com três papéis (referência PTAX, planejamento travada, realizada da DI), versionamento de baseline e comparativo de portfólio. Só admin/gestor |
+| **Tempos** | `/tempos`: apontamento de horas por pessoa, amarrado a projeto, entregável, cartão de missão, equipamento ou tarefa livre. Cronômetro global em todos os módulos, lançamento manual retroativo, folha e relatórios. Técnico para cima |
+| **PDR** | `/pdr`: dashboard de P&D Reagentes, para quem tem a área PDR |
+| **Cadernos** | `/cadernos`: cadernos de laboratório do PDR (substitui o OneNote) — editor completo, versões de página, arquivos de qualquer extensão, importação do OneNote e exportação para a liderança |
+| **Acesso e usuários** | Autenticação JWT, quatro papéis, permissões por área, código de ativação no primeiro acesso e trilha de auditoria |
+
+O que cada módulo significa e quais regras impõe está em
+[docs/funcional/](docs/funcional/).
 
 ## Como rodar (desenvolvimento)
 
@@ -27,7 +35,12 @@ python -m venv venv
 ```
 
 O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
-(use `.env.example` como base). Testes:
+(use `.env.example` como base). Sem `DATABASE_URL` ele usa o SQLite local
+(`doctrack.db`) — e é assim que o desenvolvimento deve rodar: o schema é
+aplicado na subida, então apontar para o PostgreSQL de produção altera o banco
+dos usuários. Ver [docs/FLUXO_DESENVOLVIMENTO.md](docs/FLUXO_DESENVOLVIMENTO.md).
+
+Testes:
 
 ```powershell
 .\venv\Scripts\python -m pytest
@@ -36,29 +49,43 @@ O app sobe em `http://localhost:5000`. Configure variáveis em `.env`
 ## Estrutura do projeto
 
 ```
-├── servidor.py               # App Flask principal (rotas, API, Socket.IO)
+├── servidor.py               # App Flask principal (rotas, API, Socket.IO, schema na subida)
+├── wsgi.py                   # Entrypoint de produção (waitress aponta para wsgi:app)
 ├── models.py                 # Modelos SQLAlchemy
 ├── auth.py                   # Autenticação, RBAC e log de auditoria
+├── ratelimit.py              # Limite de tentativas falhas (login, ativação, kill switch)
 ├── killswitch.py             # Trava de emergência: desliga o sistema por gatilho externo
-├── areas.py                  # Definição das áreas/setores
-├── documentos.py             # Blueprint do módulo Documentos (CRUD + arquivos do equipamento)
-├── entregaveis.py            # Blueprint do módulo Entregáveis
-├── event_bus.py              # Barramento de eventos (tempo real)
+├── areas.py                  # Definição das áreas e dos módulos de cada sub-hub
+├── hub.py                    # Números das vitrines do hub e dos sub-hubs
+├── documentos.py             # Módulo Documentos (CRUD + arquivos do equipamento)
+├── entregaveis.py            # Módulo Projetos e Entregáveis
+├── modelo_sync.py            # Aplicar mudanças do modelo de entregáveis aos projetos
+├── vinculos.py               # Ligações projeto ↔ equipamento ↔ documento
+├── missoes.py                # Módulo Missões (kanban)
+├── event_bus.py              # Barramento de eventos (tempo real + trilha)
+├── scheduler.py              # Agendador embutido (fotos diárias dos indicadores)
+├── caminhos.py               # Allowlist de pastas e apelidos de unidade (P: ↔ UNC)
+├── arquivos_store.py         # Arquivos enviados, endereçados pelo SHA-256
+├── equipamentos_core.py      # Indicadores de equipamento (ICE/IDP)
 ├── equipamentos_importer.py  # Importador da planilha mestra de equipamentos
+├── pareto_importer.py        # Importador do Pareto ABC
 ├── diagnostico.py            # Cadastro × arquivos que existem de fato (rede + plataforma)
 ├── utils.py                  # Utilitários compartilhados
-├── templates/                # Templates Jinja + audit_log_report.html
-├── static/                   # CSS/JS do frontend (inclui socket-client.js e app-realtime.js)
+├── templates/                # Templates Jinja
+├── static/                   # CSS/JS do frontend
 ├── pdr/                      # Módulo PDR (blueprint com templates/static próprios)
 ├── custos/                   # Módulo Custos (models · core de cálculo · câmbio · routes)
 ├── tempos/                   # Módulo Tempos (models · core · routes; o widget global fica em static/)
-├── migrations/               # Migrações de schema numeradas
+├── fluxos/                   # Módulo Fluxos de revisão (models · máquina de estados · routes)
+├── notificacoes/             # Caixa de entrada por pessoa (o sino)
+├── cadernos/                 # Módulo Cadernos (editor, versões, arquivos, importação e exportação)
+├── migrations/               # Migrações de schema numeradas (espelho do que roda na subida)
 ├── tests/                    # Testes pytest
 ├── scripts/                  # Scripts operacionais (deploy, backup, build, importações)
 ├── docs/                     # Documentação (comece por docs/README.md)
 │   ├── referencia/           # GERADA do código (scripts/gerar_docs.py)
 │   ├── arquitetura/          # Visão geral, eventos e os ADRs
-│   ├── operacao/             # Runbook
+│   ├── operacao/             # Runbook e aderência ao guia de validação da ANVISA
 │   ├── funcional/            # Um documento por módulo
 │   ├── planos/               # Planos por módulo (PLANO_*.md)
 │   ├── superpowers/          # Planos e specs datados (AAAA-MM-DD-*.md)
@@ -84,6 +111,7 @@ quatro camadas:
 | Referência | quais rotas, tabelas, colunas e variáveis existem | [docs/referencia/](docs/referencia/) — **gerada do código** |
 | Arquitetura | como o sistema é montado e por quê | [docs/arquitetura/](docs/arquitetura/) (inclui 10 ADRs) |
 | Operação | o que fazer quando dói | [docs/operacao/RUNBOOK.md](docs/operacao/RUNBOOK.md) |
+| Validação | o que o guia da ANVISA pede e o que o sistema atende | [docs/operacao/ADERENCIA_BPX.md](docs/operacao/ADERENCIA_BPX.md) |
 | Funcional | o que cada módulo significa | [docs/funcional/](docs/funcional/) |
 
 Mexeu em rota, modelo ou variável de ambiente? Regere a referência:
@@ -97,10 +125,11 @@ Mexeu em rota, modelo ou variável de ambiente? Regere a referência:
 ## Deploy
 
 Produção roda em servidor Windows próprio (`C:\apps\doctrack`):
-merge na `main` → `git pull` no servidor → restart do serviço.
-A pilha de produção é **waitress + NSSM + PostgreSQL**. Comece por
-[docs/README.md](docs/README.md), que diz qual dos guias de implantação vale hoje
-e o que os outros três são.
+merge na `main` → backup → `git pull` no servidor → restart do serviço.
+A pilha de produção é **waitress + NSSM + PostgreSQL**. O passo a passo de
+publicar, voltar atrás e restaurar está no
+[RUNBOOK](docs/operacao/RUNBOOK.md); o [docs/README.md](docs/README.md) diz qual
+dos guias de implantação vale hoje e o que os outros três são.
 
 Scripts úteis (rodar a partir da raiz do projeto):
 
@@ -118,9 +147,10 @@ Scripts úteis (rodar a partir da raiz do projeto):
 
 ## Acesso de fora da rede (e pelo celular)
 
-O DocTrack é publicado por **túnel do Cloudflare**: a conexão parte do servidor
-para fora, então nenhuma porta de entrada é aberta na borda da Loccus e nenhum
-IP público é exposto. O servidor **continua dentro da rede** — e isso não é
+O acesso de fora é **opcional** e, quando ligado, é feito por **túnel do
+Cloudflare**: a conexão parte do servidor para fora, então nenhuma porta de
+entrada é aberta na borda da Loccus e nenhum IP público é exposto. Sem o túnel
+o sistema atende só a rede interna. O servidor **continua dentro da rede** — e isso não é
 detalhe: o banco guarda o *caminho* dos documentos, não os arquivos (eles vivem
 em `\\loccus-srv03\Projetos$\Engenharia`), então uma cópia hospedada fora não abriria documento nenhum.
 

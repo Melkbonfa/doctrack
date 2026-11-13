@@ -23,7 +23,7 @@ async function apiFetch(url,opts={}){
   }catch(e){return null}
 }
 async function doLogout(){
-  try{await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
+  try{if(window.DT_AUTH)await window.DT_AUTH.encerrar();else await apiFetch('/auth/logout',{method:'POST'})}catch(e){}
   clearToken();
   window.location.href='/';
 }

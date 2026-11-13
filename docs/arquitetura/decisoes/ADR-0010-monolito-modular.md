@@ -27,7 +27,8 @@ custos/
   templates/      templates do módulo
 ```
 
-`tempos/` e `pdr/` seguem o mesmo desenho. Todos reutilizam o `db` do mestre,
+`tempos/`, `pdr/` e, depois deste ADR, `fluxos/`, `notificacoes/` e `cadernos/`
+seguem o mesmo desenho. Todos reutilizam o `db` do mestre,
 com as tabelas prefixadas para não colidir com o domínio antigo.
 
 Os módulos antigos (`documentos.py`, `entregaveis.py`, `missoes.py`) são

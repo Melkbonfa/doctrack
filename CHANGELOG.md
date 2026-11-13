@@ -14,6 +14,119 @@ Sufixo `-dev` indica versão em desenvolvimento (ainda não validada em homologa
 
 ## [Não lançado]
 
+### Acesso e trilha: lacunas do guia de validação da ANVISA fechadas
+As lacunas de software apontadas em `docs/operacao/ADERENCIA_BPX.md`.
+**Muda o comportamento em produção** — ler antes de publicar.
+
+- **Alterado** banco sem usuário nenhum não ganha mais `admin@pde.com` e as
+  contas de demonstração com senha fixa. Nasce um administrador sem senha
+  (`DOCTRACK_ADMIN_EMAIL`), e o código de ativação sai uma vez no log da
+  subida. As contas de demonstração só com `DOCTRACK_CONTAS_DEMO=1` —
+  **homologação e desenvolvimento precisam ligar a variável**. Banco que já tem
+  usuários não muda: contas antigas com senha fixa têm de ser desativadas à mão.
+- **Adicionado** senha nova exige letra, número e caractere especial
+  (`DOCTRACK_SENHA_COMPOSICAO`). Senha existente continua valendo.
+- **Adicionado** validade de senha: `DOCTRACK_SENHA_VALIDADE_DIAS`, padrão
+  **180** (0 desliga). Coluna `users.senha_definida_em` (migration 023); as
+  contas atuais começam a contar da data da atualização, então **ninguém é
+  barrado agora, e todos trocam a senha em seis meses**.
+- **Adicionado** `POST /api/auth/trocar-senha` (pública, com a senha atual e o
+  limite do login), a tela "Trocar senha" no login e o item no menu de controle.
+- **Adicionado** desconexão por inatividade: `DOCTRACK_INATIVIDADE_MIN`, padrão
+  **30** minutos (0 desliga), medida no navegador e válida para todas as abas.
+- **Alterado** sair revoga também o refresh token e grava `LOGOUT` na trilha
+  (com o motivo `inatividade` quando for o caso). O hub e os sub-hubs só
+  limpavam o navegador, sem avisar o servidor.
+- **Alterado** a exclusão permanente de usuário responde 409 para conta que já
+  tem linha na trilha — o e-mail ficaria livre para outra pessoa.
+- **Adicionado** rede de segurança da trilha: toda escrita de API que dá certo
+  sem gravar linha própria ganha uma linha `ESCRITA` (quem, quando, IP, rota).
+  O levantamento achou cerca de 80 rotas de escrita sem chamada direta à
+  trilha.
+- **Corrigido** `/api/version` passa a informar `inatividade_min`.
+
+### Documentação: aderência ao guia de validação da ANVISA
+A documentação técnica foi confrontada com o Guia de Validação de Sistemas
+Computadorizados (ANVISA/ISPE, 2010), conferindo cada ponto no código.
+
+- **Adicionado** `docs/operacao/ADERENCIA_BPX.md`: o que o guia pede, seção por
+  seção, o que o sistema atende, e as lacunas por ordem de risco — de software
+  (contas-padrão com senha fixa em banco vazio, sem desconexão por inatividade,
+  cobertura desigual da trilha de auditoria, senha sem composição nem validade),
+  de infraestrutura (backup no mesmo disco) e de procedimento.
+- **Alterado** os termos passam a ser os do guia: ERU, QI/QO/QD, BPx, trilha de
+  auditoria, desvio. O guia deixa de ser citado como exigência — ele mesmo se
+  declara não compulsório.
+- **Alterado** `acesso-usuarios.md` registra o que o guia pede e o sistema não
+  faz, o login gravado na trilha e o efeito da exclusão permanente de usuário;
+  o RUNBOOK ganhou as verificações da revisão periódica (acessos, trilha, disco)
+  e a regra de tratar dado perdido como desvio.
+
+### Backend: varredura de robustez
+Uma varredura das 288 rotas de API com corpo e parâmetros malformados, mais a
+leitura do núcleo de autenticação.
+
+- **Corrigido** corpo JSON que não é objeto (`"texto"`, `[1,2]`) respondia 500
+  em 42 rotas, inclusive login, primeiro acesso e kill switch. Agora é 400,
+  barrado num ponto só.
+- **Corrigido** erro da API sempre volta em JSON: 404 de rota inexistente e de
+  `get_or_404`, 405 e exceção não tratada devolviam a página HTML do werkzeug,
+  que o front não consegue ler. A exceção não tratada faz rollback e fica no
+  log do serviço.
+- **Corrigido** login, primeiro acesso e cadastro de usuário com campo `null`
+  ou de tipo errado respondiam 500.
+- **Corrigido** `coluna_id`, `missao_id`, `versao` (Missões) e `produto_id`,
+  `version` (PDR) não numéricos respondiam 500.
+- **Corrigido** o admin podia desativar ou rebaixar a própria conta pela
+  edição (`PATCH /api/users/<id>`) e deixar o sistema sem administrador. A
+  exclusão já tinha essa guarda; a edição não.
+- **Corrigido** `scripts/semear_demo.py` não rodava desde a remoção da linha de
+  produto em Equipamentos (importava um modelo que não existe mais). Um teste
+  passa a acusar script que importa nome inexistente de `models`.
+- **Adicionado** tarefa diária que descarta da blocklist os tokens revogados
+  que já venceram; a tabela `revoked_tokens` só crescia e é consultada em toda
+  requisição autenticada.
+
+### Documentação: revisão geral
+A documentação escrita à mão tinha parado em 30/out e não conhecia os Cadernos
+nem o hub novo.
+
+- **Adicionado** documento funcional dos módulos Cadernos e Hub
+  (`docs/funcional/cadernos.md` e `hub.md`).
+- **Mudado** o RUNBOOK publica na ordem backup → `git pull` → restart, num bloco
+  que para no primeiro erro, e mostra como registrar e conferir a tarefa do
+  backup diário (o `deploy_windows.ps1` não a cria).
+- **Corrigido** o comando de diagnóstico do RUNBOOK chamava uma função que não
+  existe; o diagnóstico roda pelo botão da tela de Documentos.
+- **Corrigido** o guia do executável mandava usar `gerar_backup.ps1`, que faz
+  `pg_dump` e não serve ao SQLite daquele formato; e passa a avisar que o
+  `DocTrack.spec` não acompanha os módulos novos.
+- **Corrigido** README, índice e visão geral: módulos que faltavam (Missões,
+  Fluxos, Cadernos, Hub), contagem de rotas públicas, tamanho dos arquivos e a
+  lista de pastas da cópia manual do guia de instalação.
+
+### Menu de controle único e o visual do hub nas telas de trabalho
+- **Adicionado** um só menu no canto superior direito do hub, dos sub-hubs e dos
+  módulos: o botão da pessoa logada mostra voltar, atualizar, tema,
+  configurações (admin) e sair, sempre na mesma ordem.
+- **Adicionado** os módulos passam a usar a linguagem visual do hub (malha de
+  fundo, painéis de vidro, rótulos mono), cada um com a cor do seu cartão. É uma
+  camada opcional: sem a classe `vt` no `<body>`, nada muda.
+
+### Hub e sub-hubs: vitrine com números reais
+- **Adicionado** o hub (`/hub`) e os sub-hubs (`/hub/<área>`) ganham uma fileira
+  de cartões e uma vitrine com três números por módulo e o que espera pela
+  pessoa. Os números vêm de `GET /api/hub/resumo`, numa chamada só, com o mesmo
+  corte de perfil de cada módulo; um bloco que falha sai ausente, sem derrubar a
+  tela.
+- **Adicionado** atalhos "Ir direto para" no hub, que levam ao módulo sem passar
+  pelo sub-hub.
+- **Mudado** clicar no cartão só troca a vitrine; clicar na vitrine (ou Enter)
+  entra. A vitrine tem a mesma altura para todos os itens.
+- **Corrigido** as telas ficavam paradas em PCs com as animações do Windows
+  desligadas: agora animam sempre, e só a aba em segundo plano pausa.
+- **Corrigido** o painel engasgava em PC mais fraco ao seguir o mouse.
+
 ### Cadernos: importar do OneNote em menos passos
 Importar um caderno pedia umas doze ações e três idas e vindas entre o
 SharePoint, o assistente e o navegador: escolher o zip baixado numa caixa de

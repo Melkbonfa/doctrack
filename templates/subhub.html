@@ -131,9 +131,14 @@
     });
 
   document.getElementById('logout').addEventListener('click', function(){
-    localStorage.removeItem('doctrack_token');
-    localStorage.removeItem('doctrack_user');
-    window.location.href = '/';
+    var sair = function(){
+      localStorage.removeItem('doctrack_token');
+      localStorage.removeItem('doctrack_refresh');
+      localStorage.removeItem('doctrack_user');
+      window.location.href = '/';
+    };
+    // Revoga os tokens no servidor e grava a saída na trilha antes de limpar.
+    if(window.DT_AUTH) window.DT_AUTH.encerrar().then(sair); else sair();
   });
 })();
 </script>

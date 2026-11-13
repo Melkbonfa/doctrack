@@ -64,7 +64,10 @@ function voltarAoLogin() {
 }
 
 async function doLogout() {
-  try { await fetch("/api/auth/logout", { method: "POST", headers: { "Authorization": "Bearer " + state.token } }); } catch (e) {}
+  try {
+    if (window.DT_AUTH) await window.DT_AUTH.encerrar();
+    else await fetch("/api/auth/logout", { method: "POST", headers: { "Authorization": "Bearer " + state.token } });
+  } catch (e) {}
   if (state.socket) { state.socket.disconnect(); state.socket = null; }
   voltarAoLogin();
 }

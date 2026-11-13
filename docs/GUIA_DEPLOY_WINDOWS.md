@@ -27,9 +27,9 @@ acessível pela **rede interna** da empresa, usando banco **PostgreSQL**.
 
 **O que fazer — baixe e instale, nesta ordem:**
 
-1. **Python 3.11**
-   - Site: https://www.python.org/downloads/release/python-3119/
-   - Baixe o "Windows installer (64-bit)".
+1. **Python 3.12** (a versão do projeto está em `.python-version`; 3.11 também funciona)
+   - Site: https://www.python.org/downloads/windows/
+   - Baixe o "Windows installer (64-bit)" da última 3.12.
    - ⚠️ **MUITO IMPORTANTE:** na primeira tela do instalador, marque a caixinha
      **"Add python.exe to PATH"** antes de clicar em "Install Now".
 
@@ -40,7 +40,7 @@ acessível pela **rede interna** da empresa, usando banco **PostgreSQL**.
    - Pode aceitar a porta padrão `5432` e desmarcar o "Stack Builder" no final.
 
 > **Depois de instalar, FECHE e ABRA o PowerShell de novo** (para ele "enxergar"
-> o Python). Teste digitando `python --version` — deve aparecer `Python 3.11.x`.
+> o Python). Teste digitando `python --version` — deve aparecer `Python 3.12.x`.
 
 > **Não instale o GTK3 Runtime.** Até jul/2026 este guia pedia o GTK3 como terceiro
 > item, dizendo que sem ele "a exportação de PDF deixa de funcionar". Não é verdade:
@@ -66,10 +66,16 @@ git clone <url-do-repositorio> doctrack
 
 **Opção B — copiar na mão (pen drive / rede):**
 - Crie a pasta `C:\apps\doctrack`.
-- Copie para dentro dela **apenas**: todos os arquivos `.py`, e as pastas
-  `templates`, `static`, `migrations`, `files`, mais o `requirements.txt`.
-- **NÃO copie**: `venv`, `node_modules`, `dist`, nem o arquivo `.env`
-  (vamos criar um `.env` novo no servidor, no passo 4).
+- Copie para dentro dela: todos os arquivos `.py` da raiz, o `requirements.txt`,
+  o `VERSION`, o `.env.example` e as pastas `templates`, `static`, `migrations`,
+  `scripts`, `data` e as dos módulos — `pdr`, `custos`, `tempos`, `fluxos`,
+  `notificacoes` e `cadernos`. Faltando uma delas, o serviço não sobe.
+- **NÃO copie**: `venv`, `node_modules`, `dist`, `backups`, `logs`, `arquivos`,
+  o `doctrack.db`, nem o arquivo `.env` (vamos criar um `.env` novo no servidor,
+  no passo 4).
+
+> Sem Git, toda atualização futura é repetir essa cópia à mão. Prefira a
+> Opção A sempre que o servidor alcançar o repositório.
 
 ---
 
@@ -135,6 +141,25 @@ Quando terminar sem erros vermelhos, o dash já está rodando como serviço.
 
 Se abrir a tela de login, **deu certo!** 🎉
 
+### Criar a senha do administrador
+
+O banco novo nasce com **uma** conta, de administrador, **sem senha**. O e-mail
+dela é o de `DOCTRACK_ADMIN_EMAIL` no `.env` (defina antes da primeira subida;
+sem a variável, é `admin@pde.com`). O código de ativação sai uma única vez no
+log da primeira subida:
+
+```powershell
+Select-String -Path C:\apps\doctrack\logs\out.log -Pattern "PRIMEIRA CONTA"
+```
+
+Na tela de login, clique em **Primeiro acesso ou esqueci a senha**, informe o
+e-mail, o código e a senha nova (letra, número e caractere especial). O código
+vale 7 dias. Se ele se perder antes de ser usado, não há outro administrador
+para resetar: apague o banco recém-criado e suba de novo.
+
+Não existem mais contas de demonstração em produção. Elas só são criadas com
+`DOCTRACK_CONTAS_DEMO=1`, que é para desenvolvimento e homologação.
+
 > Se abrir no servidor mas não em outra máquina, é o **firewall** — o script já
 > tenta liberar a porta 5000, mas confirme que rodou como Administrador.
 
@@ -143,13 +168,10 @@ Se abrir a tela de login, **deu certo!** 🎉
 ## Depois: tarefas do dia a dia
 
 ### Atualizar o dash quando houver mudanças
-```powershell
-cd C:\apps\doctrack
-git pull                       # (se usou Git)
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-nssm restart DocTrack
-```
+A ordem é **backup → `git pull` → restart**. O bloco pronto, que para no
+primeiro erro, está no
+[RUNBOOK](operacao/RUNBOOK.md#publicar-uma-versão-nova) — use o de lá, para os
+dois documentos não divergirem.
 
 ### Ligar / desligar / ver status do serviço
 ```powershell
@@ -163,10 +185,17 @@ Get-Service DocTrack     # ver se está rodando
 Os registros ficam em `C:\apps\doctrack\logs\out.log` e `err.log`.
 
 ### Backup automático do banco
-Rode o script `scripts/gerar_backup.ps1` (ele cria um backup do banco em
-`C:\apps\doctrack\backups`). Para rodar **todo dia automaticamente**, use o
-Agendador de Tarefas do Windows apontando para esse script — peça ajuda que eu
-configuro o agendamento.
+O script `scripts/gerar_backup.ps1` salva o banco **e** a pasta dos arquivos
+enviados em `C:\apps\doctrack\backups`. O `deploy_windows.ps1` **não** agenda
+esse backup: registre a tarefa diária uma vez, no PowerShell como Administrador.
+
+```powershell
+$acao = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-ExecutionPolicy Bypass -File "C:\apps\doctrack\scripts\gerar_backup.ps1"'
+Register-ScheduledTask -TaskName "DocTrack - Backup Diario" -Action $acao -Trigger (New-ScheduledTaskTrigger -Daily -At 02:00) -User "SYSTEM" -RunLevel Highest
+```
+
+Como conferir que ele está rodando, o que ele não cobre e como restaurar estão
+no [RUNBOOK](operacao/RUNBOOK.md#backup).
 
 ---
 
@@ -177,5 +206,5 @@ configuro o agendamento.
 | Acessar o dash | `http://<IP-do-servidor>:5000` |
 | Reiniciar | `nssm restart DocTrack` |
 | Ver status | `Get-Service DocTrack` |
-| Atualizar código | `git pull` + `nssm restart DocTrack` |
-| Fazer backup | `.\scripts\gerar_backup.ps1` |
+| Atualizar código | backup + `git pull` + `nssm restart DocTrack` ([RUNBOOK](operacao/RUNBOOK.md#publicar-uma-versão-nova)) |
+| Fazer backup | `powershell.exe -ExecutionPolicy Bypass -File .\scripts\gerar_backup.ps1` |

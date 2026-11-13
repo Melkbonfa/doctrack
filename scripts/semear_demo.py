@@ -52,7 +52,7 @@ from models import (  # noqa: E402
     db, bcrypt, User, Documento, DocumentoHistorico, Equipamento,
     EquipamentoSnapshot, Missao, MissaoColuna, MissaoCartao,
     MissaoCartaoHistorico, MissaoSnapshot,
-    CategoriaEquipamento, FamiliaEquipamento, LinhaProduto,
+    CategoriaEquipamento, FamiliaEquipamento,
     TIPOS_DOC_TODOS, TIPOS_DOC_OPCIONAIS, SETOR_DO_TIPO, TIPOS_DOC_LABELS,
     STATUS_PRE, STATUS_FABRICANTE, MOTIVOS_NA,
 )
@@ -90,7 +90,6 @@ EQUIPAMENTOS = [
 ]
 
 CATEGORIAS = ["Diagnóstico In Vitro", "Apoio Laboratorial"]
-LINHAS = ["Linha Premium", "Linha Essencial"]
 
 # Peso relativo por tipo: um manual de serviço não custa o mesmo que um
 # checklist de uma página. É o que faz o avanço ponderado divergir do simples.
@@ -162,7 +161,7 @@ def limpar():
         db.session.delete(m)
 
     # Taxonomia criada aqui só sai se ninguém mais estiver usando.
-    for modelo in (LinhaProduto, FamiliaEquipamento, CategoriaEquipamento):
+    for modelo in (FamiliaEquipamento, CategoriaEquipamento):
         for t in modelo.query.filter(modelo.nome.like(f"{PREFIXO}%")).all():
             db.session.delete(t)
 
@@ -173,8 +172,8 @@ def limpar():
 
 # ── TAXONOMIA ────────────────────────────────────────────────────────────────
 def semear_taxonomia():
-    """Categoria → Família (a família pertence a uma categoria) + Linha solta."""
-    cats, fams, linhas = {}, {}, {}
+    """Categoria → Família (a família pertence a uma categoria)."""
+    cats, fams = {}, {}
     for nome in CATEGORIAS:
         c = CategoriaEquipamento(nome=PREFIXO + nome)
         db.session.add(c)
@@ -191,12 +190,8 @@ def semear_taxonomia():
         db.session.add(f)
         fams[familia] = f
 
-    for nome in LINHAS:
-        linha = LinhaProduto(nome=PREFIXO + nome)
-        db.session.add(linha)
-        linhas[nome] = linha
     db.session.flush()
-    return cats, fams, linhas
+    return cats, fams
 
 
 # ── DOCUMENTOS + TRILHA ──────────────────────────────────────────────────────
@@ -278,7 +273,7 @@ def semear_documentos(equip, maturidade, equipe):
             equipamento=equip.nome,
             equipamento_id=equip.id,
             sku=equip.sku,
-            codigo_doc=f"{tipo[:3].upper()}.{equip.modelo}.{random.randint(1, 9):02d}",
+            codigo_doc=f"{tipo[:3].upper()}.{equip.sku.removeprefix("DEMO-")}.{random.randint(1, 9):02d}",
             documento=f"{label} - {equip.nome}",
             tipo_doc=tipo,
             fabricante=equip.fabricante,
@@ -491,7 +486,7 @@ def semear():
         print("[ERRO] Nenhum usuário ativo — rode o servidor uma vez antes.")
         return
 
-    cats, fams, linhas = semear_taxonomia()
+    cats, fams = semear_taxonomia()
     total_docs, todos_docs = 0, []
 
     for i, (nome, modelo, fab, familia, risco, anvisa, tec, maturidade) in enumerate(EQUIPAMENTOS):
@@ -500,12 +495,9 @@ def semear():
             nome_original=nome,
             nome_tecnico=f"{nome} ({tec})",
             descricao=f"Equipamento fictício de demonstração. {tec}.",
-            modelo=modelo, fabricante=fab, familia=familia,
+            fabricante=fab, familia=familia,
             sku=f"DEMO-{modelo}",
-            codigo_interno=f"DM{1000 + i}",
             codigo_fabricante=f"{fab.split()[0][:3].upper()}-{modelo}",
-            tecnologia=tec,
-            aplicacao="Uso laboratorial em diagnóstico in vitro (demonstração).",
             classe_risco=risco,
             classificacao_reg="Registro" if anvisa else "Notificação",
             anvisa=anvisa, anvisa_registro=anvisa,
@@ -519,7 +511,6 @@ def semear():
             # a categoria vem da FAMÍLIA, senão a taxonomia do equipamento
             # aponta para uma categoria que não contém a família dele
             categoria_id=fams[familia].categoria_id,
-            linha_id=linhas[LINHAS[i % len(LINHAS)]].id,
             rev_cadastro="Aprovado" if maturidade > 0.5 else "Pendente",
             rev_estrutura="Aprovado" if maturidade > 0.7 else "Pendente",
             rev_descritivo="Aprovado" if maturidade > 0.6 else "Pendente",
