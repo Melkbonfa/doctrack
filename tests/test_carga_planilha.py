@@ -1,9 +1,9 @@
 """Testes: carga em massa de modelos e projetos por planilha
-(scripts/carga_planilha.py)."""
+(carga_massa.py)."""
 import pytest
 from openpyxl import load_workbook
 
-import carga_planilha as cp
+import carga_massa as cp
 
 
 @pytest.fixture

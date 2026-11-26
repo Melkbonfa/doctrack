@@ -3,7 +3,7 @@
 {% block title %}DocTrack — Configurações{% endblock %}
 
 {% block head_meta %}
-<meta name="description" content="Configurações do sistema: auditoria (sistema e projetos) e administração de usuários">
+<meta name="description" content="Configurações do sistema: auditoria (sistema e projetos), administração de usuários e carga por planilha">
 {%- endblock %}
 
 {% block head_extra %}
@@ -14,6 +14,51 @@
     text-transform:uppercase;padding:1px 6px;border-radius:20px;
     border:1px solid currentColor;margin-right:6px;vertical-align:1px;line-height:1.5;
   }
+  /* Carga por planilha */
+  /* O Aplicar fica no fim da página: sem esta folga, os botões flutuantes
+     (sino, Apontar tempo) ficam por cima dele. */
+  #page-carga{padding-bottom:120px}
+  .carga-passos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:16px}
+  @media (max-width:900px){.carga-passos{grid-template-columns:1fr}}
+  .carga-passo{position:relative;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+  .carga-passo .card-title{margin:0}
+  .carga-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;color:var(--cyan-brand-lt);border:1px solid var(--cyan-brand-dim)}
+  body.theme-light .carga-num{color:var(--cyan-brand-dim)}
+  .carga-txt{font-size:12.5px;line-height:1.55;color:var(--t3);margin:0}
+  .carga-txt b{color:var(--t2)}
+  .carga-drop{position:relative;align-self:stretch;display:flex;align-items:center;justify-content:center;text-align:center;
+    min-height:64px;padding:12px;border:1.5px dashed var(--border-mid);border-radius:10px;cursor:pointer;
+    font-size:12.5px;color:var(--t3);transition:border-color .15s,background .15s}
+  .carga-drop:hover,.carga-drop.over,.carga-drop:focus-within{border-color:var(--cyan-brand);background:rgba(6,182,212,.06);color:var(--t2)}
+  .carga-drop.busy{pointer-events:none;opacity:.6}
+  .carga-drop input{position:absolute;width:1px;height:1px;opacity:0}
+  .carga-cab{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .carga-cab .card-title{margin:0}
+  .carga-meta{font-size:12px;color:var(--t3);margin-top:4px}
+  .carga-resumo{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  .carga-chip{display:inline-flex;align-items:baseline;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;
+    color:var(--t2);background:var(--bg-elevated);border:1px solid var(--border-soft)}
+  .carga-chip b{font-size:15px;color:var(--t1);font-variant-numeric:tabular-nums}
+  .carga-chip.warn{border-color:rgba(245,158,11,.45)} .carga-chip.warn b{color:var(--amber)}
+  .carga-chip.del b{color:var(--red)}
+  .carga-avisos,.carga-erros{border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.55}
+  .carga-avisos{border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:var(--t2)}
+  .carga-erros{border:1px solid rgba(244,63,94,.45);background:rgba(244,63,94,.07);color:var(--t2)}
+  .carga-avisos ul,.carga-erros ul{margin:6px 0 0;padding-left:18px}
+  .carga-secao{border-top:1px solid var(--border-soft)}
+  .carga-secao summary{cursor:pointer;padding:9px 2px;font-size:13px;font-weight:600;color:var(--t1);list-style:none;display:flex;gap:8px;align-items:center}
+  .carga-secao summary::-webkit-details-marker{display:none}
+  .carga-secao summary::before{content:'\25B8';color:var(--t4);transition:transform .15s}
+  .carga-secao[open] summary::before{transform:rotate(90deg)}
+  .carga-secao summary .n{font-weight:500;color:var(--t4);font-size:12px}
+  .carga-linhas{list-style:none;margin:0 0 10px;padding:0 0 0 18px;font-family:var(--font-mono);font-size:12px;line-height:1.7}
+  .carga-linhas li{color:var(--t2);overflow-wrap:anywhere}
+  .carga-linhas li.add{color:var(--green)} .carga-linhas li.del{color:var(--red)} .carga-linhas li.na{color:var(--amber)}
+  .carga-aplicar{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft);display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .carga-aplicar .form-group{flex:1;min-width:240px;margin:0}
+  .carga-nota{font-size:11.5px;color:var(--t4);flex-basis:100%;margin:0}
+  .carga-ok{border-color:rgba(16,185,129,.45)}
 </style>
 {%- endblock %}
 
@@ -35,6 +80,10 @@
     <button type="button" class="nav-item" data-page="settings">
       <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.5"/></svg>
       Sistema
+    </button>
+    <button type="button" class="nav-item" data-page="carga" id="nav-carga" hidden>
+      <svg class="nav-icon" fill="none" viewBox="0 0 24 24"><path d="M4 5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 12h8M8 16h8M12 9v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Carga por planilha
     </button>
 {%- endblock %}
 
@@ -121,6 +170,38 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- CARGA POR PLANILHA (só admin) — lógica em static/carga.js -->
+      <div class="page" id="page-carga">
+        <div class="page-header">
+          <div><div class="page-title">Carga por planilha</div><div class="page-sub">Modelos e projetos em massa: baixe, edite no Excel, confira a prévia e só então aplique</div></div>
+        </div>
+
+        <div class="carga-passos">
+          <div class="card carga-passo">
+            <div class="carga-num">1</div>
+            <div class="card-title">Baixar a planilha</div>
+            <p class="carga-txt">Vem com tudo o que está no DocTrack agora: modelos, itens de cada modelo e projetos. Baixe uma nova a cada carga.</p>
+            <button class="btn btn-primary btn-sm" type="button" id="carga-btn-baixar">Baixar planilha</button>
+          </div>
+          <div class="card carga-passo">
+            <div class="carga-num">2</div>
+            <div class="card-title">Editar no Excel</div>
+            <p class="carga-txt">Mexa só nas abas <b>Modelos</b>, <b>Itens do modelo</b> e <b>Projetos</b>. Não altere a coluna <b>id</b>; linha nova fica com o id vazio. As regras estão na aba <b>LEIA-ME</b>.</p>
+          </div>
+          <div class="card carga-passo">
+            <div class="carga-num">3</div>
+            <div class="card-title">Enviar e conferir</div>
+            <p class="carga-txt">O envio só mostra a <b>prévia</b>; nada é gravado até você clicar em Aplicar.</p>
+            <label class="carga-drop" id="carga-drop" for="carga-arquivo">
+              <input type="file" id="carga-arquivo" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+              <span id="carga-drop-txt">Arraste a planilha aqui ou <u>clique para escolher</u></span>
+            </label>
+          </div>
+        </div>
+
+        <div id="carga-resultado" aria-live="polite"></div>
       </div>
 {%- endblock %}
 
@@ -213,4 +294,5 @@
 <script src="/static/common.js?v={{ asset_v }}"></script>
 <script src="/static/auth.js?v={{ asset_v }}"></script>
 <script src="/static/config.js?v={{ asset_v }}"></script>
+<script src="/static/carga.js?v={{ asset_v }}"></script>
 {%- endblock %}

@@ -8,44 +8,38 @@ Não edite o banco direto. A tela e este script ligam cada entregável ao item d
 modelo, guardam o histórico e a curva-S e registram tudo na auditoria. Um
 `UPDATE` feito à mão pula essas três coisas.
 
-## Onde roda
+## Onde fica
 
-No servidor do DocTrack (LOCCUS-0402), por Conexão de Área de Trabalho Remota,
-num PowerShell comum. Não precisa de administrador. Quem roda precisa de:
-
-- login no Windows do servidor com leitura em `C:\apps\doctrack`;
-- um usuário **admin** no DocTrack (o e-mail vai no `-Por`).
+Na tela **Configurações → Carga por planilha** (`/config#carga`). Só aparece
+para **admin**. Não precisa de acesso ao servidor nem de PowerShell.
 
 ## Passo a passo
 
-Crie uma pasta de trabalho, por exemplo `C:\carga`, e rode os comandos abaixo
-nesta ordem.
+1. **Baixar planilha.** Vem com o que está no DocTrack agora. Baixe uma nova a
+   cada carga, para não trabalhar sobre dados velhos.
+2. **Editar** no Excel (ou pedir ao Claude). A aba **LEIA-ME** traz as regras e
+   a aba **Listas** os valores aceitos.
+3. **Enviar** a planilha (arrastar ou clicar). A tela mostra a **prévia**: tudo
+   o que mudaria em cada modelo e projeto. Nada é gravado. Se a planilha tiver
+   erro, a tela lista cada problema com a aba e a linha.
+4. **Aplicar.** Escreva o motivo (fica no histórico dos modelos) e confirme. O
+   servidor faz um backup completo do banco antes; se o backup falhar, nada é
+   aplicado. O que grava é exatamente a planilha da prévia.
 
-**1. Exportar** o que está no banco agora:
+A prévia fica guardada por uma hora e é de quem a fez. Se vencer, ou se alguém
+mexer nos mesmos itens entre a prévia e o Aplicar, envie a planilha de novo.
+Enviar a mesma planilha depois de aplicada mostra "Nada a mudar".
+
+### Pela linha de comando (no servidor)
+
+Se a tela estiver fora do ar, o mesmo processo roda no servidor, num PowerShell
+com leitura em `C:\apps\doctrack` e um usuário admin do DocTrack no `-Por`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\apps\doctrack\scripts\carga_planilha.ps1 exportar C:\carga\carga.xlsx
-```
-
-**2. Editar** a planilha no Excel (ou pedir ao Claude). A aba **LEIA-ME** traz as
-regras e a aba **Listas** os valores aceitos.
-
-**3. Prévia.** Executa tudo e desfaz no fim. Leia o relatório.
-
-```powershell
 powershell -ExecutionPolicy Bypass -File C:\apps\doctrack\scripts\carga_planilha.ps1 previa C:\carga\carga.xlsx
-```
-
-Se a planilha tiver erro, a prévia lista cada problema com a aba e a linha, e
-nada é gravado. O relatório também fica salvo em `C:\carga\carga_previa_<data>.txt`.
-
-**4. Aplicar.** Faz o backup do banco primeiro e, se o backup falhar, não aplica.
-
-```powershell
 powershell -ExecutionPolicy Bypass -File C:\apps\doctrack\scripts\carga_planilha.ps1 aplicar C:\carga\carga.xlsx -Motivo "Novos modelos PDR 2027" -Por seu.email@empresa.com
 ```
-
-Depois de aplicar, atualize a página do DocTrack (F5) para ver o resultado.
 
 ## O que cada aba faz
 
@@ -92,11 +86,11 @@ Envie a planilha exportada e descreva o que você quer. Por exemplo:
 > Listas. Não altere a coluna id nem as linhas dos outros modelos. Na aba
 > Projetos, troque a coluna "modelo" para PDR 2027 nos projetos X, Y e Z.
 
-Depois rode a **prévia** e confira o relatório antes de aplicar.
+Depois envie a planilha na tela e confira a prévia antes de aplicar.
 
 ## Desfazer
 
-O `aplicar` deixa um backup completo em `C:\apps\doctrack\backups\doctrack_<data>.sql`.
+Cada Aplicar deixa um backup completo em `C:\apps\doctrack\backups\doctrack_<data>.sql` (a tela mostra o nome).
 Para voltar atrás, restaure esse arquivo (veja o RUNBOOK), mas lembre que isso
 desfaz **tudo** o que foi feito no DocTrack depois do backup. Se o erro for
 pequeno, prefira corrigir a planilha e aplicar de novo.

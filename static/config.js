@@ -29,7 +29,7 @@ async function doLogout(){
 }
 
 // ═══ NAVEGAÇÃO ENTRE SUB-PÁGINAS ═══
-const PAGE_LABELS={audit:'Audit Log',users:'Usuários',settings:'Sistema'};
+const PAGE_LABELS={audit:'Audit Log',users:'Usuários',settings:'Sistema',carga:'Carga por planilha'};
 function navigate(page){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -39,6 +39,7 @@ function navigate(page){
   if(bc)bc.textContent=PAGE_LABELS[page]||page;
   if(page==='audit')renderAudit();
   if(page==='users')renderUsers();
+  if(page==='carga'&&typeof cargaAbrir==='function')cargaAbrir();
 }
 document.querySelectorAll('.nav-item[data-page]').forEach(el=>el.addEventListener('click',()=>navigate(el.dataset.page)));
 
@@ -323,6 +324,8 @@ function updateUserUI(){
     const ba=document.getElementById('btn-add-user');
     if(ba)ba.style.display='none';
   }
+  // Carga por planilha: exclusiva de admin (as rotas também exigem).
+  const nc=document.getElementById('nav-carga');if(nc)nc.hidden=(rl!=='admin');
 }
 
 // ═══ BOOTSTRAP: exige token e nível gestor+ ═══
@@ -336,7 +339,7 @@ initTheme();
   currentUser={name:u.nome,email:u.email,role:u.role,initials:(u.nome||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()};
   const appEl=document.getElementById('app');if(appEl)appEl.style.display='block';
   updateUserUI();
-  navigate('audit');
+  navigate(location.hash==='#carga'&&u.role==='admin'?'carga':'audit');
   renderUsers();
   carregarStatusSistema();
 })();

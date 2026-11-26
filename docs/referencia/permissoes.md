@@ -34,7 +34,7 @@ Contagem de rotas que cada papel alcança, por arquivo. Rotas `públicas` e `aut
 | `missoes.py` | 33 | 33 | 31 | 0 | 33 |
 | `notificacoes/routes.py` | 4 | 4 | 4 | 0 | 4 |
 | `pdr/routes.py` | 9 | 8 | 3 | 2 | 16 |
-| `servidor.py` | 63 | 62 | 52 | 32 | 63 |
+| `servidor.py` | 63 | 62 | 52 | 32 | 66 |
 | `tempos/routes.py` | 18 | 18 | 18 | 2 | 18 |
 
 ## Superfície pública
