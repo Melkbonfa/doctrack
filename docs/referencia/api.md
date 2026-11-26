@@ -6,7 +6,7 @@
 
 # Referência da API
 
-311 rotas registradas: **289** de API (`/api/...`) e **22** de página.
+314 rotas registradas: **292** de API (`/api/...`) e **22** de página.
 
 A coluna **Acesso** é lida dos decorators no fonte:
 
@@ -312,6 +312,9 @@ A coluna **Acesso** é lida dos decorators no fonte:
 | `GET` | `/` | página (casca) |  |
 | `POST` | `/api/admin/tarefas-diarias` | admin | Dispara agora as fotos do dia (equipamentos, missões, projetos). |
 | `GET` | `/api/audit` | admin, gestor |  |
+| `POST` | `/api/carga/aplicar` | — |  |
+| `GET` | `/api/carga/planilha` | — |  |
+| `POST` | `/api/carga/previa` | — |  |
 | `POST` | `/api/categorias-equipamento` | admin, gestor, tecnico |  |
 | `DELETE` `PATCH` | `/api/categorias-equipamento/<int:cid>` | admin, gestor, tecnico |  |
 | `GET` | `/api/consumiveis` | autenticado |  |

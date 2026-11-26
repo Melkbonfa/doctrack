@@ -177,6 +177,10 @@ app.register_blueprint(fluxos_bp)
 from hub import hub_bp
 app.register_blueprint(hub_bp)
 
+# Carga por planilha (modelos e projetos em massa), em Configurações. Só admin.
+from carga_web import carga_bp
+app.register_blueprint(carga_bp)
+
 # Kill switch — trava de emergência do sistema inteiro. Registrado por ÚLTIMO de
 # propósito: o guardião abaixo precisa reconhecer os endpoints deste blueprint
 # para deixá-los passar com o sistema travado.
@@ -344,6 +348,7 @@ _TRILHA_FORA = {
     "/cadernos/api/paginas/<uuid_>/edicao",              # trava de edição
     "/cadernos/api/paginas/<uuid_>",                     # autosave: vira versão da página
     "/cadernos/api/cadernos/<uuid_>/exportacao/previa",  # só calcula a prévia
+    "/api/carga/previa",                                 # executa e desfaz
 }
 
 
